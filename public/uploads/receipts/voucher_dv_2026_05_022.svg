@@ -1,0 +1,123 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 1080" width="800" height="1080" style="background:#fcfdfd; font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif;">
+    <!-- Border -->
+    <rect x="15" y="15" width="770" height="1050" fill="#ffffff" stroke="#1e293b" stroke-width="2" rx="4"/>
+    <rect x="22" y="22" width="756" height="1036" fill="none" stroke="#94a3b8" stroke-width="0.75" rx="2"/>
+
+    <!-- Header -->
+    <text x="400" y="55" text-anchor="middle" font-size="12" font-weight="600" fill="#475569" letter-spacing="1">REPUBLIC OF THE PHILIPPINES</text>
+    <text x="400" y="72" text-anchor="middle" font-size="11" font-weight="500" fill="#64748b">PROVINCE OF PANGASINAN • MUNICIPALITY OF SAN FABIAN</text>
+    <text x="400" y="94" text-anchor="middle" font-size="15" font-weight="800" fill="#0f172a" letter-spacing="0.5">BARANGAY TOCOK — SANGGUNIANG KABATAAN</text>
+    <line x1="50" y1="108" x2="750" y2="108" stroke="#0f172a" stroke-width="1.5"/>
+
+    <rect x="50" y="118" width="700" height="38" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1" rx="3"/>
+    <text x="400" y="143" text-anchor="middle" font-size="16" font-weight="900" fill="#0f172a" letter-spacing="2">OFFICIAL DISBURSEMENT VOUCHER</text>
+
+    <!-- Meta Grid -->
+    <rect x="50" y="165" width="700" height="80" fill="none" stroke="#cbd5e1" stroke-width="1"/>
+    <line x1="450" y1="165" x2="450" y2="245" stroke="#cbd5e1" stroke-width="1"/>
+
+    <!-- Left Meta -->
+    <text x="65" y="185" font-size="10" font-weight="bold" fill="#64748b">PAYEE / CREDITOR:</text>
+    <text x="65" y="206" font-size="13" font-weight="bold" fill="#0f172a">Red Cross Emergency Supplies PH</text>
+    <text x="65" y="228" font-size="10" fill="#475569">Address: San Fabian, Pangasinan • Registered Youth Partner / Supplier</text>
+
+    <!-- Right Meta -->
+    <text x="465" y="187" font-size="10" font-weight="bold" fill="#64748b">VOUCHER NO.:</text>
+    <text x="565" y="187" font-size="11" font-weight="bold" font-family="monospace" fill="#0f172a">DV-2026-05-022</text>
+
+    <text x="465" y="207" font-size="10" font-weight="bold" fill="#64748b">DATE ISSUED:</text>
+    <text x="565" y="207" font-size="11" font-weight="bold" font-family="monospace" fill="#0f172a">2026-05-18</text>
+
+    <text x="465" y="227" font-size="10" font-weight="bold" fill="#64748b">FUND ALLOCATION:</text>
+    <text x="565" y="227" font-size="10" font-weight="700" fill="#1e40af">10% SK Youth Dev. Fund (RA 10742)</text>
+
+    <!-- Particulars Header -->
+    <rect x="50" y="255" width="700" height="28" fill="#1e293b" stroke="#1e293b" stroke-width="1"/>
+    <text x="210" y="274" text-anchor="middle" font-size="11" font-weight="bold" fill="#ffffff">PARTICULARS / EXPENDITURE DETAILS</text>
+    <text x="510" y="274" text-anchor="middle" font-size="11" font-weight="bold" fill="#ffffff">COMMITTEE &amp; ABYIP CODE</text>
+    <text x="680" y="274" text-anchor="middle" font-size="11" font-weight="bold" fill="#ffffff">AMOUNT (PHP)</text>
+
+    <!-- Particulars Body -->
+    <rect x="50" y="283" width="700" height="350" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/>
+    <line x1="390" y1="283" x2="390" y2="633" stroke="#cbd5e1" stroke-width="1"/>
+    <line x1="620" y1="283" x2="620" y2="633" stroke="#cbd5e1" stroke-width="1"/>
+
+    <!-- Details -->
+    <text x="65" y="315" font-size="13" font-weight="bold" fill="#0f172a">Youth Emergency First-Aid &amp; Basic Life Support Training Kits</text>
+    
+    <text x="65" y="346" font-size="11" fill="#475569" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif">
+        <tspan x="65" dy="0">First aid jump kits, splints, bandages, CPR</tspan>
+        <tspan x="65" dy="16">face shields, and materials for 35 SK youth</tspan>
+        <tspan x="65" dy="16">emergency responders.</tspan>
+    </text>
+
+    <text x="65" y="495" font-size="10" font-weight="bold" fill="#64748b">SUPPORTING DOCUMENTS AUDITED &amp; ATTACHED:</text>
+    <text x="65" y="515" font-size="10" fill="#334155">✓ Official Sales Invoice &amp; Official Receipt (OR)</text>
+    <text x="65" y="532" font-size="10" fill="#334155">✓ SK Council Resolution &amp; Approved Activity Design</text>
+    <text x="65" y="549" font-size="10" fill="#334155">✓ Certificate of Inspection and Acceptance</text>
+    <text x="65" y="566" font-size="10" fill="#334155">✓ Participant Attendance Sheets &amp; Photo Documentation</text>
+
+    <!-- Category Column -->
+    <text x="405" y="315" font-size="12" font-weight="bold" fill="#1e40af">Disaster Preparedness</text>
+    <text x="405" y="335" font-size="10" fill="#64748b">Statutory Committee Program</text>
+    <text x="405" y="355" font-size="10" fill="#64748b">FY 2026 ABYIP Line Item</text>
+    <text x="405" y="375" font-size="10" fill="#059669">Status: Fully Audited &amp; Liquidated</text>
+
+    <!-- Amount Column -->
+    <text x="735" y="318" text-anchor="end" font-size="15" font-weight="900" font-family="monospace" fill="#0f172a">₱24,500.00</text>
+
+    <!-- Total Row -->
+    <rect x="50" y="633" width="700" height="38" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1"/>
+    <text x="390" y="658" text-anchor="end" font-size="12" font-weight="bold" fill="#0f172a">NET DISBURSED AMOUNT:</text>
+    <text x="735" y="659" text-anchor="end" font-size="16" font-weight="900" font-family="monospace" fill="#047857">₱24,500.00</text>
+
+    <!-- Box A: Certification by SK Treasurer -->
+    <rect x="50" y="682" width="340" height="175" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/>
+    <text x="60" y="702" font-size="10" font-weight="bold" fill="#475569">BOX A: CERTIFICATION BY SK TREASURER</text>
+    <text x="60" y="722" font-size="9.5" fill="#64748b">I hereby certify that funds are available in the official SK</text>
+    <text x="60" y="737" font-size="9.5" fill="#64748b">depository bank account, that expenses are supported by</text>
+    <text x="60" y="752" font-size="9.5" fill="#64748b">valid receipts, and proper accounting procedures were followed.</text>
+    
+    <text x="220" y="818" text-anchor="middle" font-size="12" font-weight="bold" fill="#0f172a">CHRISTIAN DALE SORIANO</text>
+    <line x1="80" y1="823" x2="360" y2="823" stroke="#475569" stroke-width="1"/>
+    <text x="220" y="838" text-anchor="middle" font-size="9.5" fill="#64748b">SK Treasurer, Barangay Tocok</text>
+
+    <!-- Box B: Approval by SK Chairperson -->
+    <rect x="410" y="682" width="340" height="175" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/>
+    <text x="420" y="702" font-size="10" font-weight="bold" fill="#475569">BOX B: APPROVAL BY SK CHAIRPERSON</text>
+    <text x="420" y="722" font-size="9.5" fill="#64748b">I hereby approve the disbursement of youth funds in</text>
+    <text x="420" y="737" font-size="9.5" fill="#64748b">accordance with RA 10742 and the duly enacted Annual</text>
+    <text x="420" y="752" font-size="9.5" fill="#64748b">Barangay Youth Investment Program (ABYIP).</text>
+    
+    <text x="580" y="818" text-anchor="middle" font-size="12" font-weight="bold" fill="#0f172a">HON. JOSHUA MORALES</text>
+    <line x1="440" y1="823" x2="720" y2="823" stroke="#475569" stroke-width="1"/>
+    <text x="580" y="838" text-anchor="middle" font-size="9.5" fill="#64748b">SK Chairperson / Punong Kabataan</text>
+
+    <!-- Box C: Receipt Acknowledgment -->
+    <rect x="50" y="868" width="700" height="135" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1"/>
+    <text x="60" y="888" font-size="10" font-weight="bold" fill="#475569">BOX C: RECEIPT ACKNOWLEDGMENT / SETTLEMENT</text>
+    <text x="60" y="908" font-size="10" fill="#64748b">Received from Sangguniang Kabataan of Barangay Tocok the sum of ₱24,500.00 in full payment of the claim.</text>
+
+    <text x="180" y="966" text-anchor="middle" font-size="11" font-weight="bold" fill="#0f172a">Red Cross Emergency Supplies PH</text>
+    <line x1="60" y1="971" x2="300" y2="971" stroke="#475569" stroke-width="1"/>
+    <text x="180" y="985" text-anchor="middle" font-size="9" fill="#64748b">Signature of Payee / Authorized Representative</text>
+
+    <text x="430" y="966" text-anchor="middle" font-size="11" font-family="monospace" fill="#0f172a">2026-05-18</text>
+    <line x1="360" y1="971" x2="500" y2="971" stroke="#475569" stroke-width="1"/>
+    <text x="430" y="985" text-anchor="middle" font-size="9" fill="#64748b">Date Received</text>
+
+    <text x="620" y="966" text-anchor="middle" font-size="11" font-family="monospace" fill="#0f172a">Land Bank ADA / Check</text>
+    <line x1="530" y1="971" x2="710" y2="971" stroke="#475569" stroke-width="1"/>
+    <text x="620" y="985" text-anchor="middle" font-size="9" fill="#64748b">Mode of Payment</text>
+
+    <!-- Watermark Stamp -->
+    <g transform="translate(540, 470) rotate(-12)">
+      <rect x="0" y="0" width="180" height="65" fill="#f0fdf4" fill-opacity="0.85" stroke="#059669" stroke-width="2" stroke-dasharray="5,2" rx="4"/>
+      <text x="90" y="26" text-anchor="middle" font-size="13" font-weight="900" fill="#059669" letter-spacing="1">COA AUDITED</text>
+      <text x="90" y="44" text-anchor="middle" font-size="9" font-weight="bold" fill="#059669">VERIFIED &amp; POSTED</text>
+      <text x="90" y="56" text-anchor="middle" font-size="8" font-family="monospace" fill="#059669">BARANGAY TOCOK SK</text>
+    </g>
+
+    <!-- Footer Security Note -->
+    <text x="400" y="1030" text-anchor="middle" font-size="9" fill="#94a3b8">SK Tocok Public Transparency Portal • RA 10742 Republic Act • Public Record • Digitally Signed &amp; Audited</text>
+  </svg>

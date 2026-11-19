@@ -1,0 +1,671 @@
+@import url('https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..800;1,6..72,300..800&family=Plus+Jakarta+Sans:wght@400..800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --scrollbar-thumb: #cbd5e1;
+  --scrollbar-thumb-hover: #94a3b8;
+  --font-claude-serif: "Newsreader", "Anthropic Serif", "Charter", "Tiempos", "Georgia", "Cambria", "Times New Roman", serif;
+  --font-claude-sans: "Plus Jakarta Sans", "Anthropic Sans", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+  /* Default Surface Palette: Classic Civic Light (RGB channels for Tailwind alpha support) */
+  --surface-white: 255 255 255;
+  --slate-50: 248 250 252;
+  --slate-100: 241 245 249;
+  --slate-200: 226 232 240;
+  --slate-300: 203 213 225;
+  --slate-400: 148 163 184;
+  --slate-500: 100 116 139;
+  --slate-600: 71 85 105;
+  --slate-700: 51 65 85;
+  --slate-800: 30 41 59;
+  --slate-900: 15 23 42;
+  --slate-950: 2 6 23;
+
+  /* Default Accent Palette: Official SK Tocok Brand Green (#548701) */
+  --brand-50: 244 248 236;
+  --brand-100: 228 239 210;
+  --brand-200: 204 224 170;
+  --brand-300: 172 203 120;
+  --brand-400: 140 179 71;
+  --brand-500: 109 156 30;
+  --brand-600: 84 135 1;
+  --brand-700: 65 105 3;
+  --brand-800: 53 83 7;
+  --brand-900: 44 68 10;
+  --brand-950: 22 38 2;
+  --brand: rgb(var(--brand-600));
+
+  /* Folding Header Animation Responsive Custom Properties */
+  --header-spacer-h: calc(236px + env(safe-area-inset-top, 0px));
+  --brand-h-start: 236px;
+  --brand-h-end: 58px;
+  --nav-h: 44px;
+  --logo-size-start: 76px;
+  --logo-size-end: 48px;
+  --logo-half-start: 38px;
+  --logo-left-end: 16px;
+  --logo-top-start: 12px;
+  --logo-top-end: 5px;
+
+  --brand-text-left-end: 74px;
+  --brand-text-transform-end: 0%;
+  --brand-text-top-start: 116px;
+  --brand-text-top-end: 7px;
+  --title-size-start: 23px;
+  --title-size-end: 17px;
+  --sub-size-start: 13.5px;
+  --sub-size-end: 12px;
+
+  --kicker-top: 98px;
+  --compliance-top: 184px;
+  --toggle-top-start: 12px;
+  --toggle-top-end: 11px;
+
+  --p: 0;
+}
+
+/* =========================================================================
+   LIGHT SURFACE ATMOSPHERES
+   ========================================================================= */
+html[data-theme="sepia"] {
+  color-scheme: light;
+  --background: #f3ece0;
+  --foreground: #221b14;
+  --scrollbar-thumb: #c7b8a1;
+  --scrollbar-thumb-hover: #968772;
+  --surface-white: 253 250 243;
+  --slate-50: 243 236 224;
+  --slate-100: 235 226 210;
+  --slate-200: 221 209 190;
+  --slate-300: 199 184 161;
+  --slate-400: 150 135 114;
+  --slate-500: 115 100 81;
+  --slate-600: 92 78 62;
+  --slate-700: 68 56 44;
+  --slate-800: 48 39 30;
+  --slate-900: 34 27 20;
+  --slate-950: 20 15 10;
+}
+
+html[data-theme="sage"] {
+  color-scheme: light;
+  --background: #eef4ec;
+  --foreground: #121e14;
+  --scrollbar-thumb: #b3c9ae;
+  --scrollbar-thumb-hover: #80987d;
+  --surface-white: 250 253 248;
+  --slate-50: 238 244 236;
+  --slate-100: 227 237 224;
+  --slate-200: 207 223 203;
+  --slate-300: 179 201 174;
+  --slate-400: 128 152 125;
+  --slate-500: 90 113 88;
+  --slate-600: 66 86 65;
+  --slate-700: 47 64 47;
+  --slate-800: 30 44 31;
+  --slate-900: 18 30 20;
+  --slate-950: 9 18 11;
+}
+
+html[data-theme="breeze"] {
+  color-scheme: light;
+  --background: #eef4fb;
+  --foreground: #0d1829;
+  --scrollbar-thumb: #b2c8e0;
+  --scrollbar-thumb-hover: #7e97b3;
+  --surface-white: 251 253 255;
+  --slate-50: 238 244 251;
+  --slate-100: 226 236 247;
+  --slate-200: 206 222 239;
+  --slate-300: 178 200 224;
+  --slate-400: 126 151 179;
+  --slate-500: 86 111 138;
+  --slate-600: 61 84 110;
+  --slate-700: 42 61 84;
+  --slate-800: 25 40 60;
+  --slate-900: 13 24 41;
+  --slate-950: 6 13 26;
+}
+
+/* =========================================================================
+   DARK SURFACE ATMOSPHERES
+   ========================================================================= */
+html.dark {
+  color-scheme: dark;
+  --background: #020617;
+  --foreground: #f1f5f9;
+  --scrollbar-thumb: #334155;
+  --scrollbar-thumb-hover: #475569;
+}
+
+html[data-theme="forest"] {
+  color-scheme: dark;
+  --background: #040f0a;
+  --foreground: #e2f4ea;
+  --scrollbar-thumb: #1f4233;
+  --scrollbar-thumb-hover: #345647;
+  --slate-50: 240 250 244;
+  --slate-100: 226 244 234;
+  --slate-200: 198 228 212;
+  --slate-300: 158 201 179;
+  --slate-400: 113 158 136;
+  --slate-500: 82 122 103;
+  --slate-600: 52 86 71;
+  --slate-700: 31 66 51;
+  --slate-800: 19 49 36;
+  --slate-900: 11 31 22;
+  --slate-950: 4 15 10;
+}
+
+html[data-theme="ocean"] {
+  color-scheme: dark;
+  --background: #030b17;
+  --foreground: #e0effe;
+  --scrollbar-thumb: #1e3a5f;
+  --scrollbar-thumb-hover: #304f70;
+  --slate-50: 240 247 255;
+  --slate-100: 224 239 254;
+  --slate-200: 194 220 245;
+  --slate-300: 152 189 224;
+  --slate-400: 109 148 186;
+  --slate-500: 77 113 148;
+  --slate-600: 48 79 112;
+  --slate-700: 30 58 95;
+  --slate-800: 18 39 69;
+  --slate-900: 10 25 47;
+  --slate-950: 3 11 23;
+}
+
+html[data-theme="dusk"] {
+  color-scheme: dark;
+  --background: #0d0814;
+  --foreground: #eee8fc;
+  --scrollbar-thumb: #382a54;
+  --scrollbar-thumb-hover: #4c3e6c;
+  --slate-50: 248 245 255;
+  --slate-100: 238 232 252;
+  --slate-200: 214 203 240;
+  --slate-300: 179 164 214;
+  --slate-400: 140 124 176;
+  --slate-500: 107 92 140;
+  --slate-600: 76 62 108;
+  --slate-700: 56 42 84;
+  --slate-800: 37 25 54;
+  --slate-900: 24 16 36;
+  --slate-950: 13 8 20;
+}
+
+html[data-theme="amoled"] {
+  color-scheme: dark;
+  --background: #000000;
+  --foreground: #f4f4f5;
+  --scrollbar-thumb: #2a2a32;
+  --scrollbar-thumb-hover: #484852;
+  --slate-50: 250 250 250;
+  --slate-100: 244 244 245;
+  --slate-200: 228 228 231;
+  --slate-300: 196 196 204;
+  --slate-400: 148 148 160;
+  --slate-500: 113 113 125;
+  --slate-600: 72 72 82;
+  --slate-700: 42 42 50;
+  --slate-800: 24 24 30;
+  --slate-900: 12 12 15;
+  --slate-950: 0 0 0;
+}
+
+/* =========================================================================
+   WCAG-CALIBRATED ACCENT COLOR PALETTES
+   ========================================================================= */
+html[data-accent="blue"] {
+  --brand-50: 239 246 255;
+  --brand-100: 219 234 254;
+  --brand-200: 191 219 254;
+  --brand-300: 147 197 253;
+  --brand-400: 96 165 250;
+  --brand-500: 59 130 246;
+  --brand-600: 29 78 216;
+  --brand-700: 30 64 175;
+  --brand-800: 30 58 138;
+  --brand-900: 23 37 84;
+  --brand-950: 15 23 56;
+}
+
+html[data-accent="teal"] {
+  --brand-50: 240 253 250;
+  --brand-100: 204 251 241;
+  --brand-200: 153 246 228;
+  --brand-300: 94 234 212;
+  --brand-400: 45 212 191;
+  --brand-500: 20 184 166;
+  --brand-600: 15 118 110;
+  --brand-700: 17 94 89;
+  --brand-800: 19 78 74;
+  --brand-900: 14 58 55;
+  --brand-950: 4 47 46;
+}
+
+html[data-accent="violet"] {
+  --brand-50: 245 243 255;
+  --brand-100: 237 233 254;
+  --brand-200: 221 214 254;
+  --brand-300: 196 181 253;
+  --brand-400: 167 139 250;
+  --brand-500: 139 92 246;
+  --brand-600: 109 40 217;
+  --brand-700: 91 33 182;
+  --brand-800: 76 29 149;
+  --brand-900: 59 23 117;
+  --brand-950: 38 14 77;
+}
+
+html[data-accent="amber"] {
+  --brand-50: 255 251 235;
+  --brand-100: 254 243 199;
+  --brand-200: 253 230 138;
+  --brand-300: 252 211 77;
+  --brand-400: 251 191 36;
+  --brand-500: 217 119 6;
+  --brand-600: 180 83 9;
+  --brand-700: 146 64 14;
+  --brand-800: 120 53 15;
+  --brand-900: 92 40 12;
+  --brand-950: 69 26 3;
+}
+
+html[data-accent="rose"] {
+  --brand-50: 255 241 242;
+  --brand-100: 255 228 230;
+  --brand-200: 254 205 211;
+  --brand-300: 253 164 175;
+  --brand-400: 251 113 133;
+  --brand-500: 244 63 94;
+  --brand-600: 190 18 60;
+  --brand-700: 159 18 57;
+  --brand-800: 136 19 55;
+  --brand-900: 105 16 44;
+  --brand-950: 76 5 25;
+}
+
+.theme-transitioning,
+.theme-transitioning *,
+.theme-transitioning *::before,
+.theme-transitioning *::after {
+  transition: none !important;
+}
+
+@media (min-width: 768px) {
+  :root {
+    --header-spacer-h: calc(306px + env(safe-area-inset-top, 0px));
+    --brand-h-start: 260px;
+    --brand-h-end: 64px;
+    --nav-h: 46px;
+    --logo-size-start: 84px;
+    --logo-size-end: 52px;
+    --logo-half-start: 42px;
+    --logo-left-end: 24px;
+    --logo-top-start: 16px;
+    --logo-top-end: 6px;
+
+    --brand-text-left-end: 50%;
+    --brand-text-transform-end: -50%;
+    --brand-text-top-start: 132px;
+    --brand-text-top-end: 9px;
+    --title-size-start: 32px;
+    --title-size-end: 20px;
+    --sub-size-start: 15px;
+    --sub-size-end: 13px;
+
+    --kicker-top: 112px;
+    --compliance-top: 214px;
+    --toggle-top-start: 16px;
+    --toggle-top-end: 14px;
+  }
+}
+
+html {
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (min-width: 768px) {
+  html {
+    overflow-y: scroll;
+    scrollbar-gutter: stable;
+  }
+}
+
+html,
+body {
+  touch-action: pan-x pan-y;
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: var(--font-claude-serif);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Prevent text selection and mobile callouts on hold / press gestures */
+.select-none-callout,
+.select-none-callout * {
+  -webkit-touch-callout: none !important;
+  -webkit-user-select: none !important;
+  -khtml-user-select: none !important;
+  -moz-user-select: none !important;
+  -ms-user-select: none !important;
+  user-select: none !important;
+}
+
+/* Eliminate 300ms mobile tap delay and prevent sticky hover simulation on touch devices */
+a, button, [role="button"] {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@keyframes pageFadeIn {
+  from {
+    opacity: 0.75;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.page-enter {
+  animation: pageFadeIn 0.15s ease-out;
+}
+
+::selection {
+  background-color: rgb(var(--brand-600));
+  color: #ffffff;
+}
+
+/* Prevent auto-zooming on focus in iOS mobile browsers */
+@media screen and (max-width: 768px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Custom scrollbars - sleek and subtle */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+/* Reusable thin custom scrollbar matching active theme */
+.themed-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+.themed-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.themed-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 9999px;
+}
+.themed-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Hide scrollbar completely */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Suppress in-page floating action buttons when mobile navigation speed-dial is open */
+html[data-nav-menu-open="true"] [data-page-fab] {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transform: scale(0.85) !important;
+  transition: opacity 0.15s ease, transform 0.15s ease !important;
+}
+
+/* Suppress mobile navigation bar and page floating action buttons when any modal is open */
+html[data-modal-open="true"] nav[aria-label="Mobile Navigation"],
+html[data-modal-open="true"] [data-page-fab] {
+  display: none !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  visibility: hidden !important;
+}
+
+/* Prevent iOS Safari from auto-zooming into text inputs/textareas with font-size < 16px */
+@media screen and (max-width: 767px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
+
+/* Modal Open & Close Animations */
+@keyframes modalBackdropIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes modalBackdropOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes modalScaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.94) translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes modalScaleOut {
+  from {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.95) translateY(8px);
+  }
+}
+
+.modal-backdrop-enter {
+  animation: modalBackdropIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: opacity;
+}
+
+.modal-backdrop-exit {
+  animation: modalBackdropOut 0.18s cubic-bezier(0.4, 0, 1, 1) forwards;
+  will-change: opacity;
+}
+
+.modal-card-enter {
+  animation: modalScaleIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity;
+}
+
+.modal-card-exit {
+  animation: modalScaleOut 0.18s cubic-bezier(0.4, 0, 1, 1) forwards;
+  will-change: transform, opacity;
+}
+
+/* =========================================================================
+   BUMO-BOSES MICRO-INTERACTIONS & COMMENT ACCORDION ANIMATIONS
+   ========================================================================= */
+
+@keyframes newPostSlideDown {
+  0% {
+    opacity: 0;
+    transform: translateY(-16px) scale(0.97);
+    box-shadow: 0 0 0 4px rgba(84, 135, 1, 0.35);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(2px) scale(1.01);
+    box-shadow: 0 0 0 6px rgba(84, 135, 1, 0.2);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    box-shadow: 0 0 0 0 rgba(84, 135, 1, 0);
+  }
+}
+
+.animate-new-post {
+  animation: newPostSlideDown 0.65s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity, box-shadow;
+}
+
+@keyframes upvotePop {
+  0% {
+    transform: scale(1);
+  }
+  30% {
+    transform: scale(1.35) rotate(-6deg);
+  }
+  60% {
+    transform: scale(0.92) rotate(3deg);
+  }
+  85% {
+    transform: scale(1.08) rotate(-1deg);
+  }
+  100% {
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+.animate-upvote-pop {
+  animation: upvotePop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+  will-change: transform;
+}
+
+@keyframes replyBoxSlideIn {
+  0% {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.97);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(2px) scale(1.005);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-reply-box-enter {
+  animation: replyBoxSlideIn 0.26s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity;
+}
+
+@keyframes commentSlideDown {
+  0% {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-comment-enter {
+  animation: commentSlideDown 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity;
+}
+
+@keyframes pulseGlow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(84, 135, 1, 0);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(84, 135, 1, 0.18);
+  }
+}
+
+.animate-pulse-glow {
+  animation: pulseGlow 1.2s ease-in-out infinite;
+}
+
+/* =========================================================================
+   PHYSICAL TACTILE BUTTON PRESS & TOUCH FEEDBACK
+   ========================================================================= */
+
+.tactile-btn {
+  transition: transform 0.08s cubic-bezier(0.2, 0.8, 0.2, 1), background-color 0.15s ease, box-shadow 0.08s ease, filter 0.08s ease;
+  will-change: transform;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+.tactile-btn:active {
+  transform: scale(0.92) translateY(1.5px) !important;
+  filter: brightness(0.92);
+}
+
+.tactile-pill {
+  transition: transform 0.08s cubic-bezier(0.2, 0.8, 0.2, 1), background-color 0.15s ease, box-shadow 0.08s ease, filter 0.08s ease;
+  will-change: transform;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+.tactile-pill:active {
+  transform: scale(0.88) translateY(1px) !important;
+  filter: brightness(0.94);
+}
+
+.tactile-fab {
+  transition: transform 0.12s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.12s ease;
+  will-change: transform;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+.tactile-fab:active {
+  transform: scale(0.85) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2) !important;
+}
+
+
+
+
