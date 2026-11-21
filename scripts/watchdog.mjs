@@ -76,8 +76,12 @@ let restartCount = 0;
 let lastRestartTimestamp = 0;
 
 function ensureBuild() {
+  const isDevCommand = process.argv.includes('--dev') || process.env.npm_lifecycle_event?.startsWith('dev');
+  if (isDevCommand) {
+    return; // In dev mode, always run Next.js in development mode without running a blocking build
+  }
   const hasProdBuild = fs.existsSync(path.join(rootDir, '.next', 'BUILD_ID'));
-  if (!hasProdBuild && !process.argv.includes('--dev')) {
+  if (!hasProdBuild) {
     log('No production build found in .next. Running "next build" to generate production assets...');
     try {
       execSync('npm run build', { cwd: rootDir, stdio: 'inherit' });
@@ -116,6 +120,8 @@ async function prewarmRoutes() {
     '/api/health',
     '/api/auth/me',
     '/api/categories',
+    '/api/expenses',
+    '/api/deposits',
     '/api/admin/settings',
   ];
 
@@ -139,9 +145,9 @@ function startDevServer() {
   
   ensureBuild();
 
+  const isDevCommand = process.argv.includes('--dev') || process.env.npm_lifecycle_event?.startsWith('dev');
   const hasProdBuild = fs.existsSync(path.join(rootDir, '.next', 'BUILD_ID'));
-  const forceDev = process.argv.includes('--dev');
-  const mode = (hasProdBuild && !forceDev) ? 'start' : 'dev';
+  const mode = (hasProdBuild && !isDevCommand) ? 'start' : 'dev';
 
   log(`Starting Next.js server in [${mode.toUpperCase()}] mode on 0.0.0.0:3000...`);
 
@@ -153,10 +159,13 @@ function startDevServer() {
     nodeOptions = `${nodeOptions} --unhandled-rejections=warn`.trim();
   }
 
-  devProcess = spawn(process.execPath, [nextBin, mode, '-H', '0.0.0.0'], {
+  const serverScript = path.join(rootDir, 'server.js');
+  const args = [serverScript];
+
+  devProcess = spawn(process.execPath, args, {
     cwd: rootDir,
     stdio: ['ignore', 'inherit', 'inherit'],
-    env: { ...process.env, PORT: '3000', NODE_OPTIONS: nodeOptions, CI: '1' }
+    env: { ...process.env, PORT: '3000', NODE_OPTIONS: nodeOptions, NODE_ENV: mode === 'dev' ? 'development' : 'production' }
   });
 
   devProcess.on('exit', (code, signal) => {

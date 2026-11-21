@@ -28,7 +28,8 @@ import {
   Eye,
   CreditCard
 } from "lucide-react";
-import ExpenseCharts from "@/components/ExpenseCharts";
+import dynamic from "next/dynamic";
+const ExpenseCharts = dynamic(() => import("@/components/ExpenseCharts"), { ssr: false });
 import SearchModal from "@/components/SearchModal";
 import { getExpenseBreakdown } from "@/lib/expenseBreakdown";
 
@@ -284,6 +285,26 @@ let cachedExpensesData: {
 let cachedDeposits: Deposit[] | null = null;
 let cachedCategories: string[] | null = null;
 
+const EXPENSES_STORAGE_KEY = "sk_transparency_expenses_cache_v2";
+const DEPOSITS_STORAGE_KEY = "sk_transparency_deposits_cache_v2";
+const CATEGORIES_STORAGE_KEY = "sk_transparency_categories_cache_v2";
+
+function getStoredExpenses(): typeof cachedExpensesData {
+  if (cachedExpensesData) return cachedExpensesData;
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(EXPENSES_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && Array.isArray(parsed.expenses) && parsed.summary) {
+        cachedExpensesData = parsed;
+        return parsed;
+      }
+    }
+  } catch {}
+  return null;
+}
+
 const TRANSPARENCY_TABS = [
   { id: "ledgers", label: "Audited Ledgers", shortLabel: "Ledgers", icon: FileCheck },
   { id: "analytics", label: "Visual Analytics", shortLabel: "Analytics", icon: BarChart3 },
@@ -298,9 +319,9 @@ export default function TransparencyPage() {
     setMounted(true);
   }, []);
   const [activeTab, setActiveTab] = useState<TransparencyTab>("ledgers");
-  const [loading, setLoading] = useState(!cachedExpensesData);
+  const [loading, setLoading] = useState(() => !cachedExpensesData && !getStoredExpenses());
   const [summary, setSummary] = useState<SummaryData>(
-    cachedExpensesData?.summary || {
+    cachedExpensesData?.summary || getStoredExpenses()?.summary || {
       fiscalYear: "2026",
       barangayBudget: 8500000,
       annualBudget: 850000,
@@ -314,16 +335,16 @@ export default function TransparencyPage() {
 
   const [activeLedger, setActiveLedger] = useState<"expenses" | "deposits">("expenses");
   const [categoryStats, setCategoryStats] = useState<CategoryStat[]>(
-    cachedExpensesData?.categoryStats || []
+    cachedExpensesData?.categoryStats || getStoredExpenses()?.categoryStats || []
   );
   const [monthlyStats, setMonthlyStats] = useState<MonthlyStat[]>(
-    cachedExpensesData?.monthlyStats || []
+    cachedExpensesData?.monthlyStats || getStoredExpenses()?.monthlyStats || []
   );
   const [availableCategories, setAvailableCategories] = useState<string[]>(
     cachedCategories || []
   );
   const [allExpenses, setAllExpenses] = useState<Expense[]>(
-    cachedExpensesData?.expenses || []
+    cachedExpensesData?.expenses || getStoredExpenses()?.expenses || []
   );
   const [deposits, setDeposits] = useState<Deposit[]>(
     cachedDeposits || []
@@ -463,6 +484,28 @@ export default function TransparencyPage() {
       }
     }
 
+    try {
+      const storedDep = sessionStorage.getItem(DEPOSITS_STORAGE_KEY);
+      if (storedDep) {
+        const parsed = JSON.parse(storedDep);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setDeposits(parsed);
+          cachedDeposits = parsed;
+        }
+      }
+    } catch {}
+
+    try {
+      const storedCat = sessionStorage.getItem(CATEGORIES_STORAGE_KEY);
+      if (storedCat) {
+        const parsed = JSON.parse(storedCat);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setAvailableCategories(parsed);
+          cachedCategories = parsed;
+        }
+      }
+    } catch {}
+
     fetch("/api/categories")
       .then((res) => res.json())
       .then((data) => {
@@ -470,6 +513,9 @@ export default function TransparencyPage() {
           const cats = data.categories.map((c: { name: string }) => c.name);
           setAvailableCategories(cats);
           cachedCategories = cats;
+          try {
+            sessionStorage.setItem(CATEGORIES_STORAGE_KEY, JSON.stringify(cats));
+          } catch {}
         }
       })
       .catch((err) => console.error("Error loading categories:", err));
@@ -573,6 +619,9 @@ export default function TransparencyPage() {
       if (data.success) {
         setDeposits(data.deposits);
         cachedDeposits = data.deposits;
+        try {
+          sessionStorage.setItem(DEPOSITS_STORAGE_KEY, JSON.stringify(data.deposits));
+        } catch {}
       }
     } catch (err) {
       console.error("Error loading deposits:", err);
@@ -581,7 +630,7 @@ export default function TransparencyPage() {
 
   const fetchExpenses = async () => {
     try {
-      if (!cachedExpensesData) {
+      if (!cachedExpensesData && !getStoredExpenses()) {
         setLoading(true);
       }
       const res = await fetch("/api/expenses");
@@ -592,12 +641,16 @@ export default function TransparencyPage() {
         setMonthlyStats(data.monthlyStats || []);
         setAllExpenses(data.expenses || []);
 
-        cachedExpensesData = {
+        const cacheObj = {
           summary: data.summary,
           categoryStats: data.categoryStats,
           monthlyStats: data.monthlyStats || [],
           expenses: data.expenses || [],
         };
+        cachedExpensesData = cacheObj;
+        try {
+          sessionStorage.setItem(EXPENSES_STORAGE_KEY, JSON.stringify(cacheObj));
+        } catch {}
       }
     } catch (err) {
       console.error("Error loading expenses:", err);
@@ -622,7 +675,9 @@ export default function TransparencyPage() {
       try {
         sessionStorage.setItem("sk_header_collapsed", isCollapsed ? "1" : "0");
       } catch {}
-      window.scrollTo({ top: targetY, behavior: "smooth" });
+      if (Math.abs(window.scrollY - targetY) > 4) {
+        window.scrollTo({ top: targetY, behavior: "instant" });
+      }
     }
   };
 
@@ -1043,9 +1098,26 @@ export default function TransparencyPage() {
             {/* Mobile Card View (md:hidden) */}
             <div className="md:hidden p-3 space-y-2.5 flex flex-col bg-slate-50/50 dark:bg-slate-800/50">
               {loading ? (
-                <div className="h-full flex flex-col items-center justify-center text-center text-slate-400 dark:text-slate-500 text-xs py-12">
-                  <div className="w-5 h-5 border-2 border-brand-600 border-t-transparent rounded-full animate-spin mb-2" />
-                  Loading financial disbursements...
+                <div className="space-y-2.5 animate-pulse">
+                  {Array.from({ length: 3 }).map((_, idx) => (
+                    <div
+                      key={`skeleton-card-${idx}`}
+                      className="rounded-xl border border-slate-200/90 dark:border-slate-800/80 bg-white/80 dark:bg-slate-900/80 p-3 sm:p-3.5 h-[154px] flex flex-col justify-between"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="h-4 w-28 bg-slate-200 dark:bg-slate-700/80 rounded" />
+                        <div className="h-3.5 w-16 bg-slate-200 dark:bg-slate-700/80 rounded" />
+                      </div>
+                      <div className="space-y-1.5 my-1">
+                        <div className="h-4 w-3/4 bg-slate-200 dark:bg-slate-700/80 rounded" />
+                        <div className="h-3 w-1/2 bg-slate-100 dark:bg-slate-800 rounded" />
+                      </div>
+                      <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                        <div className="h-4 w-20 bg-slate-200 dark:bg-slate-700/80 rounded" />
+                        <div className="h-6 w-16 bg-slate-200 dark:bg-slate-700/80 rounded-lg" />
+                      </div>
+                    </div>
+                  ))}
                 </div>
               ) : sortedExpenses.length === 0 ? (
                 <div className="h-full flex items-center justify-center text-center text-slate-500 dark:text-slate-400 text-xs py-12">
@@ -1200,14 +1272,44 @@ export default function TransparencyPage() {
                 </thead>
                 <tbody className="divide-y divide-slate-100/80 dark:divide-slate-800/80 text-xs h-full">
                   {loading ? (
-                    <tr>
-                      <td colSpan={5} className="h-full text-center text-slate-400 dark:text-slate-500 text-sm align-middle py-12">
-                        <div className="flex flex-col items-center justify-center gap-2">
-                          <div className="w-6 h-6 border-2 border-brand-600 border-t-transparent rounded-full animate-spin" />
-                          <span>Loading audited disbursements...</span>
-                        </div>
-                      </td>
-                    </tr>
+                    Array.from({ length: 3 }).map((_, idx) => (
+                      <tr
+                        key={`skeleton-row-${idx}`}
+                        className={`h-1/3 animate-pulse ${
+                          idx % 2 === 1 ? "bg-slate-50/50 dark:bg-slate-800/40" : "bg-white dark:bg-slate-900"
+                        }`}
+                      >
+                        {/* Date */}
+                        <td className="py-2.5 pl-4 sm:pl-6 pr-2 w-[11%]">
+                          <div className="h-3.5 w-16 bg-slate-200 dark:bg-slate-700/80 rounded" />
+                        </td>
+                        {/* Project / Particulars */}
+                        <td className="py-2.5 px-3 w-[47%]">
+                          <div className="space-y-1.5">
+                            <div className="flex items-center gap-2">
+                              <div className="h-4 w-24 bg-slate-200 dark:bg-slate-700/80 rounded" />
+                              <div className="h-3.5 w-40 bg-slate-200 dark:bg-slate-700/80 rounded" />
+                            </div>
+                            <div className="h-3 w-56 bg-slate-100 dark:bg-slate-800 rounded" />
+                          </div>
+                        </td>
+                        {/* Voucher / Payee */}
+                        <td className="py-2.5 px-3 w-[22%]">
+                          <div className="flex items-center gap-2">
+                            <div className="h-4 w-14 bg-slate-200 dark:bg-slate-700/80 rounded" />
+                            <div className="h-3.5 w-24 bg-slate-200 dark:bg-slate-700/80 rounded" />
+                          </div>
+                        </td>
+                        {/* Amount */}
+                        <td className="py-2.5 px-2.5 text-right w-[13%]">
+                          <div className="h-4 w-20 bg-slate-200 dark:bg-slate-700/80 rounded ml-auto" />
+                        </td>
+                        {/* Details */}
+                        <td className="py-2.5 pl-2 pr-4 sm:pr-6 text-center w-[7%]">
+                          <div className="h-6 w-7 bg-slate-200 dark:bg-slate-700/80 rounded mx-auto" />
+                        </td>
+                      </tr>
+                    ))
                   ) : sortedExpenses.length === 0 ? (
                     <tr>
                       <td colSpan={5} className="h-full text-center text-slate-500 dark:text-slate-400 text-sm align-middle py-12">
@@ -1598,29 +1700,37 @@ export default function TransparencyPage() {
             <span>
               Showing{" "}
               <strong className="font-mono font-bold text-slate-900 dark:text-slate-100">
-                {(activeLedger === "expenses" ? sortedExpenses : sortedDeposits).length === 0
+                {loading && activeLedger === "expenses"
+                  ? "..."
+                  : (activeLedger === "expenses" ? sortedExpenses : sortedDeposits).length === 0
                   ? 0
                   : ((activeLedger === "expenses" ? expensePage : depositPage) - 1) * PAGE_SIZE + 1}
               </strong>
               {"–"}
               <strong className="font-mono font-bold text-slate-900 dark:text-slate-100">
-                {Math.min(
-                  (activeLedger === "expenses" ? expensePage : depositPage) * PAGE_SIZE,
-                  (activeLedger === "expenses" ? sortedExpenses : sortedDeposits).length
-                )}
+                {loading && activeLedger === "expenses"
+                  ? "..."
+                  : Math.min(
+                      (activeLedger === "expenses" ? expensePage : depositPage) * PAGE_SIZE,
+                      (activeLedger === "expenses" ? sortedExpenses : sortedDeposits).length
+                    )}
               </strong>{" "}
               of{" "}
               <strong className="font-mono font-bold text-slate-900 dark:text-slate-100">
-                {(activeLedger === "expenses" ? allExpenses : deposits).length}
+                {loading && activeLedger === "expenses"
+                  ? "..."
+                  : (activeLedger === "expenses" ? allExpenses : deposits).length}
               </strong>
             </span>
             <span className="hidden sm:inline text-slate-300 dark:text-slate-600">•</span>
             <span className="hidden sm:inline">
               Total:{" "}
               <strong className="font-mono text-slate-950 dark:text-slate-50 font-bold">
-                ₱{(activeLedger === "expenses" ? grandExpensesTotal : grandDepositsTotal).toLocaleString("en-US", {
-                  minimumFractionDigits: 2,
-                })}
+                {loading && activeLedger === "expenses"
+                  ? "..."
+                  : `₱${(activeLedger === "expenses" ? grandExpensesTotal : grandDepositsTotal).toLocaleString("en-US", {
+                      minimumFractionDigits: 2,
+                    })}`}
               </strong>
             </span>
           </div>

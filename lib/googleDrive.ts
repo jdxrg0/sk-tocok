@@ -4,7 +4,7 @@ import fs from "fs";
 import path from "path";
 import { saveUploadedFile, inferMimeType } from "./storage";
 
-export type CloudUploadCategory = "prints" | "vouchers" | "deposits" | "officials";
+export type CloudUploadCategory = "prints" | "vouchers" | "deposits" | "officials" | "attendance";
 
 export interface UploadResult {
   filePath: string;
@@ -72,7 +72,7 @@ const CATEGORY_CONFIG: Record<
     envFolderIdKey: string;
     defaultSubfolderId: string;
     blobFolder: string;
-    dbFolder: "prints" | "receipts" | "officials";
+    dbFolder: "prints" | "receipts" | "officials" | "attendance";
     useInlineProxy: boolean;
   }
 > = {
@@ -110,6 +110,15 @@ const CATEGORY_CONFIG: Record<
     defaultSubfolderId: "16W6W6wLGzYKByKqUwsZecUBrPHe4Thz5",
     blobFolder: "officials",
     dbFolder: "officials",
+    useInlineProxy: true,
+  },
+  attendance: {
+    prefix: "[SK-Tocok Attendance]",
+    driveFolderName: "Attendance",
+    envFolderIdKey: "GOOGLE_DRIVE_ATTENDANCE_FOLDER_ID",
+    defaultSubfolderId: "",
+    blobFolder: "attendance",
+    dbFolder: "attendance",
     useInlineProxy: true,
   },
 };
@@ -463,6 +472,7 @@ const CATEGORY_LABELS: Record<CloudUploadCategory, string> = {
   vouchers: "Disbursement Vouchers",
   deposits: "Bank Deposits",
   officials: "Official Avatars",
+  attendance: "Attendance & Session Photo Proof",
 };
 
 const DEFAULT_DRIVE_LIMIT_TB = 5; // Default 5 TB Google Drive plan

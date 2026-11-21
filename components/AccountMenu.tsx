@@ -820,11 +820,16 @@ export default function AccountMenu({ className = "" }: AccountMenuProps) {
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-full border-2 border-brand-600/80 overflow-hidden shadow-xs bg-white ring-2 ring-brand-500/20 shrink-0 flex items-center justify-center">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src="/sk-logo.jpg"
-                      alt="Sangguniang Kabataan Barangay Tocok Official Seal"
-                      className="w-full h-full object-cover scale-[1.03]"
-                    />
+                    <picture>
+                      <source srcSet="/images/sk-logo-sm.webp" type="image/webp" />
+                      <img
+                        src="/images/sk-logo-sm.png"
+                        alt="Sangguniang Kabataan Barangay Tocok Official Seal"
+                        width={44}
+                        height={44}
+                        className="w-full h-full object-cover scale-[1.03]"
+                      />
+                    </picture>
                   </div>
                   <div>
                     <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-slate-100 tracking-tight leading-tight">

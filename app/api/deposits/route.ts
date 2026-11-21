@@ -2,32 +2,63 @@ import { NextResponse } from "next/server";
 import { sql, query } from "@/lib/db";
 import { getCurrentUser, isOfficialUser } from "@/lib/auth";
 import { uploadToCloudStorage } from "@/lib/googleDrive";
+import {
+  getCachedDeposits,
+  setCachedDeposits,
+  invalidateAllTransparencyCache,
+} from "@/lib/transparencyCache";
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const q = searchParams.get("q");
 
+    if (!q) {
+      const cached = getCachedDeposits();
+      if (cached) {
+        return NextResponse.json(cached);
+      }
+    }
+
     let deposits;
+    let totalDeposited = 0;
+
     if (q) {
       const pattern = `%${q}%`;
-      deposits = await query(
-        "SELECT * FROM deposits WHERE reference_no ILIKE $1 OR source ILIKE $2 OR description ILIKE $3 ORDER BY date DESC, id DESC",
-        [pattern, pattern, pattern]
-      );
+      const [depRows, totalRow] = await Promise.all([
+        query(
+          "SELECT * FROM deposits WHERE reference_no ILIKE $1 OR source ILIKE $2 OR description ILIKE $3 ORDER BY date DESC, id DESC",
+          [pattern, pattern, pattern]
+        ),
+        sql`SELECT COALESCE(SUM(amount), 0) AS total FROM deposits`
+      ]);
+      deposits = depRows;
+      totalDeposited = Number((totalRow[0] as { total: number }).total);
     } else {
       deposits = await sql`SELECT * FROM deposits ORDER BY date DESC, id DESC`;
     }
-
-    const totalRow = await sql`SELECT COALESCE(SUM(amount), 0) AS total FROM deposits`;
-    const totalDeposited = Number((totalRow[0] as { total: number }).total);
 
     const formattedDeposits = (deposits as Record<string, unknown>[]).map((d) => ({
       ...d,
       amount: Number(d.amount) || 0,
     }));
 
-    return NextResponse.json({ success: true, deposits: formattedDeposits, totalDeposited, count: formattedDeposits.length });
+    if (!q) {
+      totalDeposited = formattedDeposits.reduce((acc, d) => acc + d.amount, 0);
+    }
+
+    const payload = {
+      success: true,
+      deposits: formattedDeposits,
+      totalDeposited,
+      count: formattedDeposits.length,
+    };
+
+    if (!q) {
+      setCachedDeposits(payload);
+    }
+
+    return NextResponse.json(payload);
   } catch (error) {
     console.error("Deposits fetch error:", error);
     return NextResponse.json({ error: "Failed to load bank remittances and deposits" }, { status: 500 });
@@ -71,6 +102,8 @@ export async function POST(request: Request) {
       )
       RETURNING id
     `;
+
+    invalidateAllTransparencyCache();
 
     return NextResponse.json({
       success: true,

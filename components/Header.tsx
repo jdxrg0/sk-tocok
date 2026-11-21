@@ -94,7 +94,7 @@ export default function Header() {
       // If page cannot scroll at all, do nothing
       if (maxScroll <= 0) return;
 
-      if (y > 0 && y < collapseDistance) {
+      if (y > 16 && y < collapseDistance - 16) {
         // Guard against unreachable targets when content height is constrained
         const reachableTarget =
           maxScroll >= collapseDistance
@@ -146,7 +146,8 @@ export default function Header() {
 
       const clampedY = Math.max(0, y);
       const progress = Math.min(1, clampedY / collapseDistance);
-      const rounded = Math.round(progress * 1000) / 1000;
+      // Quantize to ~1px steps to eliminate continuous font reshaping and layout thrashing in Chromium
+      const rounded = Math.round(progress * 200) / 200;
 
       if (rounded !== lastProgress) {
         lastProgress = rounded;
@@ -197,15 +198,6 @@ export default function Header() {
       if (!supportsScrollEnd && !isTouching && !isAutoSnapping && !isNavigatingRef.current) {
         lastSnapY = latestY;
         scrollTimeout = setTimeout(checkAndSnap, 300);
-      }
-    };
-
-    const handleTouchMove = () => {
-      if (isNavigatingRef.current) return;
-      latestY = getScrollY();
-      if (!ticking) {
-        window.requestAnimationFrame(update);
-        ticking = true;
       }
     };
 
@@ -286,7 +278,6 @@ export default function Header() {
     };
 
     window.addEventListener("scroll", handleScroll, { passive: true });
-    window.addEventListener("touchmove", handleTouchMove, { passive: true });
     window.addEventListener("resize", handleResize, { passive: true });
     window.addEventListener("touchstart", handleTouchStart, { passive: true });
     window.addEventListener("touchend", handleTouchEnd, { passive: true });
@@ -298,7 +289,6 @@ export default function Header() {
       navTimers.forEach(clearTimeout);
       if (scrollTimeout) clearTimeout(scrollTimeout);
       window.removeEventListener("scroll", handleScroll);
-      window.removeEventListener("touchmove", handleTouchMove);
       window.removeEventListener("resize", handleResize);
       window.removeEventListener("touchstart", handleTouchStart);
       window.removeEventListener("touchend", handleTouchEnd);
@@ -417,6 +407,7 @@ export default function Header() {
                   "calc(var(--logo-size-start) * (1 - var(--p)) + var(--logo-size-end) * var(--p))",
                 height:
                   "calc(var(--logo-size-start) * (1 - var(--p)) + var(--logo-size-end) * var(--p))",
+                willChange: "transform, left, top",
                 WebkitTransform: "translate3d(0, 0, 0)",
                 transform: "translate3d(0, 0, 0)",
               }}
@@ -424,11 +415,16 @@ export default function Header() {
             >
               <div className="w-full h-full rounded-full border-2 border-brand-600/80 dark:border-brand-500/80 overflow-hidden shadow-sm bg-[#ffffff] ring-2 ring-brand-500/20 dark:ring-brand-400/25 group-hover:scale-105 transition-transform flex items-center justify-center">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src="/sk-logo.jpg"
-                  alt="Sangguniang Kabataan Barangay Tocok Official Seal"
-                  className="w-full h-full object-cover scale-[1.03]"
-                />
+                <picture>
+                  <source srcSet="/images/sk-logo-sm.webp" type="image/webp" />
+                  <img
+                    src="/images/sk-logo-sm.png"
+                    alt="Sangguniang Kabataan Barangay Tocok Official Seal"
+                    width={48}
+                    height={48}
+                    className="w-full h-full object-cover scale-[1.03]"
+                  />
+                </picture>
               </div>
             </Link>
 
@@ -445,6 +441,7 @@ export default function Header() {
           style={{
             height:
               "calc(var(--brand-h-start) * (1 - var(--p)) + var(--brand-h-end) * var(--p))",
+            willChange: "height",
             WebkitTransform: "translate3d(0, 0, 0)",
             transform: "translate3d(0, 0, 0)",
           }}
@@ -456,6 +453,7 @@ export default function Header() {
             style={{
               top: "var(--kicker-top)",
               opacity: "calc(max(0, 1 - (var(--p) * 2.8)))",
+              willChange: "opacity",
             }}
           >
             <p className="text-[8.5px] sm:text-xs font-semibold uppercase tracking-wider sm:tracking-widest text-slate-500 dark:text-slate-400 whitespace-nowrap">
@@ -469,6 +467,7 @@ export default function Header() {
             style={{
               left: "calc(50% * (1 - var(--p)) + var(--brand-text-left-end) * var(--p))",
               top: "calc(var(--brand-text-top-start) * (1 - var(--p)) + var(--brand-text-top-end) * var(--p))",
+              willChange: "transform, left, top",
               WebkitTransform:
                 "translate3d(calc(-50% * (1 - var(--p)) + var(--brand-text-transform-end) * var(--p)), 0, 0)",
               transform:
@@ -511,6 +510,7 @@ export default function Header() {
               style={{
                 opacity: "calc(max(0, 1 - (var(--p) * 2.8)))",
                 transform: "translate3d(0, calc(var(--p) * -4px), 0)",
+                willChange: "opacity, transform",
                 pointerEvents: "none",
               }}
             >
@@ -526,6 +526,7 @@ export default function Header() {
             style={{
               top: "var(--compliance-top)",
               opacity: "calc(max(0, 1 - (var(--p) * 2.8)))",
+              willChange: "opacity",
             }}
           >
             <p className="text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400 max-w-sm sm:max-w-xl mx-auto leading-normal sm:leading-relaxed text-center">

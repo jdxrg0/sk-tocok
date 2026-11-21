@@ -33,11 +33,16 @@ export default function Navbar() {
           <Link href="/" className="flex items-center gap-3 group">
             <div className="w-10 h-10 rounded-full border border-brand-600/60 dark:border-brand-500/70 overflow-hidden bg-[#ffffff] shadow-xs shrink-0 flex items-center justify-center group-hover:scale-105 transition-transform">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="/sk-logo.jpg"
-                alt="Sangguniang Kabataan Barangay Tocok Official Seal"
-                className="w-full h-full object-cover scale-[1.05]"
-              />
+              <picture>
+                <source srcSet="/images/sk-logo-sm.webp" type="image/webp" />
+                <img
+                  src="/images/sk-logo-sm.png"
+                  alt="Sangguniang Kabataan Barangay Tocok Official Seal"
+                  width={40}
+                  height={40}
+                  className="w-full h-full object-cover scale-[1.05]"
+                />
+              </picture>
             </div>
             <div className="leading-tight">
               <span className="font-black text-sm tracking-tight block">

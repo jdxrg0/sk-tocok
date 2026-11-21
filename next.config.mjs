@@ -1,20 +1,21 @@
-import type { NextConfig } from "next";
-
-const nextConfig: NextConfig = {
+/** @type {import('next').NextConfig} */
+const nextConfig = {
   devIndicators: false,
   reactStrictMode: false,
   images: {
     unoptimized: true,
   },
   onDemandEntries: {
-    maxInactiveAge: 25 * 1000,
-    pagesBufferLength: 2,
+    maxInactiveAge: 60 * 60 * 1000,
+    pagesBufferLength: 25,
   },
   allowedDevOrigins: [
     "192.168.100.151",
     "192.168.100.10",
     "localhost",
     "127.0.0.1",
+    "*.trycloudflare.com",
+    "trycloudflare.com",
   ],
   eslint: {
     ignoreDuringBuilds: true,

@@ -32,6 +32,7 @@ export interface AttendanceSessionItem {
   location: string | null;
   description: string | null;
   recorded_by: string | null;
+  proof_photos: string[];
   created_at: string;
   updated_at: string;
   presentCount: number;

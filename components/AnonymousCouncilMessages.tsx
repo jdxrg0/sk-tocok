@@ -38,6 +38,7 @@ import {
   ArrowBigUp,
   MessageSquare,
   Share2,
+  Sparkles,
 } from "lucide-react";
 import { useAuth, isOfficialRole } from "@/components/AuthProvider";
 import {
@@ -389,10 +390,11 @@ export default function AnonymousCouncilMessages({
     message: string;
   } | null>(null);
 
-  // Public filters
+  // Public filters & Sorting
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [publicSearch, setPublicSearch] = useState("");
-  const [sortBy, setSortBy] = useState<"latest" | "popular">("latest");
+  const [postSort, setPostSort] = useState<"newest" | "top" | "discussed" | "oldest">("newest");
+  const [commentSortByPost, setCommentSortByPost] = useState<Record<number, "top" | "newest" | "oldest">>({});
 
   // Admin filters
   const [adminStatusFilter, setAdminStatusFilter] = useState<string>("all");
@@ -441,7 +443,9 @@ export default function AnonymousCouncilMessages({
 
   // Public Modals
   const [showAddModal, setShowAddModal] = useState(false);
+  const [addModalClosing, setAddModalClosing] = useState(false);
   const [showTrackModal, setShowTrackModal] = useState(false);
+  const [trackModalClosing, setTrackModalClosing] = useState(false);
 
   // Admin Response Editor Modal / State
   const [replyingMessage, setReplyingMessage] =
@@ -484,6 +488,28 @@ export default function AnonymousCouncilMessages({
     };
   }, []);
 
+  // Smooth animated modal dismiss handlers
+  const handleCloseAddModal = useCallback(() => {
+    if (addModalClosing) return;
+    setAddModalClosing(true);
+    setTimeout(() => {
+      setShowAddModal(false);
+      setAddModalClosing(false);
+      setFormError(null);
+    }, 180);
+  }, [addModalClosing]);
+
+  const handleCloseTrackModal = useCallback(() => {
+    if (trackModalClosing) return;
+    setTrackModalClosing(true);
+    setTimeout(() => {
+      setShowTrackModal(false);
+      setTrackModalClosing(false);
+      setLookupError(null);
+      setLookupResult(null);
+    }, 180);
+  }, [trackModalClosing]);
+
   // Prevent background page scrolling & shifting while any modal is open on mobile and desktop
   const isAnyModalOpen = Boolean(
     showAddModal ||
@@ -523,10 +549,14 @@ export default function AnonymousCouncilMessages({
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        setShowAddModal(false);
-        setShowTrackModal(false);
-        setReplyingMessage(null);
-        setDeletingMessage(null);
+        if (showAddModal) {
+          handleCloseAddModal();
+        } else if (showTrackModal) {
+          handleCloseTrackModal();
+        } else {
+          setReplyingMessage(null);
+          setDeletingMessage(null);
+        }
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -620,7 +650,7 @@ export default function AnonymousCouncilMessages({
       try {
         const params = new URLSearchParams();
         if (selectedCategory !== "all") params.set("category", selectedCategory);
-        if (sortBy) params.set("sort", sortBy);
+        if (postSort) params.set("sort", postSort);
         if (publicSearch.trim()) params.set("q", publicSearch.trim());
 
         const res = await fetch(`/api/messages?${params.toString()}`);
@@ -641,8 +671,34 @@ export default function AnonymousCouncilMessages({
         setRefreshing(false);
       }
     },
-    [selectedCategory, sortBy, publicSearch]
+    [selectedCategory, postSort, publicSearch]
   );
+
+  // Instant client-side memoized sorting for zero-latency UI reordering
+  const sortedPublicMessages = useMemo(() => {
+    const list = [...publicMessages];
+    return list.sort((a, b) => {
+      // Newly created post in this session always floats to top so user sees their post immediately
+      if (newlyAddedPostId && a.id === newlyAddedPostId) return -1;
+      if (newlyAddedPostId && b.id === newlyAddedPostId) return 1;
+
+      // Pinned posts always stay on top
+      if (a.is_pinned && !b.is_pinned) return -1;
+      if (!a.is_pinned && b.is_pinned) return 1;
+
+      if (postSort === "top") {
+        const diff = (b.likes_count || 0) - (a.likes_count || 0);
+        if (diff !== 0) return diff;
+      } else if (postSort === "discussed") {
+        const diff = (b.replies_count || 0) - (a.replies_count || 0);
+        if (diff !== 0) return diff;
+      } else if (postSort === "oldest") {
+        return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      }
+      // Default / "newest"
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+  }, [publicMessages, postSort, newlyAddedPostId]);
 
   // Fetch Admin Messages
   const fetchAdminMessages = useCallback(
@@ -725,11 +781,19 @@ export default function AnonymousCouncilMessages({
           "sk_tocok_liked_messages",
           JSON.stringify(nextLiked)
         );
-        await fetch(`/api/messages/${id}/like?unlike=true`, {
+        const res = await fetch(`/api/messages/${id}/like?unlike=true`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ unlike: true }),
         });
+        const data = await res.json();
+        if (data.success && typeof data.likes_count === "number") {
+          setPublicMessages((prev) =>
+            prev.map((m) =>
+              m.id === id ? { ...m, likes_count: data.likes_count } : m
+            )
+          );
+        }
       } catch {
         // Ignore background like failure
       }
@@ -748,11 +812,19 @@ export default function AnonymousCouncilMessages({
           "sk_tocok_liked_messages",
           JSON.stringify(nextLiked)
         );
-        await fetch(`/api/messages/${id}/like`, {
+        const res = await fetch(`/api/messages/${id}/like`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ unlike: false }),
         });
+        const data = await res.json();
+        if (data.success && typeof data.likes_count === "number") {
+          setPublicMessages((prev) =>
+            prev.map((m) =>
+              m.id === id ? { ...m, likes_count: data.likes_count } : m
+            )
+          );
+        }
       } catch {
         // Ignore background like failure
       }
@@ -901,11 +973,20 @@ export default function AnonymousCouncilMessages({
       }
 
       try {
-        await fetch(`/api/messages/replies/${replyId}/like?unlike=true`, {
+        const res = await fetch(`/api/messages/replies/${replyId}/like?unlike=true`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ unlike: true }),
         });
+        const data = await res.json();
+        if (data.success && typeof data.likes_count === "number") {
+          setRepliesByPost((prev) => ({
+            ...prev,
+            [messageId]: (prev[messageId] || []).map((r) =>
+              r.id === replyId ? { ...r, likes_count: data.likes_count } : r
+            ),
+          }));
+        }
       } catch {
         // ignore
       }
@@ -932,11 +1013,20 @@ export default function AnonymousCouncilMessages({
       }
 
       try {
-        await fetch(`/api/messages/replies/${replyId}/like`, {
+        const res = await fetch(`/api/messages/replies/${replyId}/like`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ unlike: false }),
         });
+        const data = await res.json();
+        if (data.success && typeof data.likes_count === "number") {
+          setRepliesByPost((prev) => ({
+            ...prev,
+            [messageId]: (prev[messageId] || []).map((r) =>
+              r.id === replyId ? { ...r, likes_count: data.likes_count } : r
+            ),
+          }));
+        }
       } catch {
         // ignore
       }
@@ -1064,7 +1154,7 @@ export default function AnonymousCouncilMessages({
       const data = await res.json();
       if (data.success) {
         tactileFeedback("success");
-        setShowAddModal(false);
+        handleCloseAddModal();
         setFormMessage("");
         setFormSubject("");
         setFormError(null);
@@ -1836,13 +1926,88 @@ export default function AnonymousCouncilMessages({
             </button>
           </div>
 
+          {/* Feed Sort Bar */}
+          {!loading && publicMessages.length > 0 && (
+            <div className="bg-white dark:bg-slate-900 rounded-xl sm:rounded-2xl border border-slate-200/90 dark:border-slate-800 p-1.5 sm:p-2 shadow-2xs flex items-center justify-between gap-2 flex-wrap animate-in fade-in duration-200">
+              <div className="flex items-center gap-1 sm:gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+                <span className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 px-1.5 select-none hidden xs:inline">
+                  Sort:
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    tactileFeedback("tap");
+                    setPostSort("newest");
+                  }}
+                  className={`inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-150 cursor-pointer ${
+                    postSort === "newest"
+                      ? "bg-brand-50 dark:bg-brand-950/70 text-brand-700 dark:text-brand-300 border border-brand-200/80 dark:border-brand-800/80 shadow-2xs scale-[1.02]"
+                      : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-800 dark:hover:text-slate-200"
+                  }`}
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-brand-600 dark:text-brand-400" />
+                  <span>Newest</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    tactileFeedback("tap");
+                    setPostSort("top");
+                  }}
+                  className={`inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-150 cursor-pointer ${
+                    postSort === "top"
+                      ? "bg-orange-50 dark:bg-orange-950/60 text-orange-700 dark:text-orange-300 border border-orange-200/80 dark:border-orange-800/80 shadow-2xs scale-[1.02]"
+                      : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-800 dark:hover:text-slate-200"
+                  }`}
+                >
+                  <ArrowBigUp className="w-4 h-4 fill-orange-500 text-orange-500" />
+                  <span>Top</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    tactileFeedback("tap");
+                    setPostSort("discussed");
+                  }}
+                  className={`inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-150 cursor-pointer ${
+                    postSort === "discussed"
+                      ? "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800/80 shadow-2xs scale-[1.02]"
+                      : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-800 dark:hover:text-slate-200"
+                  }`}
+                >
+                  <MessageSquare className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                  <span>Most Discussed</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    tactileFeedback("tap");
+                    setPostSort("oldest");
+                  }}
+                  className={`inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-150 cursor-pointer ${
+                    postSort === "oldest"
+                      ? "bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 shadow-2xs scale-[1.02]"
+                      : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-800 dark:hover:text-slate-200"
+                  }`}
+                >
+                  <Clock className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Oldest</span>
+                </button>
+              </div>
+
+              <span className="text-[11px] text-slate-400 dark:text-slate-500 font-medium px-2 ml-auto hidden sm:inline select-none">
+                {publicMessages.length} {publicMessages.length === 1 ? "Post" : "Posts"}
+              </span>
+            </div>
+          )}
+
           {/* Message Cards List */}
           {loading ? (
             <div className="py-12 text-center text-slate-400">
               <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2 text-brand-600" />
               <p className="text-xs">Loading suggestions &amp; messages...</p>
             </div>
-          ) : publicMessages.length === 0 ? (
+          ) : sortedPublicMessages.length === 0 ? (
             <div className="py-14 px-4 text-center flex flex-col items-center justify-center animate-in fade-in duration-200">
               <div className="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-800/80 text-slate-400 dark:text-slate-500 flex items-center justify-center border border-slate-200/80 dark:border-slate-700/60 shadow-2xs mb-3.5">
                 <MessageSquareQuote className="w-7 h-7" />
@@ -1871,7 +2036,7 @@ export default function AnonymousCouncilMessages({
             </div>
           ) : (
             <div className="space-y-3">
-                  {publicMessages.map((msg) => {
+                  {sortedPublicMessages.map((msg) => {
                     const isLiked = likedIds.includes(msg.id);
                     const isNewlyAddedPost = newlyAddedPostId === msg.id;
 
@@ -2058,6 +2223,27 @@ export default function AnonymousCouncilMessages({
                               }
 
                               const currentReplyTarget = replyingToByPost[msg.id] || null;
+                              const currentCommentSort = commentSortByPost[msg.id] || "top";
+                              const sortedRootReplies = [...repliesByParent.root].sort((a, b) => {
+                                if (currentCommentSort === "newest") {
+                                  return (
+                                    new Date(b.created_at).getTime() -
+                                    new Date(a.created_at).getTime()
+                                  );
+                                } else if (currentCommentSort === "oldest") {
+                                  return (
+                                    new Date(a.created_at).getTime() -
+                                    new Date(b.created_at).getTime()
+                                  );
+                                }
+                                // Default / "top": most upvotes first, then newest
+                                const diff = (b.likes_count || 0) - (a.likes_count || 0);
+                                if (diff !== 0) return diff;
+                                return (
+                                  new Date(b.created_at).getTime() -
+                                  new Date(a.created_at).getTime()
+                                );
+                              });
 
                               return (
                                 <>
@@ -2132,6 +2318,71 @@ export default function AnonymousCouncilMessages({
                                     </div>
                                   )}
 
+                                  {/* Comment Sort Selector Bar */}
+                                  {postReplies.length > 0 && !loadingReplies[msg.id] && (
+                                    <div className="flex items-center justify-between pt-1 pb-0.5 text-xs">
+                                      <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 font-medium text-[11px]">
+                                        <span className="text-slate-400 select-none">Sort:</span>
+                                        <div className="inline-flex p-0.5 rounded-lg bg-slate-100 dark:bg-slate-800/90 border border-slate-200/70 dark:border-slate-700/60">
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              tactileFeedback("tap");
+                                              setCommentSortByPost((prev) => ({
+                                                ...prev,
+                                                [msg.id]: "top",
+                                              }));
+                                            }}
+                                            className={`px-2 py-0.5 rounded-md text-[10px] font-semibold transition-all cursor-pointer ${
+                                              currentCommentSort === "top"
+                                                ? "bg-white dark:bg-slate-700 text-brand-700 dark:text-brand-300 shadow-2xs font-bold"
+                                                : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                                            }`}
+                                          >
+                                            Top
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              tactileFeedback("tap");
+                                              setCommentSortByPost((prev) => ({
+                                                ...prev,
+                                                [msg.id]: "newest",
+                                              }));
+                                            }}
+                                            className={`px-2 py-0.5 rounded-md text-[10px] font-semibold transition-all cursor-pointer ${
+                                              currentCommentSort === "newest"
+                                                ? "bg-white dark:bg-slate-700 text-brand-700 dark:text-brand-300 shadow-2xs font-bold"
+                                                : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                                            }`}
+                                          >
+                                            Newest
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              tactileFeedback("tap");
+                                              setCommentSortByPost((prev) => ({
+                                                ...prev,
+                                                [msg.id]: "oldest",
+                                              }));
+                                            }}
+                                            className={`px-2 py-0.5 rounded-md text-[10px] font-semibold transition-all cursor-pointer ${
+                                              currentCommentSort === "oldest"
+                                                ? "bg-white dark:bg-slate-700 text-brand-700 dark:text-brand-300 shadow-2xs font-bold"
+                                                : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                                            }`}
+                                          >
+                                            Oldest
+                                          </button>
+                                        </div>
+                                      </div>
+                                      <span className="text-[10px] text-slate-400 font-medium select-none">
+                                        {postReplies.length} {postReplies.length === 1 ? "comment" : "comments"}
+                                      </span>
+                                    </div>
+                                  )}
+
                                   {/* Comments List */}
                                   {loadingReplies[msg.id] ? (
                                     <div className="py-4 text-center text-xs text-slate-400 flex items-center justify-center gap-2 animate-pulse">
@@ -2144,7 +2395,7 @@ export default function AnonymousCouncilMessages({
                                     </p>
                                   ) : (
                                     <div className="space-y-3 pt-1">
-                                      {repliesByParent.root.map((rootReply) => (
+                                      {sortedRootReplies.map((rootReply) => (
                                         <ThreadedCommentItem
                                           key={rootReply.id}
                                           reply={rootReply}
@@ -2193,9 +2444,13 @@ export default function AnonymousCouncilMessages({
           {mounted && showAddModal && createPortal(
             <div
               onClick={(e) => {
-                if (e.target === e.currentTarget) setShowAddModal(false);
+                if (e.target === e.currentTarget) handleCloseAddModal();
               }}
-              className="fixed z-[100] bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 touch-none overscroll-none"
+              className={`fixed z-[100] bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 touch-none overscroll-none ${
+                addModalClosing
+                  ? "animate-modal-backdrop-out"
+                  : "animate-modal-backdrop-in"
+              }`}
               style={{
                 position: "fixed",
                 top: vvTop ? `${vvTop}px` : "0px",
@@ -2210,7 +2465,11 @@ export default function AnonymousCouncilMessages({
               }}
             >
               <div
-                className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 max-w-lg w-full shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+                className={`bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 max-w-xl w-full shadow-2xl flex flex-col overflow-hidden ${
+                  addModalClosing
+                    ? "animate-modal-card-out"
+                    : "animate-modal-card-in"
+                }`}
                 style={{
                   maxHeight: vvHeight
                     ? `calc(${vvHeight}px - 1rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))`
@@ -2224,7 +2483,7 @@ export default function AnonymousCouncilMessages({
                   </h2>
                   <button
                     type="button"
-                    onClick={() => setShowAddModal(false)}
+                    onClick={handleCloseAddModal}
                     className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                     aria-label="Close"
                   >
@@ -2301,15 +2560,15 @@ export default function AnonymousCouncilMessages({
                     <div className="flex items-center gap-2 ml-auto shrink-0">
                       <button
                         type="button"
-                        onClick={() => setShowAddModal(false)}
-                        className="h-9 px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer tactile-btn flex items-center justify-center"
+                        onClick={handleCloseAddModal}
+                        className="h-9 px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer tactile-btn flex items-center justify-center shrink-0"
                       >
                         Cancel
                       </button>
                       <button
                         type="submit"
                         disabled={formSubmitting}
-                        className="w-24 h-9 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-80 text-white font-semibold text-xs transition-colors flex items-center justify-center gap-1.5 shadow-xs cursor-pointer disabled:cursor-not-allowed tactile-btn shrink-0"
+                        className="w-[104px] min-w-[104px] h-9 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-80 text-white font-semibold text-xs transition-colors flex items-center justify-center gap-1.5 shadow-xs cursor-pointer disabled:cursor-not-allowed tactile-btn shrink-0"
                       >
                         {formSubmitting ? (
                           <>
@@ -2334,9 +2593,13 @@ export default function AnonymousCouncilMessages({
           {mounted && showTrackModal && createPortal(
             <div
               onClick={(e) => {
-                if (e.target === e.currentTarget) setShowTrackModal(false);
+                if (e.target === e.currentTarget) handleCloseTrackModal();
               }}
-              className="fixed z-[100] bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 touch-none overscroll-none"
+              className={`fixed z-[100] bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 touch-none overscroll-none ${
+                trackModalClosing
+                  ? "animate-modal-backdrop-out"
+                  : "animate-modal-backdrop-in"
+              }`}
               style={{
                 position: "fixed",
                 top: vvTop ? `${vvTop}px` : "0px",
@@ -2351,7 +2614,11 @@ export default function AnonymousCouncilMessages({
               }}
             >
               <div
-                className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 max-w-md w-full shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+                className={`bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 max-w-md w-full shadow-2xl flex flex-col overflow-hidden ${
+                  trackModalClosing
+                    ? "animate-modal-card-out"
+                    : "animate-modal-card-in"
+                }`}
                 style={{
                   maxHeight: vvHeight
                     ? `calc(${vvHeight}px - 1rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))`
@@ -2370,11 +2637,7 @@ export default function AnonymousCouncilMessages({
                   </div>
                   <button
                     type="button"
-                    onClick={() => {
-                      setShowTrackModal(false);
-                      setLookupResult(null);
-                      setLookupError(null);
-                    }}
+                    onClick={handleCloseTrackModal}
                     className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                   >
                     <X className="w-5 h-5" />

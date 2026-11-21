@@ -25,6 +25,7 @@ interface RawSessionRow {
   recorded_by: string | null;
   created_at: string;
   updated_at: string;
+  proof_photos?: string | null;
 }
 
 interface RawRecordRow {
@@ -95,7 +96,7 @@ export async function GET(request: Request) {
     }
 
     const sessionRows = await query<RawSessionRow>(
-      `SELECT id, title, activity_type, session_date, location, description, recorded_by, created_at, updated_at
+      `SELECT id, title, activity_type, session_date, location, description, recorded_by, created_at, updated_at, proof_photos
        FROM attendance_sessions
        WHERE ${conditions.join(" AND ")}
        ORDER BY session_date DESC, id DESC`,
@@ -144,6 +145,18 @@ export async function GET(request: Request) {
       const attendanceRate =
         records.length > 0 ? Number(((presentCount / records.length) * 100).toFixed(1)) : 0;
 
+      let proof_photos: string[] = [];
+      if (s.proof_photos) {
+        try {
+          const parsed = typeof s.proof_photos === "string" ? JSON.parse(s.proof_photos) : s.proof_photos;
+          if (Array.isArray(parsed)) {
+            proof_photos = parsed.map(String).filter(Boolean);
+          }
+        } catch {
+          proof_photos = [];
+        }
+      }
+
       return {
         id: sid,
         title: String(s.title),
@@ -152,6 +165,7 @@ export async function GET(request: Request) {
         location: s.location ? String(s.location) : null,
         description: s.description ? String(s.description) : null,
         recorded_by: s.recorded_by ? String(s.recorded_by) : null,
+        proof_photos,
         created_at: String(s.created_at),
         updated_at: String(s.updated_at),
         presentCount,
@@ -410,6 +424,20 @@ export async function POST(request: Request) {
       ? (body.records as { user_id: number; status: string }[])
       : null;
 
+    let proofPhotosArr: string[] = [];
+    if (Array.isArray(body.proof_photos)) {
+      proofPhotosArr = body.proof_photos.map(String).filter(Boolean);
+    } else if (typeof body.proof_photos === "string" && body.proof_photos.trim()) {
+      try {
+        const p = JSON.parse(body.proof_photos);
+        if (Array.isArray(p)) proofPhotosArr = p.map(String).filter(Boolean);
+        else proofPhotosArr = [body.proof_photos.trim()];
+      } catch {
+        proofPhotosArr = [body.proof_photos.trim()];
+      }
+    }
+    const proofPhotosJson = JSON.stringify(proofPhotosArr);
+
     if (!title) {
       return NextResponse.json({ error: "Session or activity title is required." }, { status: 400 });
     }
@@ -434,14 +462,15 @@ export async function POST(request: Request) {
     }
 
     const inserted = await sql`
-      INSERT INTO attendance_sessions (title, activity_type, session_date, location, description, recorded_by)
+      INSERT INTO attendance_sessions (title, activity_type, session_date, location, description, recorded_by, proof_photos)
       VALUES (
         ${title},
         ${activityType || "Regular Session"},
         ${sessionDate},
         ${location},
         ${description},
-        ${`${user.name} (${user.role})`}
+        ${`${user.name} (${user.role})`},
+        ${proofPhotosJson}
       )
       RETURNING id
     `;

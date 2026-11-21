@@ -3,6 +3,7 @@ import { sql } from "@/lib/db";
 import { getCurrentUser, isOfficialUser } from "@/lib/auth";
 import { deleteStoredFileByUrl } from "@/lib/storage";
 import { uploadToCloudStorage } from "@/lib/googleDrive";
+import { invalidateAllTransparencyCache } from "@/lib/transparencyCache";
 
 export async function DELETE(
   _request: Request,
@@ -23,6 +24,7 @@ export async function DELETE(
     if (deletedUrl) {
       await deleteStoredFileByUrl(deletedUrl);
     }
+    invalidateAllTransparencyCache();
     return NextResponse.json({ success: true, message: "Deposit record deleted successfully" });
   } catch (error) {
     console.error("Delete deposit error:", error);
@@ -79,6 +81,8 @@ export async function PUT(
         WHERE id = ${id}
       `;
     }
+
+    invalidateAllTransparencyCache();
 
     return NextResponse.json({ success: true, message: "Deposit record updated successfully" });
   } catch (error) {

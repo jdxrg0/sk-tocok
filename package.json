@@ -11,6 +11,8 @@
     "start:host": "node --unhandled-rejections=warn node_modules/next/dist/bin/next start -H 0.0.0.0",
     "lint": "next lint",
     "db:init": "node scripts/init-db.mjs",
+    "icons:generate": "powershell -ExecutionPolicy Bypass -File scripts/generate-favicons.ps1",
+    "images:optimize": "node scripts/optimize-images.mjs",
     "postinstall": "node scripts/patch-next.mjs"
   },
   "dependencies": {

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { getCurrentUser, isOfficialUser } from "@/lib/auth";
+import { invalidateAllTransparencyCache } from "@/lib/transparencyCache";
 
 export const dynamic = "force-dynamic";
 
@@ -42,6 +43,8 @@ export async function POST(request: Request) {
         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
       `;
     }
+
+    invalidateAllTransparencyCache();
 
     return NextResponse.json({ success: true, message: "Settings updated successfully" });
   } catch (error) {

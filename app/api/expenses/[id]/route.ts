@@ -3,6 +3,7 @@ import { sql } from "@/lib/db";
 import { getCurrentUser, isOfficialUser } from "@/lib/auth";
 import { deleteStoredFileByUrl } from "@/lib/storage";
 import { uploadToCloudStorage } from "@/lib/googleDrive";
+import { invalidateAllTransparencyCache } from "@/lib/transparencyCache";
 
 export async function PUT(
   request: Request,
@@ -68,6 +69,8 @@ export async function PUT(
       await deleteStoredFileByUrl(existing.receipt_url);
     }
 
+    invalidateAllTransparencyCache();
+
     const updatedRows = await sql`SELECT * FROM expenses WHERE id = ${expenseId}`;
 
     return NextResponse.json({
@@ -109,6 +112,8 @@ export async function DELETE(
     if (deletedReceiptUrl) {
       await deleteStoredFileByUrl(deletedReceiptUrl);
     }
+
+    invalidateAllTransparencyCache();
 
     return NextResponse.json({ success: true, message: "Expense record removed" });
   } catch (error) {

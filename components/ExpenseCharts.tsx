@@ -336,6 +336,7 @@ export default function ExpenseCharts({
                   <Tooltip
                     content={<CustomBarTooltip />}
                     cursor={{ fill: chartColors.tooltipCursor }}
+                    isAnimationActive={false}
                   />
                   <Bar
                     dataKey="total"

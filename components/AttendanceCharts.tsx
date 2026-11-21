@@ -238,6 +238,7 @@ export default function AttendanceCharts({
                   <Tooltip
                     content={<RankingTooltip />}
                     cursor={{ fill: chartColors.tooltipCursor }}
+                    isAnimationActive={false}
                   />
                   <ReferenceLine
                     x={70}
@@ -249,6 +250,7 @@ export default function AttendanceCharts({
                     dataKey="overallRate"
                     radius={[0, 6, 6, 0]}
                     barSize={20}
+                    isAnimationActive={false}
                     onClick={(_entry, index) => {
                       const item = rankingData[index];
                       if (onSelectOfficial && item?.official) {
@@ -323,6 +325,7 @@ export default function AttendanceCharts({
               <Tooltip
                 content={<MonthlyTooltip />}
                 cursor={{ fill: chartColors.tooltipCursor }}
+                isAnimationActive={false}
               />
               <Legend
                 wrapperStyle={{ fontSize: "11px", paddingTop: "8px" }}
@@ -333,6 +336,7 @@ export default function AttendanceCharts({
                 fill={chartColors.accentPrimary}
                 radius={[6, 6, 0, 0]}
                 maxBarSize={28}
+                isAnimationActive={false}
               />
               <Bar
                 dataKey="otherRate"
@@ -340,6 +344,7 @@ export default function AttendanceCharts({
                 fill="#6366f1"
                 radius={[6, 6, 0, 0]}
                 maxBarSize={28}
+                isAnimationActive={false}
               />
             </BarChart>
           </ResponsiveContainer>

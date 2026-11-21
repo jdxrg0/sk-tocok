@@ -1522,7 +1522,9 @@ export default function AdminDashboardClient() {
     try {
       sessionStorage.setItem("sk_header_collapsed", isCollapsed ? "1" : "0");
     } catch {}
-    window.scrollTo({ top: targetY, behavior: "smooth" });
+    if (Math.abs(window.scrollY - targetY) > 4) {
+      window.scrollTo({ top: targetY, behavior: "instant" });
+    }
   };
 
   const switchTab = (tabId: "queue" | "ledgers" | "attendance" | "messages" | "categories" | "settings" | "officials" | "accounts") => {

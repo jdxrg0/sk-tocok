@@ -330,11 +330,16 @@ export default function PushNotificationManager({
           {/* App Header */}
           <div className="flex items-center gap-3 pr-8">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/sk-logo.jpg"
-              alt="SK Tocok Seal"
-              className="w-12 h-12 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs object-cover"
-            />
+            <picture>
+              <source srcSet="/images/sk-logo-sm.webp" type="image/webp" />
+              <img
+                src="/images/sk-logo-sm.png"
+                alt="SK Tocok Seal"
+                width={48}
+                height={48}
+                className="w-12 h-12 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs object-cover"
+              />
+            </picture>
             <div>
               <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
                 Install SK Tocok on iPhone

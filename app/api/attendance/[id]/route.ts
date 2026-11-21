@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { sql, query } from "@/lib/db";
 import { getCurrentUser, isOfficialUser } from "@/lib/auth";
 import { ensureAttendanceTables, type AttendanceStatus } from "@/lib/attendance";
+import { deleteStoredFileByUrl } from "@/lib/storage";
 
 export const dynamic = "force-dynamic";
 
@@ -52,16 +53,47 @@ export async function PUT(
       return NextResponse.json({ error: "Please provide a valid date (YYYY-MM-DD)." }, { status: 400 });
     }
 
-    await sql`
-      UPDATE attendance_sessions
-      SET title = ${title},
-          activity_type = ${activityType || "Regular Session"},
-          session_date = ${sessionDate},
-          location = ${location},
-          description = ${description},
-          updated_at = NOW()
-      WHERE id = ${sessionId}
-    `;
+    let proofPhotosJson: string | null = null;
+    if (body.proof_photos !== undefined) {
+      let proofPhotosArr: string[] = [];
+      if (Array.isArray(body.proof_photos)) {
+        proofPhotosArr = body.proof_photos.map(String).filter(Boolean);
+      } else if (typeof body.proof_photos === "string" && body.proof_photos.trim()) {
+        try {
+          const p = JSON.parse(body.proof_photos);
+          if (Array.isArray(p)) proofPhotosArr = p.map(String).filter(Boolean);
+          else proofPhotosArr = [body.proof_photos.trim()];
+        } catch {
+          proofPhotosArr = [body.proof_photos.trim()];
+        }
+      }
+      proofPhotosJson = JSON.stringify(proofPhotosArr);
+    }
+
+    if (proofPhotosJson !== null) {
+      await sql`
+        UPDATE attendance_sessions
+        SET title = ${title},
+            activity_type = ${activityType || "Regular Session"},
+            session_date = ${sessionDate},
+            location = ${location},
+            description = ${description},
+            proof_photos = ${proofPhotosJson},
+            updated_at = NOW()
+        WHERE id = ${sessionId}
+      `;
+    } else {
+      await sql`
+        UPDATE attendance_sessions
+        SET title = ${title},
+            activity_type = ${activityType || "Regular Session"},
+            session_date = ${sessionDate},
+            location = ${location},
+            description = ${description},
+            updated_at = NOW()
+        WHERE id = ${sessionId}
+      `;
+    }
 
     const officialRows = await sql`
       SELECT id FROM users WHERE LOWER(TRIM(COALESCE(role, ''))) NOT IN ('student', 'guest', '') ORDER BY id ASC
@@ -131,11 +163,27 @@ export async function DELETE(
     const deleted = await sql`
       DELETE FROM attendance_sessions
       WHERE id = ${sessionId}
-      RETURNING id
+      RETURNING id, proof_photos
     `;
 
     if (deleted.length === 0) {
       return NextResponse.json({ error: "Attendance session not found." }, { status: 404 });
+    }
+
+    const rawPhotos = (deleted[0] as { proof_photos?: string | null })?.proof_photos;
+    if (rawPhotos) {
+      try {
+        const parsed = JSON.parse(rawPhotos);
+        if (Array.isArray(parsed)) {
+          for (const url of parsed) {
+            if (typeof url === "string") {
+              await deleteStoredFileByUrl(url);
+            }
+          }
+        }
+      } catch {
+        // Ignore JSON parse cleanup failure
+      }
     }
 
     return NextResponse.json({

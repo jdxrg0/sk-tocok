@@ -51,7 +51,7 @@ export async function ensureStoredFilesTable(): Promise<void> {
  */
 export async function saveUploadedFile(
   file: File,
-  folder: "prints" | "receipts" | "officials"
+  folder: "prints" | "receipts" | "officials" | "attendance"
 ): Promise<{ filePath: string; fileName: string; fileSize: number; fileId: string }> {
   await ensureStoredFilesTable();
 
@@ -101,7 +101,8 @@ export async function deleteStoredFileByUrl(url: string | null | undefined): Pro
         (SELECT COUNT(*) FROM expenses WHERE receipt_url = ${url}) +
         (SELECT COUNT(*) FROM deposits WHERE attachment_url = ${url}) +
         (SELECT COUNT(*) FROM users WHERE avatar_url = ${url}) +
-        (SELECT COUNT(*) FROM print_requests WHERE file_path = ${url})
+        (SELECT COUNT(*) FROM print_requests WHERE file_path = ${url}) +
+        (SELECT COUNT(*) FROM attendance_sessions WHERE proof_photos LIKE '%' || ${url} || '%')
       )::int AS ref_count
     `;
     const refCount = Number((refs[0] as { ref_count: number } | undefined)?.ref_count || 0);

@@ -133,11 +133,22 @@ function OfficialCard({ official }: { official: OfficialSummary }) {
           className={`w-14 h-14 sm:w-16 sm:h-16 aspect-square shrink-0 rounded-full p-0.5 ring-2 sm:ring-[2.5px] ${style.circleRing} shadow-xs bg-white dark:bg-slate-800 flex items-center justify-center overflow-hidden`}
         >
           {official.avatar_url ? (
-            <img
-              src={official.avatar_url}
-              alt={official.name}
-              className="w-full h-full aspect-square shrink-0 rounded-full object-cover"
-            />
+            <picture>
+              <source
+                srcSet={official.avatar_url.replace(/\.(jpg|jpeg|png)$/i, ".webp")}
+                type="image/webp"
+              />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={official.avatar_url}
+                alt={official.name}
+                width={64}
+                height={64}
+                loading="lazy"
+                decoding="async"
+                className="w-full h-full aspect-square shrink-0 rounded-full object-cover"
+              />
+            </picture>
           ) : (
             <div
               className={`w-full h-full aspect-square shrink-0 rounded-full bg-gradient-to-br ${style.gradient} flex items-center justify-center shadow-inner`}

@@ -18,6 +18,11 @@ import {
   ArrowLeft,
   Trash2,
   XCircle,
+  Camera,
+  Image as ImageIcon,
+  Maximize2,
+  Upload,
+  Download,
 } from "lucide-react";
 import { useAuth, isOfficialRole } from "@/components/AuthProvider";
 import {
@@ -149,6 +154,15 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
   const [formChecklist, setFormChecklist] = useState<Record<number, AttendanceStatus>>({});
   const [formSaving, setFormSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [formProofPhotos, setFormProofPhotos] = useState<string[]>([]);
+  const [uploadingPhotos, setUploadingPhotos] = useState(false);
+  const [inlineUploading, setInlineUploading] = useState(false);
+  const [lightboxPhoto, setLightboxPhoto] = useState<{
+    url: string;
+    title: string;
+    index?: number;
+    total?: number;
+  } | null>(null);
 
 
   // Smooth modal open/close animation states
@@ -227,7 +241,8 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        if (showFormModal) closeFormModal();
+        if (lightboxPhoto) setLightboxPhoto(null);
+        else if (showFormModal) closeFormModal();
         else if (viewingMonthGroup) closeMonthModal();
         else if (viewingSession) closeSessionModal();
         else if (viewingOfficial) closeOfficialModal();
@@ -237,7 +252,7 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [showFormModal, viewingMonthGroup, viewingSession, viewingOfficial, showSearchModal, deletingSession, deleteBusy, closeFormModal, closeMonthModal, closeSessionModal, closeOfficialModal]);
+  }, [lightboxPhoto, showFormModal, viewingMonthGroup, viewingSession, viewingOfficial, showSearchModal, deletingSession, deleteBusy, closeFormModal, closeMonthModal, closeSessionModal, closeOfficialModal]);
 
 
   // Auto-dismiss toast
@@ -273,6 +288,7 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
 
   // Lock both document body & documentElement scroll whenever a modal is open
   const anyModalOpen =
+    Boolean(lightboxPhoto) ||
     showSearchModal ||
     showFormModal ||
     Boolean(viewingSession) ||
@@ -415,6 +431,7 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
     setFormDate(getTodayIso());
     setFormLocation("Barangay Tocok SK Hall");
     setFormDescription("");
+    setFormProofPhotos([]);
     setFormError(null);
 
     const initial: Record<number, AttendanceStatus> = {};
@@ -432,6 +449,7 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
     setFormDate(session.session_date);
     setFormLocation(session.location || "");
     setFormDescription(session.description || "");
+    setFormProofPhotos(session.proof_photos || []);
     setFormError(null);
 
     const initial: Record<number, AttendanceStatus> = {};
@@ -483,9 +501,10 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
         session_date: formDate,
         location: formLocation.trim(),
         description: formDescription.trim(),
+        proof_photos: formProofPhotos,
         records: hierarchyOfficials.map((o) => ({
           user_id: o.id,
-          status: formChecklist[o.id] === "Present" ? "Present" : "Absent",
+          status: (formChecklist[o.id] === "Present" ? "Present" : "Absent") as AttendanceStatus,
         })),
       };
 
@@ -509,6 +528,10 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
       }
 
       const wasEditing = Boolean(editingSession);
+      if (wasEditing && editingSession && viewingSession && viewingSession.id === editingSession.id) {
+        setViewingSession((prev) => (prev ? { ...prev, ...payload, proof_photos: formProofPhotos } : null));
+      }
+
       closeFormModal();
       setToast({
         type: "success",
@@ -520,6 +543,263 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
     } finally {
       setFormSaving(false);
     }
+  };
+
+  const handleUploadFormPhotos = async (files: FileList | File[]) => {
+    if (!files || files.length === 0) return;
+    setUploadingPhotos(true);
+    try {
+      const formData = new FormData();
+      for (let i = 0; i < files.length; i++) {
+        formData.append("files", files[i]);
+      }
+      const res = await fetch("/api/attendance/upload", {
+        method: "POST",
+        body: formData,
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || "Failed to upload photos.");
+      }
+      setFormProofPhotos((prev) => [...prev, ...(json.urls || [])]);
+      setToast({
+        type: "success",
+        message: `${(json.urls || []).length} photo(s) added to form.`,
+      });
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : "Failed to upload photo.");
+    } finally {
+      setUploadingPhotos(false);
+    }
+  };
+
+  const handleRemoveFormPhoto = (indexToRemove: number) => {
+    setFormProofPhotos((prev) => prev.filter((_, i) => i !== indexToRemove));
+  };
+
+  const handleDirectUploadProof = async (sessionId: number, files: FileList | File[]) => {
+    if (!files || files.length === 0) return;
+    setInlineUploading(true);
+    try {
+      const formData = new FormData();
+      for (let i = 0; i < files.length; i++) {
+        formData.append("files", files[i]);
+      }
+      formData.append("sessionId", String(sessionId));
+
+      const res = await fetch("/api/attendance/upload", {
+        method: "POST",
+        body: formData,
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || "Failed to upload photo proof.");
+      }
+
+      const updatedList: string[] = json.proof_photos || [];
+
+      // Update viewingSession if active
+      if (viewingSession && viewingSession.id === sessionId) {
+        setViewingSession((prev) => (prev ? { ...prev, proof_photos: updatedList } : null));
+      }
+
+      // Update viewingMonthGroup active session if open
+      if (viewingMonthGroup) {
+        setViewingMonthGroup((prev) =>
+          prev
+            ? {
+                ...prev,
+                sessions: prev.sessions.map((s) =>
+                  s.id === sessionId ? { ...s, proof_photos: updatedList } : s
+                ),
+              }
+            : null
+        );
+      }
+
+      setToast({
+        type: "success",
+        message: `${files.length > 1 ? `${files.length} photos` : "Photo proof"} attached successfully!`,
+      });
+
+      await fetchAttendance(true);
+    } catch (err) {
+      setToast({
+        type: "error",
+        message: err instanceof Error ? err.message : "Failed to upload photo.",
+      });
+    } finally {
+      setInlineUploading(false);
+    }
+  };
+
+  const handleDeleteProofPhoto = async (sessionId: number, photoUrl: string) => {
+    if (!confirm("Are you sure you want to remove this proof photo?")) return;
+    try {
+      const currentSession = yearSessions.find((s) => s.id === sessionId);
+      const existingPhotos = currentSession?.proof_photos || [];
+      const updatedPhotos = existingPhotos.filter((u) => u !== photoUrl);
+
+      const res = await fetch(`/api/attendance/${sessionId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: currentSession?.title,
+          activity_type: currentSession?.activity_type,
+          session_date: currentSession?.session_date,
+          location: currentSession?.location,
+          description: currentSession?.description,
+          proof_photos: updatedPhotos,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || "Failed to remove photo.");
+      }
+
+      if (viewingSession && viewingSession.id === sessionId) {
+        setViewingSession((prev) => (prev ? { ...prev, proof_photos: updatedPhotos } : null));
+      }
+      if (viewingMonthGroup) {
+        setViewingMonthGroup((prev) =>
+          prev
+            ? {
+                ...prev,
+                sessions: prev.sessions.map((s) =>
+                  s.id === sessionId ? { ...s, proof_photos: updatedPhotos } : s
+                ),
+              }
+            : null
+        );
+      }
+      setToast({ type: "success", message: "Photo removed." });
+      await fetchAttendance(true);
+    } catch (err) {
+      setToast({ type: "error", message: err instanceof Error ? err.message : "Failed to remove photo." });
+    }
+  };
+
+  const renderSessionProofSection = (session: AttendanceSessionItem) => {
+    const photos = session.proof_photos || [];
+    return (
+      <div className="space-y-2 pb-3 mb-3 border-b border-slate-100 dark:border-slate-800">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800 dark:text-slate-200">
+            <Camera className="w-3.5 h-3.5 text-brand-600 dark:text-brand-400" />
+            <span>Documentation & Photo Proof</span>
+            {photos.length > 0 && (
+              <span className="px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-[10px] font-bold text-slate-600 dark:text-slate-400">
+                {photos.length} {photos.length === 1 ? "photo" : "photos"}
+              </span>
+            )}
+          </div>
+
+          {canManage && (
+            <label className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-brand-50 hover:bg-brand-100 dark:bg-brand-950/60 dark:hover:bg-brand-900/60 text-brand-700 dark:text-brand-300 text-[11px] font-bold cursor-pointer active:scale-95 transition-all select-none border border-brand-200/60 dark:border-brand-800/60 shadow-2xs">
+              {inlineUploading ? (
+                <>
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  <span>Uploading...</span>
+                </>
+              ) : (
+                <>
+                  <Plus className="w-3 h-3 stroke-[2.5]" />
+                  <span>Insert Picture</span>
+                </>
+              )}
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                disabled={inlineUploading}
+                onChange={(e) => {
+                  if (e.target.files && e.target.files.length > 0) {
+                    handleDirectUploadProof(session.id, e.target.files);
+                    e.target.value = "";
+                  }
+                }}
+                className="hidden"
+              />
+            </label>
+          )}
+        </div>
+
+        {photos.length > 0 ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-0.5">
+            {photos.map((photoUrl, idx) => (
+              <div
+                key={photoUrl + idx}
+                onClick={() =>
+                  setLightboxPhoto({
+                    url: photoUrl,
+                    title: `${session.title} (Photo ${idx + 1}/${photos.length})`,
+                    index: idx,
+                    total: photos.length,
+                  })
+                }
+                className="group relative aspect-4/3 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 shadow-2xs cursor-pointer select-none"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={photoUrl}
+                  alt={`${session.title} proof ${idx + 1}`}
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                  loading="lazy"
+                />
+                <div className="absolute inset-0 bg-slate-900/0 group-hover:bg-slate-900/35 transition-colors flex items-center justify-center">
+                  <Maximize2 className="w-4 h-4 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-md" />
+                </div>
+
+                {canManage && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteProofPhoto(session.id, photoUrl);
+                    }}
+                    title="Remove this photo"
+                    className="absolute top-1.5 right-1.5 p-1 rounded-md bg-rose-600/90 hover:bg-rose-700 text-white opacity-0 group-hover:opacity-100 transition-opacity shadow-xs cursor-pointer"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 p-3 text-center">
+            <div className="flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 py-1">
+              <ImageIcon className="w-5 h-5 mb-1 text-slate-300 dark:text-slate-600 stroke-[1.5]" />
+              <p className="text-[11px] font-medium text-slate-600 dark:text-slate-400">No proof pictures attached yet</p>
+              {!canManage && (
+                <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
+                  Sign in as an SK Official or Admin to upload documentation photos.
+                </p>
+              )}
+              {canManage && (
+                <label className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-bold text-brand-600 dark:text-brand-400 hover:underline cursor-pointer">
+                  <Upload className="w-3 h-3" />
+                  <span>Upload meeting photo or attendance log</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    disabled={inlineUploading}
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files.length > 0) {
+                        handleDirectUploadProof(session.id, e.target.files);
+                        e.target.value = "";
+                      }
+                    }}
+                    className="hidden"
+                  />
+                </label>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    );
   };
 
   const handleConfirmDelete = async () => {
@@ -1279,6 +1559,88 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
                   />
                 </div>
 
+                {/* Proof Pictures & Documentation */}
+                <div className="space-y-1.5 pt-1">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                      Proof Pictures & Documentation
+                    </label>
+                    <label className="inline-flex items-center gap-1 text-[11px] font-bold text-brand-600 dark:text-brand-400 hover:underline cursor-pointer">
+                      <Plus className="w-3 h-3 stroke-[2.5]" />
+                      <span>{uploadingPhotos ? "Uploading..." : "Add Picture"}</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        disabled={uploadingPhotos}
+                        onChange={(e) => {
+                          if (e.target.files && e.target.files.length > 0) {
+                            handleUploadFormPhotos(e.target.files);
+                            e.target.value = "";
+                          }
+                        }}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+
+                  {formProofPhotos.length > 0 ? (
+                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 pt-1">
+                      {formProofPhotos.map((url, idx) => (
+                        <div
+                          key={url + idx}
+                          className="group relative aspect-4/3 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 shadow-2xs"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={url}
+                            alt={`Proof ${idx + 1}`}
+                            className="w-full h-full object-cover"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveFormPhoto(idx)}
+                            title="Remove photo"
+                            className="absolute top-1 right-1 p-1 rounded-md bg-rose-600 hover:bg-rose-700 text-white shadow-xs cursor-pointer"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <label className="border border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-3 flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800/40 cursor-pointer transition-colors text-center">
+                      {uploadingPhotos ? (
+                        <div className="flex items-center gap-2 py-1 text-brand-600 text-xs font-semibold">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Uploading pictures...</span>
+                        </div>
+                      ) : (
+                        <div className="py-1">
+                          <ImageIcon className="w-5 h-5 mx-auto mb-1 text-slate-300 dark:text-slate-600" />
+                          <p className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                            Click to upload session pictures (meeting, attendance sheet, etc.)
+                          </p>
+                          <p className="text-[10px] text-slate-400">JPG, PNG, or WEBP up to 15MB each</p>
+                        </div>
+                      )}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        disabled={uploadingPhotos}
+                        onChange={(e) => {
+                          if (e.target.files && e.target.files.length > 0) {
+                            handleUploadFormPhotos(e.target.files);
+                            e.target.value = "";
+                          }
+                        }}
+                        className="hidden"
+                      />
+                    </label>
+                  )}
+                </div>
+
                 {/* Roll Call Checklist */}
                 <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
                   <div className="flex items-center justify-between gap-2">
@@ -1403,7 +1765,7 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
           }}
         >
           <div
-            className="bg-white dark:bg-slate-900 w-full sm:max-w-md rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col overflow-hidden touch-auto"
+            className="bg-white dark:bg-slate-900 w-full sm:max-w-lg rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col overflow-hidden touch-auto"
             style={{
               maxHeight: "calc(100dvh - 1.5rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))",
               opacity: isSessionOpen ? 1 : 0,
@@ -1434,6 +1796,9 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
             </div>
 
             <div className="p-4 overflow-y-auto space-y-2 flex-1 min-h-0 themed-scrollbar overscroll-contain">
+              {/* Photo Proof & Documentation */}
+              {renderSessionProofSection(viewingSession)}
+
               <div className="flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-300 pb-1">
                 <span>Roll Call</span>
                 <span className="font-mono text-emerald-600 dark:text-emerald-400">
@@ -1837,6 +2202,17 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
 
                       {/* 10 Council Members: Minimalist Photo Grid with Corner Status Badge (2-column grid on all viewports) */}
                       <div className="p-3 sm:p-4 overflow-y-auto flex-1 min-h-0 themed-scrollbar overscroll-contain">
+                        {/* Documentation & Photo Proof */}
+                        {activeSession && renderSessionProofSection(activeSession)}
+
+                        <div className="flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-300 pb-2">
+                          <span>Roll Call</span>
+                          <span className="font-mono text-emerald-600 dark:text-emerald-400">
+                            {activeSession.presentCount}/{activeSession.totalCount} Present (
+                            {activeSession.attendanceRate.toFixed(0)}%)
+                          </span>
+                        </div>
+
                         <div className="grid grid-cols-2 gap-2">
                           {hierarchyOfficials.map((off) => {
                             const rec = activeSession.records.find((r) => r.user_id === off.id);
@@ -2092,6 +2468,69 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
                 {deleteBusy ? "Deleting..." : "Delete"}
               </button>
             </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* =========================================================================
+          MODAL 5: FULL-SCREEN PHOTO LIGHTBOX VIEWER
+         ========================================================================= */}
+      {mounted && lightboxPhoto && createPortal(
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-[150] bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-between p-3 sm:p-5 select-none"
+          onClick={() => setLightboxPhoto(null)}
+        >
+          {/* Lightbox Topbar */}
+          <div
+            className="w-full max-w-4xl flex items-center justify-between text-white shrink-0 pb-3 z-10"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="min-w-0 flex-1 pr-3">
+              <h4 className="text-sm font-bold truncate text-slate-100">{lightboxPhoto.title}</h4>
+              <p className="text-[11px] text-slate-400">Documentation & proof photo</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <a
+                href={lightboxPhoto.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                download
+                className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 active:scale-95 text-white transition-all text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                title="Open original / download"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Open Full Size</span>
+              </a>
+              <button
+                type="button"
+                onClick={() => setLightboxPhoto(null)}
+                className="p-1.5 rounded-xl bg-white/10 hover:bg-white/20 active:scale-90 text-white transition-all cursor-pointer"
+                aria-label="Close photo"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Lightbox Image Stage */}
+          <div
+            className="flex-1 w-full max-w-5xl flex items-center justify-center p-1 sm:p-2 min-h-0 overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={lightboxPhoto.url}
+              alt={lightboxPhoto.title}
+              className="max-h-[80vh] max-w-full object-contain rounded-xl shadow-2xl border border-white/10"
+            />
+          </div>
+
+          {/* Lightbox Footer Bar */}
+          <div className="text-center text-[11px] text-white/50 pt-2 shrink-0">
+            Click outside or press Esc to close
           </div>
         </div>,
         document.body

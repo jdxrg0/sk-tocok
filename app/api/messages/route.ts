@@ -51,8 +51,12 @@ export async function GET(request: Request) {
         WHERE m.is_public = TRUE AND m.status != 'rejected' AND m.status != 'archived'
         GROUP BY m.id
         ORDER BY m.is_pinned DESC, ${
-          sort === "popular"
+          sort === "popular" || sort === "top"
             ? sql`m.likes_count DESC, m.created_at DESC`
+            : sort === "discussed"
+            ? sql`COUNT(r.id) DESC, m.created_at DESC`
+            : sort === "oldest"
+            ? sql`m.created_at ASC`
             : sql`m.created_at DESC`
         }
       `,

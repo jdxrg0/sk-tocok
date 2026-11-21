@@ -153,3 +153,49 @@ for (const target of deleteTargets) {
   }
 }
 
+// Fallback for missing/empty manifests in App Router-only projects and OneDrive environments
+const manifestLoaderTargets = [
+  "node_modules/next/dist/server/load-manifest.external.js",
+  "node_modules/next/dist/esm/server/load-manifest.external.js",
+];
+
+for (const target of manifestLoaderTargets) {
+  const filePath = path.resolve(target);
+  if (!fs.existsSync(filePath)) continue;
+
+  let content = fs.readFileSync(filePath, "utf8");
+  if (!content.includes("/* patched fallback */")) {
+    content = content.replace(
+      "let manifest = (0, _fs.readFileSync)(/* turbopackIgnore: true */ path, 'utf8');\n    if (!skipParse) {\n        manifest = JSON.parse(manifest);",
+      "/* patched fallback */\n    let manifest = '{}';\n    try {\n        if ((0, _fs.existsSync)(path)) {\n            manifest = (0, _fs.readFileSync)(/* turbopackIgnore: true */ path, 'utf8');\n        }\n    } catch {}\n    if (!skipParse) {\n        try {\n            manifest = manifest && manifest.trim() ? JSON.parse(manifest) : {};\n        } catch { manifest = {}; }"
+    );
+    content = content.replace(
+      "let manifest = readFileSync(/* turbopackIgnore: true */ path, 'utf8');\n    if (!skipParse) {\n        manifest = JSON.parse(manifest);",
+      "/* patched fallback */\n    let manifest = '{}';\n    try {\n        if (existsSync(path)) {\n            manifest = readFileSync(/* turbopackIgnore: true */ path, 'utf8');\n        }\n    } catch {}\n    if (!skipParse) {\n        try {\n            manifest = manifest && manifest.trim() ? JSON.parse(manifest) : {};\n        } catch { manifest = {}; }"
+    );
+    fs.writeFileSync(filePath, content, "utf8");
+    console.log(`[patch-next] Patched loadManifest fallback in ${target}`);
+  }
+}
+
+// Patch readManifest in build/index.js
+const buildIndexTargets = [
+  "node_modules/next/dist/build/index.js",
+  "node_modules/next/dist/esm/build/index.js",
+];
+
+for (const target of buildIndexTargets) {
+  const filePath = path.resolve(target);
+  if (!fs.existsSync(filePath)) continue;
+
+  let content = fs.readFileSync(filePath, "utf8");
+  if (!content.includes("/* patched readManifest */")) {
+    content = content.replace(
+      "async function readManifest(filePath) {\n    return JSON.parse(await readFileUtf8(filePath));\n}",
+      "/* patched readManifest */\nasync function readManifest(filePath) {\n    try {\n        const content = await readFileUtf8(filePath);\n        return content && content.trim() ? JSON.parse(content) : {};\n    } catch { return {}; }\n}"
+    );
+    fs.writeFileSync(filePath, content, "utf8");
+    console.log(`[patch-next] Patched readManifest in ${target}`);
+  }
+}
+

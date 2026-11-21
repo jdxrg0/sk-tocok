@@ -25,7 +25,7 @@ interface AvatarCropModalProps {
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 3.5;
 const CROP_RATIO = 0.82;
-const OUTPUT_SIZE = 512;
+const OUTPUT_SIZE = 256;
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -330,7 +330,7 @@ export default function AvatarCropModal({
       ctx.restore();
 
       const blob = await new Promise<Blob | null>((resolve) =>
-        canvas.toBlob(resolve, outputMime, preserveTransparency ? undefined : 0.92)
+        canvas.toBlob(resolve, outputMime, preserveTransparency ? undefined : 0.88)
       );
 
       if (!blob) {
