@@ -3,11 +3,20 @@ import { sql } from "@/lib/db";
 import { savePrintDocument } from "@/lib/googleDrive";
 import { getCurrentUser } from "@/lib/auth";
 
+export const dynamic = "force-dynamic";
+
 async function generateTrackingCode(): Promise<string> {
-  const rows = await sql`SELECT tracking_code FROM print_requests`;
-  const existingCodes = new Set(
-    (rows as { tracking_code: string }[]).map((r) => String(r.tracking_code).toUpperCase().trim())
-  );
+  let existingCodes = new Set<string>();
+  try {
+    const rows = await sql`SELECT tracking_code FROM print_requests`;
+    if (Array.isArray(rows)) {
+      existingCodes = new Set(
+        rows.map((r: { tracking_code?: string }) => String(r.tracking_code || "").toUpperCase().trim())
+      );
+    }
+  } catch (err) {
+    console.warn("Failed to load existing tracking codes, using fallback:", err);
+  }
 
   // Generate random 3-digit code in SK[100-999] format (e.g. SK104, SK528)
   for (let i = 0; i < 1000; i++) {

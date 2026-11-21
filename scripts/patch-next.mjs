@@ -199,3 +199,25 @@ for (const target of buildIndexTargets) {
   }
 }
 
+// Patch route-module interceptionRoutePatterns for undefined beforeFiles
+const routeModuleTargets = [
+  "node_modules/next/dist/server/route-modules/route-module.js",
+  "node_modules/next/dist/esm/server/route-modules/route-module.js",
+];
+
+for (const target of routeModuleTargets) {
+  const filePath = path.resolve(target);
+  if (!fs.existsSync(filePath)) continue;
+
+  let content = fs.readFileSync(filePath, "utf8");
+  if (!content.includes("/* patched interceptionRoutePatterns */")) {
+    content = content.replace(
+      "interceptionRoutePatterns: routesManifest.rewrites.beforeFiles.filter(_generateinterceptionroutesrewrites.isInterceptionRouteRewrite).map((rewrite)=>new RegExp(rewrite.regex))",
+      "/* patched interceptionRoutePatterns */\n                interceptionRoutePatterns: ((Array.isArray(routesManifest == null ? void 0 : routesManifest.rewrites) ? [] : (routesManifest == null ? void 0 : routesManifest.rewrites?.beforeFiles) || []).filter(_generateinterceptionroutesrewrites.isInterceptionRouteRewrite).map((rewrite)=>new RegExp(rewrite.regex)))"
+    );
+    fs.writeFileSync(filePath, content, "utf8");
+    console.log(`[patch-next] Patched interceptionRoutePatterns in ${target}`);
+  }
+}
+
+

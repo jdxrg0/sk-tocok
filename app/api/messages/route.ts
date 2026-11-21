@@ -22,6 +22,10 @@ export async function GET(request: Request) {
     const sort = (searchParams.get("sort") || "latest").trim().toLowerCase();
     const q = (searchParams.get("q") || "").trim();
 
+    const isPopular = sort === "popular" || sort === "top";
+    const isDiscussed = sort === "discussed";
+    const isOldest = sort === "oldest";
+
     // Fetch category counts for approved public messages
     const [countsRows, messagesRows] = await Promise.all([
       sql`
@@ -30,36 +34,97 @@ export async function GET(request: Request) {
         WHERE is_public = TRUE AND status != 'rejected' AND status != 'archived'
         GROUP BY category
       `,
-      sql`
-        SELECT 
-          m.id, 
-          m.tracking_code, 
-          m.alias, 
-          m.category, 
-          m.purok, 
-          m.subject, 
-          m.message, 
-          m.is_pinned, 
-          m.admin_reply, 
-          m.replied_by, 
-          m.replied_at, 
-          m.likes_count, 
-          m.created_at,
-          COUNT(r.id)::int as replies_count
-        FROM anonymous_messages m
-        LEFT JOIN anonymous_message_replies r ON r.message_id = m.id
-        WHERE m.is_public = TRUE AND m.status != 'rejected' AND m.status != 'archived'
-        GROUP BY m.id
-        ORDER BY m.is_pinned DESC, ${
-          sort === "popular" || sort === "top"
-            ? sql`m.likes_count DESC, m.created_at DESC`
-            : sort === "discussed"
-            ? sql`COUNT(r.id) DESC, m.created_at DESC`
-            : sort === "oldest"
-            ? sql`m.created_at ASC`
-            : sql`m.created_at DESC`
-        }
-      `,
+      isPopular
+        ? sql`
+            SELECT 
+              m.id, 
+              m.tracking_code, 
+              m.alias, 
+              m.category, 
+              m.purok, 
+              m.subject, 
+              m.message, 
+              m.is_pinned, 
+              m.admin_reply, 
+              m.replied_by, 
+              m.replied_at, 
+              m.likes_count, 
+              m.created_at,
+              COUNT(r.id)::int as replies_count
+            FROM anonymous_messages m
+            LEFT JOIN anonymous_message_replies r ON r.message_id = m.id
+            WHERE m.is_public = TRUE AND m.status != 'rejected' AND m.status != 'archived'
+            GROUP BY m.id
+            ORDER BY m.is_pinned DESC, m.likes_count DESC, m.created_at DESC
+          `
+        : isDiscussed
+        ? sql`
+            SELECT 
+              m.id, 
+              m.tracking_code, 
+              m.alias, 
+              m.category, 
+              m.purok, 
+              m.subject, 
+              m.message, 
+              m.is_pinned, 
+              m.admin_reply, 
+              m.replied_by, 
+              m.replied_at, 
+              m.likes_count, 
+              m.created_at,
+              COUNT(r.id)::int as replies_count
+            FROM anonymous_messages m
+            LEFT JOIN anonymous_message_replies r ON r.message_id = m.id
+            WHERE m.is_public = TRUE AND m.status != 'rejected' AND m.status != 'archived'
+            GROUP BY m.id
+            ORDER BY m.is_pinned DESC, COUNT(r.id) DESC, m.created_at DESC
+          `
+        : isOldest
+        ? sql`
+            SELECT 
+              m.id, 
+              m.tracking_code, 
+              m.alias, 
+              m.category, 
+              m.purok, 
+              m.subject, 
+              m.message, 
+              m.is_pinned, 
+              m.admin_reply, 
+              m.replied_by, 
+              m.replied_at, 
+              m.likes_count, 
+              m.created_at,
+              COUNT(r.id)::int as replies_count
+            FROM anonymous_messages m
+            LEFT JOIN anonymous_message_replies r ON r.message_id = m.id
+            WHERE m.is_public = TRUE AND m.status != 'rejected' AND m.status != 'archived'
+            GROUP BY m.id
+            ORDER BY m.is_pinned DESC, m.created_at ASC
+          `
+        : sql`
+            SELECT 
+              m.id, 
+              m.tracking_code, 
+              m.alias, 
+              m.category, 
+              m.purok, 
+              m.subject, 
+              m.message, 
+              m.is_pinned, 
+              m.admin_reply, 
+              m.replied_by, 
+              m.replied_at, 
+              m.likes_count, 
+              m.created_at,
+              COUNT(r.id)::int as replies_count
+            FROM anonymous_messages m
+            LEFT JOIN anonymous_message_replies r ON r.message_id = m.id
+            WHERE m.is_public = TRUE AND m.status != 'rejected' AND m.status != 'archived'
+            GROUP BY m.id
+            ORDER BY m.is_pinned DESC, m.created_at DESC
+          `,
     ]);
 
     // Format counts
