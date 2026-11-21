@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser, isOfficialUser } from "@/lib/auth";
 import { uploadToCloudStorage } from "@/lib/googleDrive";
 import { sql } from "@/lib/db";
+import sharp from "sharp";
 
 export const dynamic = "force-dynamic";
 
@@ -46,9 +47,45 @@ export async function POST(request: Request) {
       }
     }
 
+    // Pre-optimize images using sharp to keep uploads lightweight (max 2048px, auto-rotate EXIF, WebP 85%)
+    const optimizedFiles = await Promise.all(
+      allFiles.map(async (file) => {
+        try {
+          const rawBuffer = Buffer.from(await file.arrayBuffer());
+          const meta = await sharp(rawBuffer).metadata();
+          const isLarge =
+            (meta.width && meta.width > 2048) ||
+            (meta.height && meta.height > 2048) ||
+            rawBuffer.length > 800 * 1024 ||
+            /\.(jpe?g|png|heic|heif)$/i.test(file.name || "");
+
+          if (isLarge) {
+            const optimizedBuffer = await sharp(rawBuffer)
+              .rotate() // Auto-orient smartphone photos
+              .resize({
+                width: 2048,
+                height: 2048,
+                fit: "inside",
+                withoutEnlargement: true,
+              })
+              .webp({ quality: 85 })
+              .toBuffer();
+
+            const baseName = (file.name || "photo").replace(/\.[^/.]+$/, "");
+            return new File([optimizedBuffer], `${baseName}.webp`, {
+              type: "image/webp",
+            });
+          }
+        } catch (err) {
+          console.warn("Image pre-optimization warning, uploading original:", err);
+        }
+        return file;
+      })
+    );
+
     // Upload to cloud storage (Google Drive / Vercel Blob / Neon Postgres storage)
     const uploadResults = await Promise.all(
-      allFiles.map((file) => uploadToCloudStorage(file, "attendance"))
+      optimizedFiles.map((file) => uploadToCloudStorage(file, "attendance"))
     );
     const newUrls = uploadResults.map((res) => res.filePath).filter(Boolean);
 

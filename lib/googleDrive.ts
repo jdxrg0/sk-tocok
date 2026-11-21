@@ -570,7 +570,13 @@ export async function getGoogleDriveStatus(): Promise<GoogleDriveStatusData> {
             })
         : Promise.resolve(undefined);
 
-      const categories: CloudUploadCategory[] = ["prints", "vouchers", "deposits", "officials"];
+      const categories: CloudUploadCategory[] = [
+        "prints",
+        "vouchers",
+        "deposits",
+        "officials",
+        "attendance",
+      ];
       const folderPromises = categories.map(async (cat) => {
         const cfg = CATEGORY_CONFIG[cat];
         const folderId = await resolveSubfolderId(cat, driveInfo);

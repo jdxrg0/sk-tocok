@@ -35,6 +35,15 @@ for (const target of targets) {
     fs.writeFileSync(filePath, content, "utf8");
     console.log(`[patch-next] Patched isRootNotFound in ${target}`);
   }
+
+  if (content.includes("async function isTrueCasePagePath(pagePath, pagesDir) {\n    const pageSegments")) {
+    content = content.replace(
+      "async function isTrueCasePagePath(pagePath, pagesDir) {\n    const pageSegments",
+      "async function isTrueCasePagePath(pagePath, pagesDir) {\n    if (process.platform === 'win32') return true;\n    const pageSegments"
+    );
+    fs.writeFileSync(filePath, content, "utf8");
+    console.log(`[patch-next] Patched isTrueCasePagePath in ${target}`);
+  }
 }
 
 // Windows path separator patch for normalizeAppPath
@@ -309,13 +318,35 @@ const bundle5Path = path.resolve("node_modules/next/dist/compiled/webpack/bundle
 if (fs.existsSync(bundle5Path)) {
   let content = fs.readFileSync(bundle5Path, "utf8");
   const targetStr = "`installChunk(require(${JSON.stringify(Ze)} + ${R.getChunkScriptFilename}(chunkId)));`";
-  const replacementStr = "`try { installChunk(require(${JSON.stringify(Ze)} + ${R.getChunkScriptFilename}(chunkId))); } catch(e) { if (e.code === 'MODULE_NOT_FOUND') { installChunk(require(${JSON.stringify(Ze)} + \"chunks/\" + ${R.getChunkScriptFilename}(chunkId))); } else throw e; }`";
+  const replacementStr = "`var u = ${R.getChunkScriptFilename}(chunkId); try { installChunk(require(${JSON.stringify(Ze)} + u)); } catch(e) { if (e.code === 'MODULE_NOT_FOUND' && !u.startsWith('chunks/')) { installChunk(require(${JSON.stringify(Ze)} + 'chunks/' + u)); } else throw e; }`";
   if (content.includes(targetStr)) {
     content = content.replace(targetStr, replacementStr);
     fs.writeFileSync(bundle5Path, content, "utf8");
     console.log(`[patch-next] Patched webpack server chunk fallback in bundle5.js`);
   }
 }
+
+// Patch require.js for absolute pagePath resolution on Windows
+const requireTargets = [
+  "node_modules/next/dist/server/require.js",
+  "node_modules/next/dist/esm/server/require.js",
+];
+
+for (const target of requireTargets) {
+  const filePath = path.resolve(target);
+  if (!fs.existsSync(filePath)) continue;
+
+  let content = fs.readFileSync(filePath, "utf8");
+  if (!content.includes("/* patched rawPagePath */")) {
+    content = content.replace(
+      "const pagePath = getPagePath(page, distDir, undefined, isAppPath);",
+      "/* patched rawPagePath */\n    const rawPagePath = getPagePath(page, distDir, undefined, isAppPath);\n    const pagePath = (_path.default || path).isAbsolute(rawPagePath) ? rawPagePath : (_path.default || path).resolve(rawPagePath);"
+    );
+    fs.writeFileSync(filePath, content, "utf8");
+    console.log(`[patch-next] Patched requirePage in ${target}`);
+  }
+}
+
 
 
 

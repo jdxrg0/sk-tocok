@@ -276,6 +276,41 @@ export function splitOfficialName(fullName: string): { surname: string; restOfNa
   return { surname, restOfName };
 }
 
+/**
+ * Produces a lightweight, low-resolution thumbnail URL (e.g. 300-400px width)
+ * for fast progressive rendering on slow mobile networks.
+ */
+export function getThumbnailUrl(url: string, width = 400): string {
+  if (!url) return "";
+
+  // 1. Proxied Google Drive files
+  if (url.startsWith("/api/drive/")) {
+    const sep = url.includes("?") ? "&" : "?";
+    return `${url}${sep}w=${width}`;
+  }
+
+  // 2. Proxied Neon DB stored files
+  if (url.startsWith("/api/files/")) {
+    const sep = url.includes("?") ? "&" : "?";
+    return `${url}${sep}w=${width}`;
+  }
+
+  // 3. Googleusercontent direct CDN URLs
+  if (url.includes("googleusercontent.com")) {
+    if (/=[sw]\d+.*$/.test(url)) {
+      return url.replace(/=[sw]\d+.*$/, `=w${width}`);
+    }
+    return `${url}=w${width}`;
+  }
+
+  // 4. Remote HTTP/HTTPS files (e.g. Vercel Blob or external URLs)
+  if (url.startsWith("http://") || url.startsWith("https://")) {
+    return `/api/thumb?url=${encodeURIComponent(url)}&w=${width}`;
+  }
+
+  return url;
+}
+
 export async function ensureAttendanceTables(): Promise<void> {
   // Table schema and indexes are initialized by init-db.mjs
 }

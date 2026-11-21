@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import {
@@ -36,9 +36,9 @@ import {
   CornerDownRight,
   Archive,
   ArrowBigUp,
+  ArrowUpDown,
   MessageSquare,
   Share2,
-  Sparkles,
 } from "lucide-react";
 import { useAuth, isOfficialRole } from "@/components/AuthProvider";
 import {
@@ -172,6 +172,285 @@ export function AnonymousAvatar({
   );
 }
 
+interface HoldToDeleteButtonProps {
+  onConfirm: () => void;
+  disabled?: boolean;
+  busy?: boolean;
+  label?: string;
+  holdDurationMs?: number;
+}
+
+function HoldToDeleteButton({
+  onConfirm,
+  disabled = false,
+  busy = false,
+  label = "Delete",
+  holdDurationMs = 1200,
+}: HoldToDeleteButtonProps) {
+  const [progress, setProgress] = useState(0);
+  const [isHolding, setIsHolding] = useState(false);
+  const [tapHint, setTapHint] = useState(false);
+  const holdStartRef = useRef<number | null>(null);
+  const animFrameRef = useRef<number | null>(null);
+  const hintTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const clearHold = useCallback(() => {
+    setIsHolding(false);
+    setProgress(0);
+    holdStartRef.current = null;
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current);
+      animFrameRef.current = null;
+    }
+  }, []);
+
+  const startHold = useCallback(() => {
+    if (disabled || busy) return;
+    setIsHolding(true);
+    setTapHint(false);
+    holdStartRef.current = Date.now();
+    try {
+      if (typeof navigator !== "undefined" && navigator.vibrate) {
+        navigator.vibrate(25);
+      }
+    } catch {}
+
+    const step = () => {
+      if (!holdStartRef.current) return;
+      const elapsed = Date.now() - holdStartRef.current;
+      const pct = Math.min(100, (elapsed / holdDurationMs) * 100);
+      setProgress(pct);
+
+      if (pct >= 100) {
+        clearHold();
+        try {
+          if (typeof navigator !== "undefined" && navigator.vibrate) {
+            navigator.vibrate([40, 50, 70]);
+          }
+        } catch {}
+        onConfirm();
+      } else {
+        animFrameRef.current = requestAnimationFrame(step);
+      }
+    };
+
+    animFrameRef.current = requestAnimationFrame(step);
+  }, [disabled, busy, holdDurationMs, onConfirm, clearHold]);
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    e.preventDefault();
+    startHold();
+  };
+
+  const handlePointerUp = () => {
+    if (isHolding && progress < 95) {
+      setTapHint(true);
+      if (hintTimeoutRef.current) clearTimeout(hintTimeoutRef.current);
+      hintTimeoutRef.current = setTimeout(() => setTapHint(false), 2200);
+      try {
+        if (typeof navigator !== "undefined" && navigator.vibrate) {
+          navigator.vibrate(40);
+        }
+      } catch {}
+    }
+    clearHold();
+  };
+
+  const handlePointerLeave = () => {
+    clearHold();
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === " " || e.key === "Enter") {
+      if (!isHolding && !busy) {
+        e.preventDefault();
+        startHold();
+      }
+    }
+  };
+
+  const handleKeyUp = (e: React.KeyboardEvent) => {
+    if (e.key === " " || e.key === "Enter") {
+      e.preventDefault();
+      handlePointerUp();
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+      if (hintTimeoutRef.current) clearTimeout(hintTimeoutRef.current);
+    };
+  }, []);
+
+  return (
+    <div className="relative inline-flex flex-col items-center">
+      <button
+        type="button"
+        onPointerDown={handlePointerDown}
+        onPointerUp={handlePointerUp}
+        onPointerLeave={handlePointerLeave}
+        onPointerCancel={handlePointerLeave}
+        onKeyDown={handleKeyDown}
+        onKeyUp={handleKeyUp}
+        disabled={disabled || busy}
+        className={`relative overflow-hidden h-9 px-4.5 rounded-xl bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white text-xs font-bold shadow-xs select-none touch-none cursor-pointer transition-transform duration-100 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center ${
+          isHolding ? "scale-[0.97]" : "scale-100"
+        } ${tapHint ? "animate-shake ring-2 ring-rose-400" : ""}`}
+      >
+        {/* Animated fill track */}
+        <div
+          className="absolute inset-y-0 left-0 bg-rose-900/60 dark:bg-rose-950/70 pointer-events-none transition-[width] duration-75 ease-linear"
+          style={{ width: `${progress}%` }}
+        />
+
+        {/* Content */}
+        <span className="relative z-10 flex items-center justify-center gap-1.5 min-w-[105px]">
+          {busy ? (
+            <>
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              <span>Deleting...</span>
+            </>
+          ) : isHolding ? (
+            <>
+              <Trash2 className="w-3.5 h-3.5 animate-pulse text-white" />
+              <span>Hold... {Math.round(progress)}%</span>
+            </>
+          ) : (
+            <>
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>{label}</span>
+            </>
+          )}
+        </span>
+      </button>
+
+      {/* Helper caption */}
+      <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium mt-1 select-none transition-colors">
+        {tapHint ? (
+          <span className="text-rose-600 dark:text-rose-400 font-bold animate-pulse">
+            Hold for 1.2s to delete
+          </span>
+        ) : (
+          "Tap & hold to delete"
+        )}
+      </span>
+    </div>
+  );
+}
+
+const useIsomorphicLayoutEffect =
+  typeof window !== "undefined" ? useLayoutEffect : useEffect;
+
+/**
+ * Custom FLIP (First, Last, Invert, Play) hook for ultra-smooth list reordering.
+ * Automatically animates position changes when sorting or filtering updates without page blinks.
+ */
+function useFlipList(dependency: any) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const prevPositionsRef = useRef<Map<string, number>>(new Map());
+  const rafRef = useRef<number | null>(null);
+
+  useIsomorphicLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    if (
+      typeof window !== "undefined" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ) {
+      return;
+    }
+
+    const children = Array.from(container.children) as HTMLElement[];
+    const prevPositions = prevPositionsRef.current;
+    const currentPositions = new Map<string, number>();
+
+    const scrollY =
+      typeof window !== "undefined"
+        ? window.scrollY || window.pageYOffset || 0
+        : 0;
+
+    children.forEach((el) => {
+      const id = el.dataset.flipId;
+      if (id) {
+        const rect = el.getBoundingClientRect();
+        currentPositions.set(id, rect.top + scrollY);
+      }
+    });
+
+    const animatingElements: { el: HTMLElement; deltaY: number }[] = [];
+
+    children.forEach((el) => {
+      const id = el.dataset.flipId;
+      if (id && prevPositions.has(id)) {
+        const oldY = prevPositions.get(id)!;
+        const newY = currentPositions.get(id)!;
+        const deltaY = oldY - newY;
+
+        if (Math.abs(deltaY) > 2) {
+          el.style.setProperty("transition", "none", "important");
+          el.style.transform = `translateY(${deltaY}px)`;
+          el.style.willChange = "transform";
+          animatingElements.push({ el, deltaY });
+        }
+      }
+    });
+
+    if (animatingElements.length > 0) {
+      void container.offsetHeight;
+
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      rafRef.current = requestAnimationFrame(() => {
+        animatingElements.forEach(({ el }) => {
+          el.style.setProperty(
+            "transition",
+            "transform 360ms cubic-bezier(0.2, 0.9, 0.3, 1)",
+            "important"
+          );
+          el.style.transform = "";
+
+          const onEnd = () => {
+            el.style.removeProperty("transition");
+            el.style.removeProperty("will-change");
+            el.removeEventListener("transitionend", onEnd);
+          };
+          el.addEventListener("transitionend", onEnd, { once: true });
+        });
+      });
+    }
+
+    prevPositionsRef.current = currentPositions;
+
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, [dependency]);
+
+  return containerRef;
+}
+
+function AnimatedCommentList({
+  replies,
+  sortKey,
+  renderReply,
+}: {
+  replies: AnonymousMessageReply[];
+  sortKey: string;
+  renderReply: (reply: AnonymousMessageReply) => React.ReactNode;
+}) {
+  const containerRef = useFlipList(sortKey);
+  return (
+    <div ref={containerRef} className="space-y-3 pt-1">
+      {replies.map((reply) => (
+        <div key={reply.id} data-flip-id={`comment-${reply.id}`}>
+          {renderReply(reply)}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 interface ThreadedCommentItemProps {
   reply: AnonymousMessageReply;
   depth: number;
@@ -188,6 +467,9 @@ interface ThreadedCommentItemProps {
   submittingReply: boolean;
   userAlias: string;
   newlyAddedReplyId?: number | null;
+  onDeleteReply?: (replyId: number, messageId: number) => void;
+  isMyComment?: boolean;
+  isMyReplyFn?: (reply: AnonymousMessageReply) => boolean;
 }
 
 function ThreadedCommentItem({
@@ -206,6 +488,9 @@ function ThreadedCommentItem({
   submittingReply,
   userAlias,
   newlyAddedReplyId,
+  onDeleteReply,
+  isMyComment,
+  isMyReplyFn,
 }: ThreadedCommentItemProps) {
   const isReplyLiked = likedReplyIds.includes(reply.id);
   const children = repliesByParent[reply.id] || [];
@@ -268,23 +553,36 @@ function ThreadedCommentItem({
               <span>{isReplyingThis ? "Cancel" : "Reply"}</span>
             </button>
           )}
+
+          {/* Delete own comment */}
+          {isMyComment && onDeleteReply && (
+            <button
+              type="button"
+              onClick={() => onDeleteReply(reply.id, messageId)}
+              className="inline-flex items-center gap-1 hover:text-rose-600 dark:hover:text-rose-400 transition-colors cursor-pointer ml-auto text-[11px]"
+              title="Delete your comment"
+            >
+              <Trash2 className="w-3 h-3" />
+              <span>Delete</span>
+            </button>
+          )}
         </div>
       </div>
 
       {/* Dynamic Inline Reply Box: Moves directly under this comment when replying */}
       {isReplyingThis && (
-        <div className="pl-6.5 pt-1 space-y-1 animate-reply-box-enter">
-          <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800/70 p-1.5 rounded-xl border border-slate-200/90 dark:border-slate-700/80 shadow-xs focus-within:border-slate-400 dark:focus-within:border-slate-500 transition-all duration-200">
-            <AnonymousAvatar alias={userAlias} size="xs" className="shrink-0" />
+        <div className="pl-6.5 pt-1.5 space-y-1.5 animate-reply-box-enter">
+          <div className="bg-slate-50 dark:bg-slate-800/80 rounded-xl border border-slate-200/90 dark:border-slate-700/80 p-2 sm:p-2.5 space-y-2 shadow-xs focus-within:border-brand-500/60 dark:focus-within:border-brand-500/60 transition-all duration-200">
+            {/* Full-width expanding textarea */}
             <textarea
               id={`reply-input-${messageId}`}
-              rows={1}
+              rows={2}
               autoFocus
               value={replyInput}
               onChange={(e) => {
                 onReplyInputChange(e.target.value);
                 e.target.style.height = "auto";
-                e.target.style.height = `${Math.min(e.target.scrollHeight, 100)}px`;
+                e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`;
               }}
               onKeyDown={(e) => {
                 if (isMobileDevice()) return;
@@ -296,35 +594,48 @@ function ThreadedCommentItem({
                 }
               }}
               placeholder={`Reply to u/${reply.alias.replace(/^u\//i, "")}...`}
-              className="flex-1 py-1 px-2.5 text-xs sm:text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-slate-400 dark:focus:border-slate-500 resize-none leading-normal min-h-[34px] max-h-[100px]"
+              className="w-full p-1.5 text-xs sm:text-sm bg-transparent text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none resize-none leading-normal min-h-[44px] max-h-[120px]"
             />
-            <button
-              type="button"
-              onClick={() => onSelectReplyTo(null)}
-              className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs px-2 py-1 rounded-lg transition-all tactile-btn cursor-pointer shrink-0"
-              title="Cancel reply"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={() => onSubmitReply(reply.id)}
-              disabled={submittingReply || !replyInput.trim()}
-              title="Send reply (Enter on desktop)"
-              className="h-8.5 px-3 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-40 text-white font-semibold text-xs flex items-center justify-center gap-1 transition-all shrink-0 cursor-pointer disabled:cursor-not-allowed shadow-2xs hover:shadow-xs tactile-btn min-w-[34px] sm:w-[84px]"
-            >
-              {submittingReply ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span className="hidden sm:inline">Sending...</span>
-                </>
-              ) : (
-                <>
-                  <Send className="w-3.5 h-3.5 transition-transform duration-200 hover:translate-x-0.5 hover:-translate-y-0.5" />
-                  <span className="hidden sm:inline">Reply</span>
-                </>
-              )}
-            </button>
+
+            {/* Bottom Actions Bar */}
+            <div className="flex items-center justify-between pt-1.5 border-t border-slate-200/60 dark:border-slate-700/60">
+              <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+                <AnonymousAvatar alias={userAlias} size="xs" />
+                <span className="font-semibold text-slate-700 dark:text-slate-300 truncate max-w-[130px] sm:max-w-[200px]">
+                  u/{userAlias.replace(/^u\//i, "")}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <button
+                  type="button"
+                  onClick={() => onSelectReplyTo(null)}
+                  className="px-2.5 py-1 text-xs font-semibold text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 rounded-lg hover:bg-slate-200/60 dark:hover:bg-slate-700/60 transition-colors cursor-pointer"
+                  title="Cancel reply"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onSubmitReply(reply.id)}
+                  disabled={submittingReply || !replyInput.trim()}
+                  title="Send reply (Enter on desktop)"
+                  className="h-8 px-3 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-40 text-white font-semibold text-xs flex items-center justify-center gap-1.5 transition-all shrink-0 cursor-pointer disabled:cursor-not-allowed shadow-2xs hover:shadow-xs tactile-btn"
+                >
+                  {submittingReply ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Sending...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-3.5 h-3.5" />
+                      <span>Reply</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -350,6 +661,9 @@ function ThreadedCommentItem({
               submittingReply={submittingReply}
               userAlias={userAlias}
               newlyAddedReplyId={newlyAddedReplyId}
+              onDeleteReply={onDeleteReply}
+              isMyComment={isMyReplyFn ? isMyReplyFn(child) : false}
+              isMyReplyFn={isMyReplyFn}
             />
           ))}
         </div>
@@ -447,6 +761,17 @@ export default function AnonymousCouncilMessages({
   const [showTrackModal, setShowTrackModal] = useState(false);
   const [trackModalClosing, setTrackModalClosing] = useState(false);
 
+  // User's own authored posts and replies (stored in localStorage)
+  const [myPostIds, setMyPostIds] = useState<number[]>([]);
+  const [myReplyIds, setMyReplyIds] = useState<number[]>([]);
+
+  // Public User Deletion State
+  const [deletingPost, setDeletingPost] = useState<PublicMessageItem | null>(null);
+  const [postDeleteClosing, setPostDeleteClosing] = useState(false);
+  const [deletingReply, setDeletingReply] = useState<{ id: number; messageId: number } | null>(null);
+  const [replyDeleteClosing, setReplyDeleteClosing] = useState(false);
+  const [userDeleteBusy, setUserDeleteBusy] = useState(false);
+
   // Admin Response Editor Modal / State
   const [replyingMessage, setReplyingMessage] =
     useState<AnonymousMessageItem | null>(null);
@@ -457,6 +782,7 @@ export default function AnonymousCouncilMessages({
   // Admin Deletion State
   const [deletingMessage, setDeletingMessage] =
     useState<AnonymousMessageItem | null>(null);
+  const [deleteMessageClosing, setDeleteMessageClosing] = useState(false);
 
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
@@ -510,12 +836,44 @@ export default function AnonymousCouncilMessages({
     }, 180);
   }, [trackModalClosing]);
 
+  const handleCloseDeletePostModal = useCallback((force = false) => {
+    if (postDeleteClosing) return;
+    if (!force && userDeleteBusy) return;
+    setPostDeleteClosing(true);
+    setTimeout(() => {
+      setDeletingPost(null);
+      setPostDeleteClosing(false);
+    }, 180);
+  }, [postDeleteClosing, userDeleteBusy]);
+
+  const handleCloseDeleteReplyModal = useCallback((force = false) => {
+    if (replyDeleteClosing) return;
+    if (!force && userDeleteBusy) return;
+    setReplyDeleteClosing(true);
+    setTimeout(() => {
+      setDeletingReply(null);
+      setReplyDeleteClosing(false);
+    }, 180);
+  }, [replyDeleteClosing, userDeleteBusy]);
+
+  const handleCloseDeleteMessageModal = useCallback((force = false) => {
+    if (deleteMessageClosing) return;
+    if (!force && deleteBusy) return;
+    setDeleteMessageClosing(true);
+    setTimeout(() => {
+      setDeletingMessage(null);
+      setDeleteMessageClosing(false);
+    }, 180);
+  }, [deleteMessageClosing, deleteBusy]);
+
   // Prevent background page scrolling & shifting while any modal is open on mobile and desktop
   const isAnyModalOpen = Boolean(
     showAddModal ||
     showTrackModal ||
     replyingMessage ||
-    deletingMessage
+    deletingMessage ||
+    deletingPost ||
+    deletingReply
   );
 
   useEffect(() => {
@@ -553,9 +911,14 @@ export default function AnonymousCouncilMessages({
           handleCloseAddModal();
         } else if (showTrackModal) {
           handleCloseTrackModal();
+        } else if (deletingPost) {
+          handleCloseDeletePostModal();
+        } else if (deletingReply) {
+          handleCloseDeleteReplyModal();
+        } else if (deletingMessage) {
+          handleCloseDeleteMessageModal();
         } else {
           setReplyingMessage(null);
-          setDeletingMessage(null);
         }
       }
     };
@@ -595,6 +958,14 @@ export default function AnonymousCouncilMessages({
         if (storedReplyLikes) {
           setLikedReplyIds(JSON.parse(storedReplyLikes));
         }
+        const storedMyPosts = localStorage.getItem("sk_tocok_my_post_ids");
+        if (storedMyPosts) {
+          setMyPostIds(JSON.parse(storedMyPosts));
+        }
+        const storedMyReplies = localStorage.getItem("sk_tocok_my_reply_ids");
+        if (storedMyReplies) {
+          setMyReplyIds(JSON.parse(storedMyReplies));
+        }
       } catch {
         // Ignore JSON error
       }
@@ -604,18 +975,48 @@ export default function AnonymousCouncilMessages({
   // Retrieve or initialize persistent anonymous alias from localStorage so it doesn't change every time
   useEffect(() => {
     if (typeof window !== "undefined") {
+      let storedAlias = "";
+      let storedDeviceId = "";
       try {
-        const storedAlias = localStorage.getItem("sk_tocok_anon_alias");
-        if (storedAlias && storedAlias.trim()) {
+        storedAlias = localStorage.getItem("sk_tocok_anon_alias") || "";
+        storedDeviceId = localStorage.getItem("sk_tocok_device_id") || "";
+        if (storedAlias.trim()) {
           setFormAlias(storedAlias.trim());
-        } else {
-          const generated = generateRandomAlias();
-          localStorage.setItem("sk_tocok_anon_alias", generated);
-          setFormAlias(generated);
         }
       } catch {
-        setFormAlias((prev) => prev || generateRandomAlias());
+        // ignore
       }
+
+      // Query server to verify and lock permanent device-bound alias
+      fetch("/api/messages/alias", {
+        headers: {
+          ...(storedDeviceId ? { "x-device-id": storedDeviceId } : {}),
+          ...(storedAlias ? { "x-stored-alias": storedAlias } : {}),
+        },
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data && data.success && data.alias) {
+            setFormAlias(data.alias);
+            try {
+              localStorage.setItem("sk_tocok_anon_alias", data.alias);
+              if (data.device_id) {
+                localStorage.setItem("sk_tocok_device_id", data.device_id);
+              }
+            } catch {
+              // ignore
+            }
+          }
+        })
+        .catch(() => {
+          if (!storedAlias) {
+            const fallback = generateRandomAlias();
+            setFormAlias(fallback);
+            try {
+              localStorage.setItem("sk_tocok_anon_alias", fallback);
+            } catch {}
+          }
+        });
     }
   }, []);
 
@@ -628,34 +1029,70 @@ export default function AnonymousCouncilMessages({
           setFormAlias(stored.trim());
           return stored.trim();
         }
-        const created = generateRandomAlias();
-        localStorage.setItem("sk_tocok_anon_alias", created);
-        setFormAlias(created);
-        return created;
       } catch {
         // ignore
       }
     }
-    const fallback = generateRandomAlias();
-    setFormAlias(fallback);
-    return fallback;
+    return formAlias || "Anonymous Youth";
   }, [formAlias]);
+
+  // Authorship checks
+  const isMyPost = useCallback(
+    (msg: PublicMessageItem) => {
+      if (myPostIds.includes(msg.id)) return true;
+      if (
+        formAlias &&
+        msg.alias &&
+        msg.alias.trim().toLowerCase().replace(/^u\//i, "") ===
+          formAlias.trim().toLowerCase().replace(/^u\//i, "")
+      ) {
+        return true;
+      }
+      return false;
+    },
+    [myPostIds, formAlias]
+  );
+
+  const isMyReply = useCallback(
+    (reply: AnonymousMessageReply) => {
+      if (myReplyIds.includes(reply.id)) return true;
+      if (
+        formAlias &&
+        reply.alias &&
+        reply.alias.trim().toLowerCase().replace(/^u\//i, "") ===
+          formAlias.trim().toLowerCase().replace(/^u\//i, "")
+      ) {
+        return true;
+      }
+      return false;
+    },
+    [myReplyIds, formAlias]
+  );
+
+  const postSortRef = useRef(postSort);
+  useEffect(() => {
+    postSortRef.current = postSort;
+  }, [postSort]);
+
+  const hasLoadedOnceRef = useRef(false);
 
   // Fetch Public Messages
   const fetchPublicMessages = useCallback(
     async (silent = false) => {
-      if (silent) setRefreshing(true);
+      // Never flash blank full-page loading spinner if messages are already loaded
+      if (silent || hasLoadedOnceRef.current) setRefreshing(true);
       else setLoading(true);
 
       try {
         const params = new URLSearchParams();
         if (selectedCategory !== "all") params.set("category", selectedCategory);
-        if (postSort) params.set("sort", postSort);
+        if (postSortRef.current) params.set("sort", postSortRef.current);
         if (publicSearch.trim()) params.set("q", publicSearch.trim());
 
         const res = await fetch(`/api/messages?${params.toString()}`);
         const data = await res.json();
         if (data.success) {
+          hasLoadedOnceRef.current = true;
           setPublicMessages(data.messages || []);
           setCategoryCounts(data.categoryCounts || {});
         } else {
@@ -671,7 +1108,7 @@ export default function AnonymousCouncilMessages({
         setRefreshing(false);
       }
     },
-    [selectedCategory, postSort, publicSearch]
+    [selectedCategory, publicSearch]
   );
 
   // Instant client-side memoized sorting for zero-latency UI reordering
@@ -699,6 +1136,9 @@ export default function AnonymousCouncilMessages({
       return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
     });
   }, [publicMessages, postSort, newlyAddedPostId]);
+
+  // Hook for animating post reordering smoothly without any blink or refresh
+  const postsContainerRef = useFlipList(postSort);
 
   // Fetch Admin Messages
   const fetchAdminMessages = useCallback(
@@ -890,9 +1330,13 @@ export default function AnonymousCouncilMessages({
     setSubmittingReply((prev) => ({ ...prev, [messageId]: true }));
 
     try {
+      const storedDeviceId = typeof window !== "undefined" ? localStorage.getItem("sk_tocok_device_id") || "" : "";
       const res = await fetch(`/api/messages/${messageId}/replies`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(storedDeviceId ? { "x-device-id": storedDeviceId } : {}),
+        },
         body: JSON.stringify({
           alias: currentAlias,
           reply: text,
@@ -903,8 +1347,26 @@ export default function AnonymousCouncilMessages({
       const data = await res.json();
       if (data.success && data.reply) {
         tactileFeedback("success");
+        if (data.reply.alias && data.reply.alias !== formAlias) {
+          setFormAlias(data.reply.alias);
+          try {
+            localStorage.setItem("sk_tocok_anon_alias", data.reply.alias);
+          } catch {}
+        }
+        if (data.device_id) {
+          try {
+            localStorage.setItem("sk_tocok_device_id", data.device_id);
+          } catch {}
+        }
         setNewlyAddedReplyId(data.reply.id);
         setTimeout(() => setNewlyAddedReplyId(null), 3000);
+        setMyReplyIds((prev) => {
+          const next = Array.from(new Set([...prev, data.reply.id]));
+          try {
+            localStorage.setItem("sk_tocok_my_reply_ids", JSON.stringify(next));
+          } catch {}
+          return next;
+        });
         setRepliesByPost((prev) => ({
           ...prev,
           [messageId]: [...(prev[messageId] || []), data.reply],
@@ -1138,9 +1600,13 @@ export default function AnonymousCouncilMessages({
             : firstLine
           : "Community Suggestion";
 
+      const storedDeviceId = typeof window !== "undefined" ? localStorage.getItem("sk_tocok_device_id") || "" : "";
       const res = await fetch("/api/messages", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(storedDeviceId ? { "x-device-id": storedDeviceId } : {}),
+        },
         body: JSON.stringify({
           category: "Suggestion",
           purok: null,
@@ -1154,6 +1620,17 @@ export default function AnonymousCouncilMessages({
       const data = await res.json();
       if (data.success) {
         tactileFeedback("success");
+        if (data.alias && data.alias !== formAlias) {
+          setFormAlias(data.alias);
+          try {
+            localStorage.setItem("sk_tocok_anon_alias", data.alias);
+          } catch {}
+        }
+        if (data.device_id) {
+          try {
+            localStorage.setItem("sk_tocok_device_id", data.device_id);
+          } catch {}
+        }
         handleCloseAddModal();
         setFormMessage("");
         setFormSubject("");
@@ -1161,6 +1638,13 @@ export default function AnonymousCouncilMessages({
         if (data.id) {
           setNewlyAddedPostId(data.id);
           setTimeout(() => setNewlyAddedPostId(null), 4000);
+          setMyPostIds((prev) => {
+            const next = Array.from(new Set([...prev, data.id]));
+            try {
+              localStorage.setItem("sk_tocok_my_post_ids", JSON.stringify(next));
+            } catch {}
+            return next;
+          });
         }
         fetchPublicMessages(true);
       } else {
@@ -1280,7 +1764,7 @@ export default function AnonymousCouncilMessages({
       const data = await res.json();
       if (data.success) {
         setToast({ type: "success", message: "Message deleted permanently." });
-        setDeletingMessage(null);
+        handleCloseDeleteMessageModal(true);
         fetchAdminMessages(true);
       } else {
         setToast({ type: "error", message: data.error || "Delete failed." });
@@ -1289,6 +1773,108 @@ export default function AnonymousCouncilMessages({
       setToast({ type: "error", message: "Failed to delete message." });
     } finally {
       setDeleteBusy(false);
+    }
+  };
+
+  // User: Delete own post
+  const handleDeleteOwnPost = async () => {
+    if (!deletingPost) return;
+    const postToDelete = deletingPost;
+    const postId = postToDelete.id;
+    tactileFeedback("tap");
+    setUserDeleteBusy(true);
+
+    // Optimistic UI removal
+    setPublicMessages((prev) => prev.filter((p) => p.id !== postId));
+    setMyPostIds((prev) => {
+      const next = prev.filter((id) => id !== postId);
+      try {
+        localStorage.setItem("sk_tocok_my_post_ids", JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+
+    handleCloseDeletePostModal(true);
+
+    try {
+      const storedDeviceId = typeof window !== "undefined" ? localStorage.getItem("sk_tocok_device_id") || "" : "";
+      const res = await fetch(`/api/messages/${postId}`, {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          ...(storedDeviceId ? { "x-device-id": storedDeviceId } : {}),
+        },
+        body: JSON.stringify({
+          alias: formAlias,
+          tracking_code: postToDelete.tracking_code,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        tactileFeedback("pop");
+      } else {
+        setToast({ type: "error", message: data.error || "Failed to delete post." });
+        fetchPublicMessages(true);
+      }
+    } catch {
+      setToast({ type: "error", message: "Failed to delete post." });
+      fetchPublicMessages(true);
+    } finally {
+      setUserDeleteBusy(false);
+    }
+  };
+
+  // User: Delete own reply/comment
+  const handleDeleteOwnReply = async () => {
+    if (!deletingReply) return;
+    const { id: replyId, messageId } = deletingReply;
+    tactileFeedback("tap");
+    setUserDeleteBusy(true);
+
+    // Optimistic UI removal
+    setRepliesByPost((prev) => ({
+      ...prev,
+      [messageId]: (prev[messageId] || []).filter((r) => r.id !== replyId),
+    }));
+    setPublicMessages((prev) =>
+      prev.map((p) =>
+        p.id === messageId
+          ? { ...p, replies_count: Math.max(0, (p.replies_count || 1) - 1) }
+          : p
+      )
+    );
+    setMyReplyIds((prev) => {
+      const next = prev.filter((id) => id !== replyId);
+      try {
+        localStorage.setItem("sk_tocok_my_reply_ids", JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+
+    handleCloseDeleteReplyModal(true);
+
+    try {
+      const storedDeviceId = typeof window !== "undefined" ? localStorage.getItem("sk_tocok_device_id") || "" : "";
+      const res = await fetch(`/api/messages/replies/${replyId}`, {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          ...(storedDeviceId ? { "x-device-id": storedDeviceId } : {}),
+        },
+        body: JSON.stringify({ alias: formAlias }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        tactileFeedback("pop");
+      } else {
+        setToast({ type: "error", message: data.error || "Failed to delete comment." });
+        fetchReplies(messageId);
+      }
+    } catch {
+      setToast({ type: "error", message: "Failed to delete comment." });
+      fetchReplies(messageId);
+    } finally {
+      setUserDeleteBusy(false);
     }
   };
 
@@ -1831,9 +2417,13 @@ export default function AnonymousCouncilMessages({
           {mounted && deletingMessage && createPortal(
             <div
               onClick={(e) => {
-                if (e.target === e.currentTarget) setDeletingMessage(null);
+                if (e.target === e.currentTarget) handleCloseDeleteMessageModal();
               }}
-              className="fixed z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 touch-none overscroll-none"
+              className={`fixed z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 touch-none overscroll-none ${
+                deleteMessageClosing
+                  ? "animate-modal-backdrop-out"
+                  : "animate-modal-backdrop-in"
+              }`}
               style={{
                 position: "fixed",
                 top: vvTop ? `${vvTop}px` : "0px",
@@ -1848,14 +2438,18 @@ export default function AnonymousCouncilMessages({
               }}
             >
               <div
-                className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl max-w-sm w-full p-5 sm:p-6 space-y-4 text-center overflow-y-auto overscroll-contain touch-pan-y animate-in fade-in zoom-in-95 duration-150"
+                className={`bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-sm w-full p-5 sm:p-6 space-y-4 text-center overflow-y-auto overscroll-contain touch-pan-y ${
+                  deleteMessageClosing
+                    ? "animate-delete-modal-out"
+                    : "animate-delete-modal-in"
+                }`}
                 style={{
                   maxHeight: vvHeight
                     ? `calc(${vvHeight}px - 1rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))`
                     : "calc(100dvh - 1.5rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))",
                 }}
               >
-                <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-600 dark:bg-rose-950/60 flex items-center justify-center mx-auto">
+                <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-600 dark:bg-rose-950/60 flex items-center justify-center mx-auto shadow-xs animate-delete-icon-pop">
                   <Trash2 className="w-6 h-6" />
                 </div>
                 <div className="space-y-1">
@@ -1869,21 +2463,19 @@ export default function AnonymousCouncilMessages({
                     </strong>
                   </p>
                 </div>
-                <div className="flex items-center justify-center gap-2 pt-2">
+                <div className="flex items-start justify-center gap-2.5 pt-2">
                   <button
-                    onClick={() => setDeletingMessage(null)}
-                    className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-300"
+                    onClick={() => handleCloseDeleteMessageModal()}
+                    disabled={deleteBusy}
+                    className="h-9 px-4 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                   >
                     Cancel
                   </button>
-                  <button
-                    onClick={handleDeleteMessage}
-                    disabled={deleteBusy}
-                    className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shadow-xs flex items-center gap-1.5"
-                  >
-                    {deleteBusy && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                    <span>Delete</span>
-                  </button>
+                  <HoldToDeleteButton
+                    onConfirm={handleDeleteMessage}
+                    busy={deleteBusy}
+                    label="Delete Permanently"
+                  />
                 </div>
               </div>
             </div>,
@@ -1927,76 +2519,92 @@ export default function AnonymousCouncilMessages({
           </div>
 
           {/* Feed Sort Bar */}
-          {!loading && publicMessages.length > 0 && (
-            <div className="bg-white dark:bg-slate-900 rounded-xl sm:rounded-2xl border border-slate-200/90 dark:border-slate-800 p-1.5 sm:p-2 shadow-2xs flex items-center justify-between gap-2 flex-wrap animate-in fade-in duration-200">
-              <div className="flex items-center gap-1 sm:gap-1.5 overflow-x-auto no-scrollbar py-0.5">
-                <span className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 px-1.5 select-none hidden xs:inline">
-                  Sort:
+          {publicMessages.length > 0 && (
+            <div className="space-y-2 sm:space-y-0 sm:flex sm:items-center sm:justify-between mb-2 animate-in fade-in duration-200">
+              {/* Mobile Header: Sort Label + Post Count Pill */}
+              <div className="flex sm:hidden items-center justify-between px-0.5">
+                <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider text-[11px] select-none">
+                  <ArrowUpDown className="w-3.5 h-3.5 text-brand-600 dark:text-brand-400" />
+                  <span>Sort Posts</span>
+                </div>
+                <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/80 px-2.5 py-0.5 rounded-full border border-slate-200/60 dark:border-slate-700/60 select-none">
+                  {publicMessages.length} {publicMessages.length === 1 ? "post" : "posts"}
                 </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    tactileFeedback("tap");
-                    setPostSort("newest");
-                  }}
-                  className={`inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-150 cursor-pointer ${
-                    postSort === "newest"
-                      ? "bg-brand-50 dark:bg-brand-950/70 text-brand-700 dark:text-brand-300 border border-brand-200/80 dark:border-brand-800/80 shadow-2xs scale-[1.02]"
-                      : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-800 dark:hover:text-slate-200"
-                  }`}
-                >
-                  <Sparkles className="w-3.5 h-3.5 text-brand-600 dark:text-brand-400" />
-                  <span>Newest</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    tactileFeedback("tap");
-                    setPostSort("top");
-                  }}
-                  className={`inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-150 cursor-pointer ${
-                    postSort === "top"
-                      ? "bg-orange-50 dark:bg-orange-950/60 text-orange-700 dark:text-orange-300 border border-orange-200/80 dark:border-orange-800/80 shadow-2xs scale-[1.02]"
-                      : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-800 dark:hover:text-slate-200"
-                  }`}
-                >
-                  <ArrowBigUp className="w-4 h-4 fill-orange-500 text-orange-500" />
-                  <span>Top</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    tactileFeedback("tap");
-                    setPostSort("discussed");
-                  }}
-                  className={`inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-150 cursor-pointer ${
-                    postSort === "discussed"
-                      ? "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800/80 shadow-2xs scale-[1.02]"
-                      : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-800 dark:hover:text-slate-200"
-                  }`}
-                >
-                  <MessageSquare className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                  <span>Most Discussed</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    tactileFeedback("tap");
-                    setPostSort("oldest");
-                  }}
-                  className={`inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-150 cursor-pointer ${
-                    postSort === "oldest"
-                      ? "bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 shadow-2xs scale-[1.02]"
-                      : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-800 dark:hover:text-slate-200"
-                  }`}
-                >
-                  <Clock className="w-3.5 h-3.5 text-slate-500" />
-                  <span>Oldest</span>
-                </button>
               </div>
 
-              <span className="text-[11px] text-slate-400 dark:text-slate-500 font-medium px-2 ml-auto hidden sm:inline select-none">
-                {publicMessages.length} {publicMessages.length === 1 ? "Post" : "Posts"}
+              {/* Segmented Control: Full-width 4-column grid on mobile, inline-flex on desktop */}
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <span className="hidden sm:inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 select-none">
+                  <ArrowUpDown className="w-3 h-3 text-brand-600 dark:text-brand-400" />
+                  Sort
+                </span>
+                <div className="w-full sm:w-auto grid grid-cols-4 sm:flex p-1 rounded-xl bg-slate-100 dark:bg-slate-800/90 border border-slate-200/80 dark:border-slate-700/60 shadow-2xs">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (postSort === "newest") return;
+                      tactileFeedback("tap");
+                      setPostSort("newest");
+                    }}
+                    className={`w-full sm:w-auto px-2.5 sm:px-3 py-1.5 sm:py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer text-center select-none ${
+                      postSort === "newest"
+                        ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 shadow-2xs font-bold ring-1 ring-black/5 dark:ring-white/10"
+                        : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
+                    }`}
+                  >
+                    Newest
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (postSort === "top") return;
+                      tactileFeedback("tap");
+                      setPostSort("top");
+                    }}
+                    className={`w-full sm:w-auto px-2.5 sm:px-3 py-1.5 sm:py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer text-center select-none ${
+                      postSort === "top"
+                        ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 shadow-2xs font-bold ring-1 ring-black/5 dark:ring-white/10"
+                        : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
+                    }`}
+                  >
+                    Top
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (postSort === "discussed") return;
+                      tactileFeedback("tap");
+                      setPostSort("discussed");
+                    }}
+                    className={`w-full sm:w-auto px-2.5 sm:px-3 py-1.5 sm:py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer text-center select-none ${
+                      postSort === "discussed"
+                        ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 shadow-2xs font-bold ring-1 ring-black/5 dark:ring-white/10"
+                        : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
+                    }`}
+                  >
+                    <span className="hidden sm:inline">Most </span>Discussed
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (postSort === "oldest") return;
+                      tactileFeedback("tap");
+                      setPostSort("oldest");
+                    }}
+                    className={`w-full sm:w-auto px-2.5 sm:px-3 py-1.5 sm:py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer text-center select-none ${
+                      postSort === "oldest"
+                        ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 shadow-2xs font-bold ring-1 ring-black/5 dark:ring-white/10"
+                        : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
+                    }`}
+                  >
+                    Oldest
+                  </button>
+                </div>
+              </div>
+
+              {/* Desktop Post Count */}
+              <span className="hidden sm:inline-block text-xs text-slate-400 dark:text-slate-500 font-medium select-none">
+                {publicMessages.length} {publicMessages.length === 1 ? "post" : "posts"}
               </span>
             </div>
           )}
@@ -2035,7 +2643,7 @@ export default function AnonymousCouncilMessages({
               </button>
             </div>
           ) : (
-            <div className="space-y-3">
+            <div ref={postsContainerRef} className="space-y-3">
                   {sortedPublicMessages.map((msg) => {
                     const isLiked = likedIds.includes(msg.id);
                     const isNewlyAddedPost = newlyAddedPostId === msg.id;
@@ -2043,6 +2651,7 @@ export default function AnonymousCouncilMessages({
                     return (
                       <div
                         key={msg.id}
+                        data-flip-id={`post-${msg.id}`}
                         className={`bg-white dark:bg-slate-900 rounded-xl sm:rounded-2xl border transition-all duration-300 p-3.5 sm:p-4.5 space-y-3 shadow-xs hover:border-slate-300 dark:hover:border-slate-700 ${
                           msg.is_pinned
                             ? "border-emerald-300/80 dark:border-emerald-800/80 bg-emerald-50/10"
@@ -2196,6 +2805,22 @@ export default function AnonymousCouncilMessages({
                               </>
                             )}
                           </button>
+
+                          {/* Delete Own Post Button */}
+                          {(isMyPost(msg) || isOfficialRole(user?.role)) && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                tactileFeedback("tap");
+                                setDeletingPost(msg);
+                              }}
+                              className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium text-slate-500 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer tactile-pill"
+                              title="Delete your post"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span className="hidden xs:inline">Delete</span>
+                            </button>
+                          )}
                         </div>
 
                         {/* Animated Reddit Comment Section Accordion */}
@@ -2300,17 +2925,17 @@ export default function AnonymousCouncilMessages({
                                             !(replyInputs[msg.id] || "").trim()
                                           }
                                           title="Comment (Enter on desktop)"
-                                          className="px-3 py-1.5 h-9 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-40 text-white font-semibold text-xs flex items-center justify-center gap-1.5 transition-all shrink-0 cursor-pointer disabled:cursor-not-allowed shadow-2xs hover:shadow-xs tactile-btn min-w-[36px] sm:w-[96px]"
+                                          className="px-3 sm:px-3.5 py-1.5 h-9 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-40 text-white font-semibold text-xs flex items-center justify-center gap-1.5 transition-all shrink-0 cursor-pointer disabled:cursor-not-allowed shadow-2xs hover:shadow-xs tactile-btn"
                                         >
                                           {submittingReply[msg.id] ? (
                                             <>
                                               <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                              <span className="hidden sm:inline">Sending...</span>
+                                              <span>Sending...</span>
                                             </>
                                           ) : (
                                             <>
                                               <Send className="w-3.5 h-3.5 transition-transform duration-200 hover:translate-x-0.5 hover:-translate-y-0.5" />
-                                              <span className="hidden sm:inline">Comment</span>
+                                              <span>Comment</span>
                                             </>
                                           )}
                                         </button>
@@ -2320,10 +2945,12 @@ export default function AnonymousCouncilMessages({
 
                                   {/* Comment Sort Selector Bar */}
                                   {postReplies.length > 0 && !loadingReplies[msg.id] && (
-                                    <div className="flex items-center justify-between pt-1 pb-0.5 text-xs">
-                                      <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 font-medium text-[11px]">
-                                        <span className="text-slate-400 select-none">Sort:</span>
-                                        <div className="inline-flex p-0.5 rounded-lg bg-slate-100 dark:bg-slate-800/90 border border-slate-200/70 dark:border-slate-700/60">
+                                    <div className="flex items-center justify-between pt-1.5 pb-1.5 border-b border-slate-100 dark:border-slate-800/70 mb-2.5">
+                                      <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 font-medium text-xs">
+                                        <span className="text-slate-400 dark:text-slate-500 text-[11px] font-semibold uppercase tracking-wider select-none hidden xs:inline">
+                                          Sort:
+                                        </span>
+                                        <div className="inline-flex p-0.5 rounded-lg bg-slate-100 dark:bg-slate-800/90 border border-slate-200/70 dark:border-slate-700/60 shadow-2xs">
                                           <button
                                             type="button"
                                             onClick={() => {
@@ -2333,10 +2960,10 @@ export default function AnonymousCouncilMessages({
                                                 [msg.id]: "top",
                                               }));
                                             }}
-                                            className={`px-2 py-0.5 rounded-md text-[10px] font-semibold transition-all cursor-pointer ${
+                                            className={`px-2.5 sm:px-3 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
                                               currentCommentSort === "top"
-                                                ? "bg-white dark:bg-slate-700 text-brand-700 dark:text-brand-300 shadow-2xs font-bold"
-                                                : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                                                ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 shadow-2xs font-bold ring-1 ring-black/5 dark:ring-white/10"
+                                                : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
                                             }`}
                                           >
                                             Top
@@ -2350,10 +2977,10 @@ export default function AnonymousCouncilMessages({
                                                 [msg.id]: "newest",
                                               }));
                                             }}
-                                            className={`px-2 py-0.5 rounded-md text-[10px] font-semibold transition-all cursor-pointer ${
+                                            className={`px-2.5 sm:px-3 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
                                               currentCommentSort === "newest"
-                                                ? "bg-white dark:bg-slate-700 text-brand-700 dark:text-brand-300 shadow-2xs font-bold"
-                                                : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                                                ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 shadow-2xs font-bold ring-1 ring-black/5 dark:ring-white/10"
+                                                : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
                                             }`}
                                           >
                                             Newest
@@ -2367,17 +2994,17 @@ export default function AnonymousCouncilMessages({
                                                 [msg.id]: "oldest",
                                               }));
                                             }}
-                                            className={`px-2 py-0.5 rounded-md text-[10px] font-semibold transition-all cursor-pointer ${
+                                            className={`px-2.5 sm:px-3 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
                                               currentCommentSort === "oldest"
-                                                ? "bg-white dark:bg-slate-700 text-brand-700 dark:text-brand-300 shadow-2xs font-bold"
-                                                : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                                                ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 shadow-2xs font-bold ring-1 ring-black/5 dark:ring-white/10"
+                                                : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
                                             }`}
                                           >
                                             Oldest
                                           </button>
                                         </div>
                                       </div>
-                                      <span className="text-[10px] text-slate-400 font-medium select-none">
+                                      <span className="text-xs font-semibold text-slate-400 dark:text-slate-500 select-none">
                                         {postReplies.length} {postReplies.length === 1 ? "comment" : "comments"}
                                       </span>
                                     </div>
@@ -2424,6 +3051,12 @@ export default function AnonymousCouncilMessages({
                                           )}
                                           userAlias={formAlias || "Anonymous Youth"}
                                           newlyAddedReplyId={newlyAddedReplyId}
+                                          onDeleteReply={(replyId, mId) => {
+                                            tactileFeedback("tap");
+                                            setDeletingReply({ id: replyId, messageId: mId });
+                                          }}
+                                          isMyComment={isMyReply(rootReply) || isOfficialRole(user?.role)}
+                                          isMyReplyFn={(rep) => isMyReply(rep) || isOfficialRole(user?.role)}
                                         />
                                       ))}
                                     </div>
@@ -2743,6 +3376,134 @@ export default function AnonymousCouncilMessages({
                       )}
                     </div>
                   )}
+                </div>
+              </div>
+            </div>,
+            document.body
+          )}
+
+          {/* =========================================================================
+              MODAL: DELETE OWN POST CONFIRMATION
+              ========================================================================= */}
+          {mounted && deletingPost && createPortal(
+            <div
+              onClick={(e) => {
+                if (e.target === e.currentTarget) handleCloseDeletePostModal();
+              }}
+              className={`fixed z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 touch-none overscroll-none ${
+                postDeleteClosing
+                  ? "animate-modal-backdrop-out"
+                  : "animate-modal-backdrop-in"
+              }`}
+              style={{
+                position: "fixed",
+                top: vvTop ? `${vvTop}px` : "0px",
+                left: "0px",
+                right: "0px",
+                bottom: "0px",
+                height: vvHeight ? `${vvHeight}px` : "100%",
+                paddingTop: "max(0.5rem, env(safe-area-inset-top, 0px))",
+                paddingBottom: "max(0.5rem, env(safe-area-inset-bottom, 0px))",
+                paddingLeft: "max(0.75rem, env(safe-area-inset-left, 0px))",
+                paddingRight: "max(0.75rem, env(safe-area-inset-right, 0px))",
+              }}
+            >
+              <div
+                className={`bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-sm w-full p-5 sm:p-6 space-y-4 text-center ${
+                  postDeleteClosing
+                    ? "animate-delete-modal-out"
+                    : "animate-delete-modal-in"
+                }`}
+              >
+                <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-600 dark:bg-rose-950/60 dark:text-rose-400 flex items-center justify-center mx-auto shadow-xs animate-delete-icon-pop">
+                  <Trash2 className="w-6 h-6" />
+                </div>
+                <div className="space-y-1">
+                  <h3 className="font-bold text-base text-slate-900 dark:text-slate-100">
+                    Delete Your Post?
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                    This will permanently remove your suggestion and all its comments. This action cannot be undone.
+                  </p>
+                </div>
+                <div className="flex items-start justify-center gap-2.5 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => handleCloseDeletePostModal()}
+                    disabled={userDeleteBusy}
+                    className="h-9 px-4 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <HoldToDeleteButton
+                    onConfirm={handleDeleteOwnPost}
+                    busy={userDeleteBusy}
+                    label="Delete Post"
+                  />
+                </div>
+              </div>
+            </div>,
+            document.body
+          )}
+
+          {/* =========================================================================
+              MODAL: DELETE OWN COMMENT CONFIRMATION
+              ========================================================================= */}
+          {mounted && deletingReply && createPortal(
+            <div
+              onClick={(e) => {
+                if (e.target === e.currentTarget) handleCloseDeleteReplyModal();
+              }}
+              className={`fixed z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 touch-none overscroll-none ${
+                replyDeleteClosing
+                  ? "animate-modal-backdrop-out"
+                  : "animate-modal-backdrop-in"
+              }`}
+              style={{
+                position: "fixed",
+                top: vvTop ? `${vvTop}px` : "0px",
+                left: "0px",
+                right: "0px",
+                bottom: "0px",
+                height: vvHeight ? `${vvHeight}px` : "100%",
+                paddingTop: "max(0.5rem, env(safe-area-inset-top, 0px))",
+                paddingBottom: "max(0.5rem, env(safe-area-inset-bottom, 0px))",
+                paddingLeft: "max(0.75rem, env(safe-area-inset-left, 0px))",
+                paddingRight: "max(0.75rem, env(safe-area-inset-right, 0px))",
+              }}
+            >
+              <div
+                className={`bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-sm w-full p-5 sm:p-6 space-y-4 text-center ${
+                  replyDeleteClosing
+                    ? "animate-delete-modal-out"
+                    : "animate-delete-modal-in"
+                }`}
+              >
+                <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-600 dark:bg-rose-950/60 dark:text-rose-400 flex items-center justify-center mx-auto shadow-xs animate-delete-icon-pop">
+                  <Trash2 className="w-6 h-6" />
+                </div>
+                <div className="space-y-1">
+                  <h3 className="font-bold text-base text-slate-900 dark:text-slate-100">
+                    Delete Your Comment?
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                    Are you sure you want to delete this comment? This action cannot be undone.
+                  </p>
+                </div>
+                <div className="flex items-start justify-center gap-2.5 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => handleCloseDeleteReplyModal()}
+                    disabled={userDeleteBusy}
+                    className="h-9 px-4 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <HoldToDeleteButton
+                    onConfirm={handleDeleteOwnReply}
+                    busy={userDeleteBusy}
+                    label="Delete Comment"
+                  />
                 </div>
               </div>
             </div>,

@@ -7,6 +7,10 @@ import {
   MESSAGE_CATEGORIES,
   PUROK_OPTIONS,
 } from "@/lib/messages";
+import {
+  getOrAssignDeviceIdentity,
+  attachDeviceCookie,
+} from "@/lib/deviceIdentity";
 
 export const dynamic = "force-dynamic";
 
@@ -203,8 +207,9 @@ export async function POST(request: Request) {
       );
     }
 
-    // Auto-assigned random alias if none provided
-    const cleanAlias = String(alias || "").trim() || generateRandomAlias();
+    // Resolve and lock permanent alias tied to device/IP
+    const deviceIdentity = await getOrAssignDeviceIdentity(request, alias);
+    const cleanAlias = deviceIdentity.alias;
 
     // Auto-generate subject from first sentence/line if none provided
     let cleanSubject = String(subject || "").trim();
@@ -266,13 +271,17 @@ export async function POST(request: Request) {
       RETURNING id, tracking_code, created_at
     `;
 
-    return NextResponse.json({
+    const res = NextResponse.json({
       success: true,
       id: rows[0].id,
       tracking_code: rows[0].tracking_code,
+      alias: cleanAlias,
+      device_id: deviceIdentity.deviceId,
       message:
         "Your anonymous post is live! You can use your tracking code to follow up anytime.",
     });
+
+    return attachDeviceCookie(res, deviceIdentity.deviceId);
   } catch (err: unknown) {
     console.error("POST /api/messages error:", err);
     return NextResponse.json(

@@ -159,8 +159,7 @@ function startDevServer() {
     nodeOptions = `${nodeOptions} --unhandled-rejections=warn`.trim();
   }
 
-  const serverScript = path.join(rootDir, 'server.js');
-  const args = isDevCommand ? [serverScript, '--dev'] : [serverScript];
+  const args = mode === 'start' ? [nextBin, 'start', '-H', '0.0.0.0'] : [nextBin, 'dev', '-H', '0.0.0.0'];
 
   devProcess = spawn(process.execPath, args, {
     cwd: rootDir,

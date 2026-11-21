@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { cleanupExpiredBlobs } from "@/lib/blobCleanup";
 import { getCurrentUser, isOfficialUser } from "@/lib/auth";

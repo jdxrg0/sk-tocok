@@ -38,7 +38,7 @@ const nextConfig = {
                 if (content.includes('installChunk(require("./" + __webpack_require__.u(chunkId)));')) {
                   content = content.replace(
                     'installChunk(require("./" + __webpack_require__.u(chunkId)));',
-                    'try { installChunk(require("./" + __webpack_require__.u(chunkId))); } catch(e) { if (e.code === "MODULE_NOT_FOUND") { installChunk(require("./chunks/" + __webpack_require__.u(chunkId))); } else throw e; }'
+                    'var u = __webpack_require__.u(chunkId); try { installChunk(require("./" + u)); } catch(e) { if (e.code === "MODULE_NOT_FOUND" && !u.startsWith("chunks/")) { installChunk(require("./chunks/" + u)); } else throw e; }'
                   );
                   fs.writeFileSync(runtimePath, content, 'utf8');
                 }

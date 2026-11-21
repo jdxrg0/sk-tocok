@@ -741,6 +741,75 @@ svg.recharts-surface:focus-visible {
   will-change: transform, opacity;
 }
 
+/* Delete Confirmation Modal Specific Animations */
+@keyframes deleteModalCardEnter {
+  0% {
+    opacity: 0;
+    transform: scale(0.90) translateY(14px);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.02) translateY(-2px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes deleteModalCardExit {
+  0% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.93) translateY(10px);
+  }
+}
+
+@keyframes deleteIconPop {
+  0% {
+    transform: scale(0.5) rotate(-10deg);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.15) rotate(4deg);
+    opacity: 1;
+  }
+  80% {
+    transform: scale(0.96) rotate(-2deg);
+  }
+  100% {
+    transform: scale(1) rotate(0deg);
+    opacity: 1;
+  }
+}
+
+.animate-delete-modal-in {
+  animation: deleteModalCardEnter 0.26s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity;
+}
+
+.animate-delete-modal-out {
+  animation: deleteModalCardExit 0.18s cubic-bezier(0.4, 0, 1, 1) forwards;
+  will-change: transform, opacity;
+}
+
+.animate-delete-icon-pop {
+  animation: deleteIconPop 0.36s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes buttonShake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-4px); }
+  40%, 80% { transform: translateX(4px); }
+}
+
+.animate-shake {
+  animation: buttonShake 0.35s ease-in-out;
+}
+
 
 
 

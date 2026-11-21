@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { inferMimeType } from "@/lib/storage";
+import sharp from "sharp";
 
 export const dynamic = "force-dynamic";
 
@@ -52,13 +53,45 @@ function detectMimeType(
   return "application/octet-stream";
 }
 
+async function maybeResizeImage(
+  buffer: Buffer,
+  contentType: string,
+  targetWidth: number,
+  safeFileName: string
+): Promise<{ buffer: Buffer; contentType: string; fileName: string }> {
+  if (
+    targetWidth > 0 &&
+    contentType.startsWith("image/") &&
+    contentType !== "image/svg+xml"
+  ) {
+    try {
+      const resized = await sharp(buffer)
+        .rotate()
+        .resize({
+          width: Math.min(Math.max(targetWidth, 50), 1600),
+          withoutEnlargement: true,
+        })
+        .webp({ quality: 75 })
+        .toBuffer();
+      return {
+        buffer: resized,
+        contentType: "image/webp",
+        fileName: `${safeFileName.replace(/\.[^/.]+$/, "")}.webp`,
+      };
+    } catch (err) {
+      console.warn("Sharp thumbnail resize failed, using original:", err);
+    }
+  }
+  return { buffer, contentType, fileName: safeFileName };
+}
+
 /**
  * Streams a public Google Drive file cleanly so it renders reliably inside `<img>` tags
  * (deposit slips, official avatars, voucher scans) as well as inline PDF/SVG browser tabs,
- * with immutable CDN/browser caching.
+ * with optional width resizing (`?w=400`) and immutable CDN/browser caching.
  */
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ fileId: string }> }
 ) {
   try {
@@ -68,6 +101,10 @@ export async function GET(
     if (!FILE_ID_PATTERN.test(cleanId)) {
       return NextResponse.json({ error: "Invalid Google Drive file ID" }, { status: 400 });
     }
+
+    const { searchParams } = new URL(request.url);
+    const targetWidthRaw = searchParams.get("w") || searchParams.get("width");
+    const targetWidth = targetWidthRaw ? parseInt(targetWidthRaw, 10) : 0;
 
     const downloadUrl = `https://drive.google.com/uc?export=download&id=${encodeURIComponent(cleanId)}`;
     let res: Response | null = null;
@@ -99,13 +136,16 @@ export async function GET(
         );
         const lh3Type = lh3Res.headers.get("content-type") || "";
         if (lh3Res.ok && lh3Type && !lh3Type.includes("text/html")) {
-          const lh3Buf = Buffer.from(await lh3Res.arrayBuffer());
-          return new NextResponse(lh3Buf, {
+          const lh3RawBuf = Buffer.from(await lh3Res.arrayBuffer());
+          const { buffer: lh3Buf, contentType: finalLh3Type, fileName: finalLh3Name } =
+            await maybeResizeImage(lh3RawBuf, lh3Type, targetWidth, cleanId);
+
+          return new NextResponse(new Uint8Array(lh3Buf), {
             status: 200,
             headers: {
-              "Content-Type": lh3Type,
+              "Content-Type": finalLh3Type,
               "Content-Length": String(lh3Buf.length),
-              "Content-Disposition": "inline",
+              "Content-Disposition": `inline; filename="${finalLh3Name}"`,
               "Cache-Control": "public, max-age=31536000, immutable",
               "X-Content-Type-Options": "nosniff",
             },
@@ -121,19 +161,25 @@ export async function GET(
       );
     }
 
-    const buffer = Buffer.from(await res.arrayBuffer());
+    const rawBuffer = Buffer.from(await res.arrayBuffer());
     const disposition = res.headers.get("content-disposition") || "";
     const fileNameMatch = disposition.match(/filename\*?=(?:UTF-8''|")?([^";\r\n]+)/i);
     const safeFileName = fileNameMatch
       ? decodeURIComponent(fileNameMatch[1].replace(/"/g, "")).replace(/["\r\n\\]/g, "_")
       : cleanId;
 
-    const contentType = detectMimeType(rawContentType, safeFileName, buffer);
+    const detectedType = detectMimeType(rawContentType, safeFileName, rawBuffer);
+    const { buffer, contentType, fileName } = await maybeResizeImage(
+      rawBuffer,
+      detectedType,
+      targetWidth,
+      safeFileName
+    );
 
     const headers: Record<string, string> = {
       "Content-Type": contentType,
       "Content-Length": String(buffer.length),
-      "Content-Disposition": `inline; filename="${safeFileName}"`,
+      "Content-Disposition": `inline; filename="${fileName}"`,
       "Cache-Control": "public, max-age=31536000, immutable",
       "X-Content-Type-Options": "nosniff",
     };
@@ -143,7 +189,7 @@ export async function GET(
         "default-src 'none'; style-src 'unsafe-inline'; img-src data:;";
     }
 
-    return new NextResponse(buffer, { status: 200, headers });
+    return new NextResponse(new Uint8Array(buffer), { status: 200, headers });
   } catch (error) {
     console.error("Google Drive proxy error:", error);
     return NextResponse.json(

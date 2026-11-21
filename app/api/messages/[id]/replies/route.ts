@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { ensureMessagesTable, generateRandomAlias } from "@/lib/messages";
+import {
+  getOrAssignDeviceIdentity,
+  attachDeviceCookie,
+} from "@/lib/deviceIdentity";
 
 export const dynamic = "force-dynamic";
 
@@ -85,7 +89,9 @@ export async function POST(
       );
     }
 
-    const cleanAlias = String(alias || "").trim() || generateRandomAlias();
+    // Resolve and lock permanent alias tied to device/IP
+    const deviceIdentity = await getOrAssignDeviceIdentity(request, alias);
+    const cleanAlias = deviceIdentity.alias;
 
     // Verify post exists and is public
     const postCheck = await sql`
@@ -128,10 +134,13 @@ export async function POST(
       RETURNING id, message_id, parent_id, alias, reply, likes_count, created_at
     `;
 
-    return NextResponse.json({
+    const res = NextResponse.json({
       success: true,
       reply: rows[0],
+      device_id: deviceIdentity.deviceId,
     });
+
+    return attachDeviceCookie(res, deviceIdentity.deviceId);
   } catch (err: unknown) {
     console.error("POST /api/messages/[id]/replies error:", err);
     return NextResponse.json(

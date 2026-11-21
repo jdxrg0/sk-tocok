@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { ensureStoredFilesTable } from "@/lib/storage";
+import sharp from "sharp";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
@@ -15,6 +16,10 @@ export async function GET(
     if (!cleanId || cleanId.includes("/") || cleanId.includes("..")) {
       return NextResponse.json({ error: "Invalid file identifier" }, { status: 400 });
     }
+
+    const { searchParams } = new URL(request.url);
+    const targetWidthRaw = searchParams.get("w") || searchParams.get("width");
+    const targetWidth = targetWidthRaw ? parseInt(targetWidthRaw, 10) : 0;
 
     await ensureStoredFilesTable();
 
@@ -36,24 +41,49 @@ export async function GET(
       data_base64: string;
     };
 
-    const buffer = Buffer.from(row.data_base64, "base64");
+    const rawBuffer = Buffer.from(row.data_base64, "base64");
     const safeFileName = (row.file_name || cleanId).replace(/["\r\n\\]/g, "_");
 
+    let finalBuffer = rawBuffer;
+    let finalContentType = row.mime_type || "application/octet-stream";
+    let finalFileName = safeFileName;
+
+    if (
+      targetWidth > 0 &&
+      finalContentType.startsWith("image/") &&
+      finalContentType !== "image/svg+xml"
+    ) {
+      try {
+        finalBuffer = await sharp(rawBuffer)
+          .rotate()
+          .resize({
+            width: Math.min(Math.max(targetWidth, 50), 1600),
+            withoutEnlargement: true,
+          })
+          .webp({ quality: 75 })
+          .toBuffer();
+        finalContentType = "image/webp";
+        finalFileName = `${safeFileName.replace(/\.[^/.]+$/, "")}.webp`;
+      } catch (err) {
+        console.warn("Sharp thumbnail generation fallback for stored file:", err);
+      }
+    }
+
     const headers: Record<string, string> = {
-      "Content-Type": row.mime_type || "application/octet-stream",
-      "Content-Length": String(buffer.length),
-      "Content-Disposition": `inline; filename="${safeFileName}"`,
+      "Content-Type": finalContentType,
+      "Content-Length": String(finalBuffer.length),
+      "Content-Disposition": `inline; filename="${finalFileName}"`,
       // Files have immutable UUID identifiers, so aggressive browser/CDN caching minimizes DB egress
       "Cache-Control": "public, max-age=31536000, immutable",
       "X-Content-Type-Options": "nosniff",
     };
 
     // Harden inline SVG rendering against script execution
-    if (row.mime_type === "image/svg+xml") {
+    if (finalContentType === "image/svg+xml") {
       headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'; img-src data:;";
     }
 
-    return new NextResponse(buffer, { status: 200, headers });
+    return new NextResponse(new Uint8Array(finalBuffer), { status: 200, headers });
   } catch (error) {
     console.error("Serve stored file error:", error);
     return NextResponse.json({ error: "Failed to load file from cloud database" }, { status: 500 });

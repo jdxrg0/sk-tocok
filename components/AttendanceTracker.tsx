@@ -32,6 +32,7 @@ import {
   getOfficialInitials,
   getOfficialRoleRank,
   getOfficialShortName,
+  getThumbnailUrl,
   splitOfficialName,
   type AttendanceApiResponse,
   type AttendanceSessionItem,
@@ -113,6 +114,199 @@ function triggerHaptic(pattern: number | number[] = 15) {
   }
 }
 
+function ProofPhotoThumbnail({
+  url,
+  alt,
+  idx,
+  total,
+  canManage,
+  onOpenLightbox,
+  onDelete,
+  aspectClass = "aspect-4/3",
+  hero = false,
+}: {
+  url: string;
+  alt: string;
+  idx: number;
+  total: number;
+  canManage: boolean;
+  onOpenLightbox: () => void;
+  onDelete?: () => void;
+  aspectClass?: string;
+  hero?: boolean;
+}) {
+  const [loaded, setLoaded] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+
+  // Serve lightweight low-resolution thumbnail (WebP) for instant mobile loading
+  const thumbUrl = useMemo(
+    () => getThumbnailUrl(url, hero ? 600 : 400),
+    [url, hero]
+  );
+  const [currentSrc, setCurrentSrc] = useState(thumbUrl);
+
+  useEffect(() => {
+    setCurrentSrc(thumbUrl);
+    setLoaded(false);
+    setFailed(false);
+  }, [thumbUrl, retryCount]);
+
+  const handleImageError = () => {
+    // If resized thumbnail endpoint fails, try original image URL directly before reporting failure
+    if (currentSrc !== url) {
+      setCurrentSrc(url);
+    } else {
+      setFailed(true);
+    }
+  };
+
+  return (
+    <div
+      onClick={() => {
+        if (!failed) onOpenLightbox();
+      }}
+      className={`group relative ${aspectClass} rounded-2xl overflow-hidden border border-slate-200/90 dark:border-slate-700/80 bg-slate-100 dark:bg-slate-800 shadow-2xs hover:shadow-md cursor-pointer select-none active:scale-[0.99] transition-all`}
+    >
+      {/* Loading Skeleton / Placeholder for slow internet */}
+      {!loaded && !failed && (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-3 text-center bg-slate-100/95 dark:bg-slate-800/95 animate-pulse">
+          <div className="w-8 h-8 rounded-full bg-white dark:bg-slate-700 shadow-2xs flex items-center justify-center mb-1.5">
+            <Loader2 className="w-4 h-4 text-brand-600 dark:text-brand-400 animate-spin" />
+          </div>
+          <p className="text-[11px] font-bold text-slate-700 dark:text-slate-200 flex items-center justify-center gap-1">
+            <Camera className="w-3 h-3 text-brand-600 dark:text-brand-400 shrink-0" />
+            <span>Loading photo {idx + 1}...</span>
+          </p>
+          <p className="text-[9.5px] text-slate-400 dark:text-slate-500 font-medium mt-0.5">
+            Fast thumbnail preview
+          </p>
+        </div>
+      )}
+
+      {/* Error Fallback */}
+      {failed && (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-2.5 text-center bg-slate-100 dark:bg-slate-800 text-slate-400">
+          <AlertCircle className="w-5 h-5 text-amber-500 mb-1" />
+          <p className="text-[10.5px] font-semibold text-slate-700 dark:text-slate-300">
+            Failed to load photo
+          </p>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setFailed(false);
+              setLoaded(false);
+              setRetryCount((c) => c + 1);
+            }}
+            className="mt-1.5 px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-300 active:scale-95 transition-all cursor-pointer"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {/* Lightweight Thumbnail with Smooth Fade-in */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        key={`${currentSrc}-${retryCount}`}
+        src={currentSrc}
+        alt={alt}
+        loading="lazy"
+        decoding="async"
+        onLoad={() => setLoaded(true)}
+        onError={handleImageError}
+        className={`w-full h-full object-cover group-hover:scale-105 transition-all duration-300 ${
+          loaded ? "opacity-100" : "opacity-0"
+        }`}
+      />
+
+      {/* Floating Bottom Badge */}
+      <div className="absolute bottom-2 left-2 px-2 py-1 rounded-lg bg-black/65 backdrop-blur-md text-[10px] font-semibold text-white z-10 pointer-events-none flex items-center gap-1.5 shadow-sm">
+        {hero ? (
+          <>
+            <Maximize2 className="w-3 h-3 text-white/90" />
+            <span>1/1 • Tap to view full size</span>
+          </>
+        ) : (
+          <span>
+            {idx + 1}/{total}
+          </span>
+        )}
+      </div>
+
+      {/* Floating Expand hint on top right on desktop hover */}
+      {loaded && (
+        <div className="absolute inset-0 bg-slate-900/0 group-hover:bg-slate-900/25 transition-colors flex items-center justify-center">
+          <Maximize2 className="w-5 h-5 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-md" />
+        </div>
+      )}
+
+      {/* Delete Button for Officials - Clearly visible on mobile touch screens */}
+      {canManage && onDelete && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+          title="Remove this photo"
+          className="absolute top-2 right-2 z-20 p-1.5 rounded-xl bg-rose-600/90 hover:bg-rose-700 active:scale-90 text-white opacity-95 sm:opacity-0 sm:group-hover:opacity-100 transition-all shadow-md cursor-pointer"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      )}
+    </div>
+  );
+}
+
+function FormPhotoThumbnail({
+  url,
+  idx,
+  onRemove,
+}: {
+  url: string;
+  idx: number;
+  onRemove: () => void;
+}) {
+  const [loaded, setLoaded] = useState(false);
+  const thumbUrl = useMemo(() => getThumbnailUrl(url, 300), [url]);
+  const [currentSrc, setCurrentSrc] = useState(thumbUrl);
+
+  return (
+    <div className="group relative aspect-4/3 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 shadow-2xs">
+      {!loaded && (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-slate-100/90 dark:bg-slate-800/90 animate-pulse text-[10px] text-slate-400 font-semibold gap-1">
+          <Loader2 className="w-3.5 h-3.5 animate-spin text-brand-600" />
+          <span>Loading...</span>
+        </div>
+      )}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={currentSrc}
+        alt={`Proof ${idx + 1}`}
+        loading="lazy"
+        decoding="async"
+        onLoad={() => setLoaded(true)}
+        onError={() => {
+          if (currentSrc !== url) setCurrentSrc(url);
+        }}
+        className={`w-full h-full object-cover transition-opacity duration-200 ${
+          loaded ? "opacity-100" : "opacity-0"
+        }`}
+      />
+      <button
+        type="button"
+        onClick={onRemove}
+        title="Remove photo"
+        className="absolute top-1 right-1 z-20 p-1 rounded-md bg-rose-600 hover:bg-rose-700 text-white shadow-xs cursor-pointer active:scale-90 transition-transform"
+      >
+        <X className="w-3 h-3" />
+      </button>
+    </div>
+  );
+}
+
 export default function AttendanceTracker({ mode = "public" }: AttendanceTrackerProps) {
   const { user } = useAuth();
   const isOfficialUser = Boolean(user && isOfficialRole(user.role));
@@ -163,6 +357,13 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
     index?: number;
     total?: number;
   } | null>(null);
+  const [lightboxLoaded, setLightboxLoaded] = useState(false);
+  const [deletingPhoto, setDeletingPhoto] = useState<{
+    sessionId: number;
+    photoUrl: string;
+    sessionTitle?: string;
+  } | null>(null);
+  const [deletePhotoBusy, setDeletePhotoBusy] = useState(false);
 
 
   // Smooth modal open/close animation states
@@ -241,7 +442,8 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        if (lightboxPhoto) setLightboxPhoto(null);
+        if (deletingPhoto && !deletePhotoBusy) setDeletingPhoto(null);
+        else if (lightboxPhoto) setLightboxPhoto(null);
         else if (showFormModal) closeFormModal();
         else if (viewingMonthGroup) closeMonthModal();
         else if (viewingSession) closeSessionModal();
@@ -252,7 +454,7 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [lightboxPhoto, showFormModal, viewingMonthGroup, viewingSession, viewingOfficial, showSearchModal, deletingSession, deleteBusy, closeFormModal, closeMonthModal, closeSessionModal, closeOfficialModal]);
+  }, [deletingPhoto, deletePhotoBusy, lightboxPhoto, showFormModal, viewingMonthGroup, viewingSession, viewingOfficial, showSearchModal, deletingSession, deleteBusy, closeFormModal, closeMonthModal, closeSessionModal, closeOfficialModal]);
 
 
   // Auto-dismiss toast
@@ -294,7 +496,8 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
     Boolean(viewingSession) ||
     Boolean(viewingOfficial) ||
     Boolean(viewingMonthGroup) ||
-    Boolean(deletingSession);
+    Boolean(deletingSession) ||
+    Boolean(deletingPhoto);
 
   useEffect(() => {
     if (!anyModalOpen) return;
@@ -633,8 +836,18 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
     }
   };
 
-  const handleDeleteProofPhoto = async (sessionId: number, photoUrl: string) => {
-    if (!confirm("Are you sure you want to remove this proof photo?")) return;
+  const handleRequestDeletePhoto = (sessionId: number, photoUrl: string, sessionTitle?: string) => {
+    setDeletingPhoto({
+      sessionId,
+      photoUrl,
+      sessionTitle,
+    });
+  };
+
+  const handleConfirmDeletePhoto = async () => {
+    if (!deletingPhoto) return;
+    const { sessionId, photoUrl } = deletingPhoto;
+    setDeletePhotoBusy(true);
     try {
       const currentSession = yearSessions.find((s) => s.id === sessionId);
       const existingPhotos = currentSession?.proof_photos || [];
@@ -672,39 +885,73 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
             : null
         );
       }
-      setToast({ type: "success", message: "Photo removed." });
+      setData((prev) =>
+        prev
+          ? {
+              ...prev,
+              sessions: prev.sessions.map((s) =>
+                s.id === sessionId ? { ...s, proof_photos: updatedPhotos } : s
+              ),
+            }
+          : null
+      );
+
+      if (lightboxPhoto && lightboxPhoto.url === photoUrl) {
+        setLightboxPhoto(null);
+      }
+
+      setDeletingPhoto(null);
+      setToast({ type: "success", message: "Proof photo removed." });
       await fetchAttendance(true);
     } catch (err) {
       setToast({ type: "error", message: err instanceof Error ? err.message : "Failed to remove photo." });
+    } finally {
+      setDeletePhotoBusy(false);
     }
   };
 
   const renderSessionProofSection = (session: AttendanceSessionItem) => {
     const photos = session.proof_photos || [];
     return (
-      <div className="space-y-2 pb-3 mb-3 border-b border-slate-100 dark:border-slate-800">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800 dark:text-slate-200">
-            <Camera className="w-3.5 h-3.5 text-brand-600 dark:text-brand-400" />
-            <span>Documentation & Photo Proof</span>
-            {photos.length > 0 && (
-              <span className="px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-[10px] font-bold text-slate-600 dark:text-slate-400">
-                {photos.length} {photos.length === 1 ? "photo" : "photos"}
-              </span>
-            )}
+      <div className="space-y-2.5 pt-3 mt-1 border-t border-slate-100 dark:border-slate-800 pb-1">
+        {/* Header with Title + Counter Badge + Add Photo Action Button */}
+        <div className="flex items-center justify-between gap-2 min-w-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-7 h-7 rounded-lg bg-brand-50 dark:bg-brand-950/70 border border-brand-200/50 dark:border-brand-800/50 flex items-center justify-center shrink-0 text-brand-600 dark:text-brand-400 shadow-2xs">
+              <Camera className="w-3.5 h-3.5" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
+                  Photo Documentation
+                </span>
+                {photos.length > 0 && (
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-[10px] font-bold text-slate-600 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60 leading-none">
+                    {photos.length}
+                  </span>
+                )}
+              </div>
+              <p className="text-[10px] text-slate-400 dark:text-slate-500 truncate leading-tight mt-0.5">
+                {photos.length === 0
+                  ? "No photos attached"
+                  : photos.length === 1
+                  ? "1 attached photo"
+                  : `${photos.length} attached photos`}
+              </p>
+            </div>
           </div>
 
           {canManage && (
-            <label className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-brand-50 hover:bg-brand-100 dark:bg-brand-950/60 dark:hover:bg-brand-900/60 text-brand-700 dark:text-brand-300 text-[11px] font-bold cursor-pointer active:scale-95 transition-all select-none border border-brand-200/60 dark:border-brand-800/60 shadow-2xs">
+            <label className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 active:scale-95 text-white text-xs font-bold transition-all cursor-pointer shrink-0 shadow-xs select-none">
               {inlineUploading ? (
                 <>
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                  <span>Uploading...</span>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span className="hidden sm:inline">Uploading...</span>
                 </>
               ) : (
                 <>
-                  <Plus className="w-3 h-3 stroke-[2.5]" />
-                  <span>Insert Picture</span>
+                  <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                  <span>Add Photo</span>
                 </>
               )}
               <input
@@ -724,62 +971,117 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
           )}
         </div>
 
+        {/* Dynamic Mobile-Optimized Photo Grid */}
         {photos.length > 0 ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-0.5">
-            {photos.map((photoUrl, idx) => (
-              <div
-                key={photoUrl + idx}
-                onClick={() =>
+          photos.length === 1 ? (
+            /* Single Hero Photo on mobile: full width, high impact */
+            <div className="pt-0.5">
+              <ProofPhotoThumbnail
+                url={photos[0]}
+                alt={`${session.title} proof 1`}
+                idx={0}
+                total={1}
+                canManage={canManage}
+                aspectClass="aspect-16/10 sm:aspect-16/9"
+                hero={true}
+                onOpenLightbox={() => {
+                  setLightboxLoaded(false);
                   setLightboxPhoto({
-                    url: photoUrl,
-                    title: `${session.title} (Photo ${idx + 1}/${photos.length})`,
-                    index: idx,
-                    total: photos.length,
-                  })
-                }
-                className="group relative aspect-4/3 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 shadow-2xs cursor-pointer select-none"
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={photoUrl}
-                  alt={`${session.title} proof ${idx + 1}`}
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
-                  loading="lazy"
+                    url: photos[0],
+                    title: `${session.title} (Photo 1/1)`,
+                    index: 0,
+                    total: 1,
+                  });
+                }}
+                onDelete={() => handleRequestDeletePhoto(session.id, photos[0], session.title)}
+              />
+            </div>
+          ) : photos.length === 3 ? (
+            /* 3 Photos: 1 Hero Top + 2 Side-by-Side Below */
+            <div className="grid grid-cols-2 gap-2 pt-0.5">
+              <div className="col-span-2">
+                <ProofPhotoThumbnail
+                  url={photos[0]}
+                  alt={`${session.title} proof 1`}
+                  idx={0}
+                  total={3}
+                  canManage={canManage}
+                  aspectClass="aspect-16/9"
+                  hero={true}
+                  onOpenLightbox={() => {
+                    setLightboxLoaded(false);
+                    setLightboxPhoto({
+                      url: photos[0],
+                      title: `${session.title} (Photo 1/3)`,
+                      index: 0,
+                      total: 3,
+                    });
+                  }}
+                  onDelete={() => handleRequestDeletePhoto(session.id, photos[0], session.title)}
                 />
-                <div className="absolute inset-0 bg-slate-900/0 group-hover:bg-slate-900/35 transition-colors flex items-center justify-center">
-                  <Maximize2 className="w-4 h-4 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-md" />
-                </div>
-
-                {canManage && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDeleteProofPhoto(session.id, photoUrl);
-                    }}
-                    title="Remove this photo"
-                    className="absolute top-1.5 right-1.5 p-1 rounded-md bg-rose-600/90 hover:bg-rose-700 text-white opacity-0 group-hover:opacity-100 transition-opacity shadow-xs cursor-pointer"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </button>
-                )}
               </div>
-            ))}
-          </div>
+              {photos.slice(1).map((photoUrl, i) => {
+                const idx = i + 1;
+                return (
+                  <ProofPhotoThumbnail
+                    key={photoUrl + idx}
+                    url={photoUrl}
+                    alt={`${session.title} proof ${idx + 1}`}
+                    idx={idx}
+                    total={photos.length}
+                    canManage={canManage}
+                    aspectClass="aspect-4/3"
+                    onOpenLightbox={() => {
+                      setLightboxLoaded(false);
+                      setLightboxPhoto({
+                        url: photoUrl,
+                        title: `${session.title} (Photo ${idx + 1}/${photos.length})`,
+                        index: idx,
+                        total: photos.length,
+                      });
+                    }}
+                    onDelete={() => handleRequestDeletePhoto(session.id, photoUrl, session.title)}
+                  />
+                );
+              })}
+            </div>
+          ) : (
+            /* 2 or 4+ Photos: Clean 2-column grid on mobile, 3-column on tablet/desktop */
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-0.5">
+              {photos.map((photoUrl, idx) => (
+                <ProofPhotoThumbnail
+                  key={photoUrl + idx}
+                  url={photoUrl}
+                  alt={`${session.title} proof ${idx + 1}`}
+                  idx={idx}
+                  total={photos.length}
+                  canManage={canManage}
+                  aspectClass="aspect-4/3"
+                  onOpenLightbox={() => {
+                    setLightboxLoaded(false);
+                    setLightboxPhoto({
+                      url: photoUrl,
+                      title: `${session.title} (Photo ${idx + 1}/${photos.length})`,
+                      index: idx,
+                      total: photos.length,
+                    });
+                  }}
+                  onDelete={() => handleRequestDeletePhoto(session.id, photoUrl, session.title)}
+                />
+              ))}
+            </div>
+          )
         ) : (
-          <div className="rounded-xl border border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 p-3 text-center">
+          <div className="rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 p-4 text-center">
             <div className="flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 py-1">
               <ImageIcon className="w-5 h-5 mb-1 text-slate-300 dark:text-slate-600 stroke-[1.5]" />
-              <p className="text-[11px] font-medium text-slate-600 dark:text-slate-400">No proof pictures attached yet</p>
-              {!canManage && (
-                <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
-                  Sign in as an SK Official or Admin to upload documentation photos.
-                </p>
-              )}
-              {canManage && (
-                <label className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-bold text-brand-600 dark:text-brand-400 hover:underline cursor-pointer">
-                  <Upload className="w-3 h-3" />
-                  <span>Upload meeting photo or attendance log</span>
+              <p className="text-xs font-semibold text-slate-600 dark:text-slate-400">
+                No proof pictures attached yet
+              </p>
+              {canManage ? (
+                <label className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-200/80 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold cursor-pointer active:scale-95 transition-all shadow-2xs">
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>Upload Documentation Photo</span>
                   <input
                     type="file"
                     accept="image/*"
@@ -794,6 +1096,10 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
                     className="hidden"
                   />
                 </label>
+              ) : (
+                <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
+                  Sign in as an SK Official or Admin to upload documentation photos.
+                </p>
               )}
             </div>
           </div>
@@ -1559,88 +1865,6 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
                   />
                 </div>
 
-                {/* Proof Pictures & Documentation */}
-                <div className="space-y-1.5 pt-1">
-                  <div className="flex items-center justify-between">
-                    <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                      Proof Pictures & Documentation
-                    </label>
-                    <label className="inline-flex items-center gap-1 text-[11px] font-bold text-brand-600 dark:text-brand-400 hover:underline cursor-pointer">
-                      <Plus className="w-3 h-3 stroke-[2.5]" />
-                      <span>{uploadingPhotos ? "Uploading..." : "Add Picture"}</span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        multiple
-                        disabled={uploadingPhotos}
-                        onChange={(e) => {
-                          if (e.target.files && e.target.files.length > 0) {
-                            handleUploadFormPhotos(e.target.files);
-                            e.target.value = "";
-                          }
-                        }}
-                        className="hidden"
-                      />
-                    </label>
-                  </div>
-
-                  {formProofPhotos.length > 0 ? (
-                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 pt-1">
-                      {formProofPhotos.map((url, idx) => (
-                        <div
-                          key={url + idx}
-                          className="group relative aspect-4/3 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 shadow-2xs"
-                        >
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={url}
-                            alt={`Proof ${idx + 1}`}
-                            className="w-full h-full object-cover"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveFormPhoto(idx)}
-                            title="Remove photo"
-                            className="absolute top-1 right-1 p-1 rounded-md bg-rose-600 hover:bg-rose-700 text-white shadow-xs cursor-pointer"
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <label className="border border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-3 flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800/40 cursor-pointer transition-colors text-center">
-                      {uploadingPhotos ? (
-                        <div className="flex items-center gap-2 py-1 text-brand-600 text-xs font-semibold">
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          <span>Uploading pictures...</span>
-                        </div>
-                      ) : (
-                        <div className="py-1">
-                          <ImageIcon className="w-5 h-5 mx-auto mb-1 text-slate-300 dark:text-slate-600" />
-                          <p className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
-                            Click to upload session pictures (meeting, attendance sheet, etc.)
-                          </p>
-                          <p className="text-[10px] text-slate-400">JPG, PNG, or WEBP up to 15MB each</p>
-                        </div>
-                      )}
-                      <input
-                        type="file"
-                        accept="image/*"
-                        multiple
-                        disabled={uploadingPhotos}
-                        onChange={(e) => {
-                          if (e.target.files && e.target.files.length > 0) {
-                            handleUploadFormPhotos(e.target.files);
-                            e.target.value = "";
-                          }
-                        }}
-                        className="hidden"
-                      />
-                    </label>
-                  )}
-                </div>
-
                 {/* Roll Call Checklist */}
                 <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
                   <div className="flex items-center justify-between gap-2">
@@ -1709,6 +1933,75 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
                     })}
                   </div>
                 </div>
+
+                {/* Proof Pictures & Documentation */}
+                <div className="space-y-1.5 pt-2 border-t border-slate-100 dark:border-slate-800">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                      Proof Pictures & Documentation
+                    </label>
+                    <label className="inline-flex items-center gap-1 text-[11px] font-bold text-brand-600 dark:text-brand-400 hover:underline cursor-pointer">
+                      <Plus className="w-3 h-3 stroke-[2.5]" />
+                      <span>{uploadingPhotos ? "Uploading..." : "Add Picture"}</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        disabled={uploadingPhotos}
+                        onChange={(e) => {
+                          if (e.target.files && e.target.files.length > 0) {
+                            handleUploadFormPhotos(e.target.files);
+                            e.target.value = "";
+                          }
+                        }}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+
+                  {formProofPhotos.length > 0 ? (
+                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 pt-1">
+                      {formProofPhotos.map((url, idx) => (
+                        <FormPhotoThumbnail
+                          key={url + idx}
+                          url={url}
+                          idx={idx}
+                          onRemove={() => handleRemoveFormPhoto(idx)}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <label className="border border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-3 flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800/40 cursor-pointer transition-colors text-center">
+                      {uploadingPhotos ? (
+                        <div className="flex items-center gap-2 py-1 text-brand-600 text-xs font-semibold">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Uploading pictures...</span>
+                        </div>
+                      ) : (
+                        <div className="py-1">
+                          <ImageIcon className="w-5 h-5 mx-auto mb-1 text-slate-300 dark:text-slate-600" />
+                          <p className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                            Click to upload session pictures (meeting, attendance sheet, etc.)
+                          </p>
+                          <p className="text-[10px] text-slate-400">JPG, PNG, or WEBP up to 15MB each</p>
+                        </div>
+                      )}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        disabled={uploadingPhotos}
+                        onChange={(e) => {
+                          if (e.target.files && e.target.files.length > 0) {
+                            handleUploadFormPhotos(e.target.files);
+                            e.target.value = "";
+                          }
+                        }}
+                        className="hidden"
+                      />
+                    </label>
+                  )}
+                </div>
               </div>
 
               {/* Footer: shrink-0 */}
@@ -1775,8 +2068,8 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
               transition: "transform 260ms cubic-bezier(0.16, 1, 0.3, 1), opacity 240ms cubic-bezier(0.16, 1, 0.3, 1)",
             }}
           >
-            <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 shrink-0">
-              <div className="space-y-1 min-w-0">
+            <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 shrink-0 flex items-start justify-between gap-3">
+              <div className="space-y-1 min-w-0 flex-1">
                 <span
                   className={`inline-flex text-[10px] font-bold px-2 py-0.5 rounded-full border ${getActivityTypeBadge(
                     viewingSession.activity_type
@@ -1788,17 +2081,31 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
                   {viewingSession.title}
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
-                  <Calendar className="w-3 h-3" />
-                  {formatDateDisplay(viewingSession.session_date)}
-                  {viewingSession.location && ` • ${viewingSession.location}`}
+                  <Calendar className="w-3 h-3 shrink-0" />
+                  <span>{formatDateDisplay(viewingSession.session_date)}</span>
+                  {viewingSession.location && (
+                    <span className="truncate"> • {viewingSession.location}</span>
+                  )}
                 </p>
               </div>
+
+              {/* Close Button */}
+              <button
+                type="button"
+                onTouchStart={() => triggerHaptic(12)}
+                onClick={() => {
+                  triggerHaptic(15);
+                  closeSessionModal();
+                }}
+                className="p-1.5 -mr-1 -mt-0.5 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-90 transition-all cursor-pointer select-none shrink-0"
+                aria-label="Close dialog"
+                title="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
 
-            <div className="p-4 overflow-y-auto space-y-2 flex-1 min-h-0 themed-scrollbar overscroll-contain">
-              {/* Photo Proof & Documentation */}
-              {renderSessionProofSection(viewingSession)}
-
+            <div className="p-4 overflow-y-auto space-y-3 flex-1 min-h-0 themed-scrollbar overscroll-contain">
               <div className="flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-300 pb-1">
                 <span>Roll Call</span>
                 <span className="font-mono text-emerald-600 dark:text-emerald-400">
@@ -1807,7 +2114,7 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
                 </span>
               </div>
 
-              <div className="grid grid-cols-2 gap-2 pt-1">
+              <div className="grid grid-cols-2 gap-2">
                 {hierarchyOfficials.map((official) => {
                   const rec = viewingSession.records.find((r) => r.user_id === official.id);
                   const isPresent = rec?.status === "Present";
@@ -1878,10 +2185,13 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
                   );
                 })}
               </div>
+
+              {/* Photo Proof & Documentation */}
+              {renderSessionProofSection(viewingSession)}
             </div>
 
             {canManage ? (
-              <div className="px-4 py-2.5 border-t border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900 flex items-center justify-between shrink-0">
+              <div className="px-4 py-2.5 border-t border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900 flex items-center justify-between shrink-0 gap-2">
                 <button
                   type="button"
                   onClick={() => {
@@ -1893,18 +2203,31 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
                 >
                   Delete Session
                 </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const s = viewingSession;
-                    setViewingSession(null);
-                    openEditModal(s);
-                  }}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 active:scale-95 active:brightness-95 text-white text-xs font-bold transition-all cursor-pointer select-none"
-                >
-                  <Pencil className="w-3 h-3" />
-                  <span>Edit Roll Call</span>
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onTouchStart={() => triggerHaptic(12)}
+                    onClick={() => {
+                      triggerHaptic(15);
+                      closeSessionModal();
+                    }}
+                    className="px-3.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-95 text-slate-700 dark:text-slate-300 text-xs font-bold transition-all cursor-pointer select-none"
+                  >
+                    Close
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const s = viewingSession;
+                      setViewingSession(null);
+                      openEditModal(s);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 active:scale-95 active:brightness-95 text-white text-xs font-bold transition-all cursor-pointer select-none shadow-xs"
+                  >
+                    <Pencil className="w-3 h-3" />
+                    <span>Edit Roll Call</span>
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="px-4 py-2.5 border-t border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900 flex items-center justify-end shrink-0">
@@ -2201,11 +2524,8 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
                       </div>
 
                       {/* 10 Council Members: Minimalist Photo Grid with Corner Status Badge (2-column grid on all viewports) */}
-                      <div className="p-3 sm:p-4 overflow-y-auto flex-1 min-h-0 themed-scrollbar overscroll-contain">
-                        {/* Documentation & Photo Proof */}
-                        {activeSession && renderSessionProofSection(activeSession)}
-
-                        <div className="flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-300 pb-2">
+                      <div className="p-3 sm:p-4 overflow-y-auto flex-1 min-h-0 themed-scrollbar overscroll-contain space-y-3">
+                        <div className="flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-300 pb-1">
                           <span>Roll Call</span>
                           <span className="font-mono text-emerald-600 dark:text-emerald-400">
                             {activeSession.presentCount}/{activeSession.totalCount} Present (
@@ -2284,6 +2604,9 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
                             );
                           })}
                         </div>
+
+                        {/* Documentation & Photo Proof */}
+                        {activeSession && renderSessionProofSection(activeSession)}
                       </div>
                     </div>
                   ) : (
@@ -2504,6 +2827,22 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
                 <Download className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">Open Full Size</span>
               </a>
+              {canManage && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const sessId = viewingSession?.id || (viewingMonthGroup && monthActiveSessionId) || undefined;
+                    if (sessId) {
+                      handleRequestDeletePhoto(sessId, lightboxPhoto.url, lightboxPhoto.title);
+                    }
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-rose-600/80 hover:bg-rose-600 active:scale-95 text-white transition-all text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                  title="Remove this photo"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Remove</span>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setLightboxPhoto(null)}
@@ -2515,22 +2854,125 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
             </div>
           </div>
 
-          {/* Lightbox Image Stage */}
+          {/* Lightbox Image Stage with Progressive Low-to-High Loading */}
           <div
-            className="flex-1 w-full max-w-5xl flex items-center justify-center p-1 sm:p-2 min-h-0 overflow-hidden"
+            className="relative flex-1 w-full max-w-5xl flex items-center justify-center p-1 sm:p-2 min-h-0 overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
+            {/* 1. Low-resolution thumbnail preview (renders immediately from browser cache) */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
+              src={getThumbnailUrl(lightboxPhoto.url, 400)}
+              alt={lightboxPhoto.title}
+              className={`max-h-[80vh] max-w-full object-contain rounded-xl shadow-2xl transition-all duration-300 ${
+                lightboxLoaded ? "opacity-0 scale-98 pointer-events-none" : "opacity-90 blur-[0.5px]"
+              }`}
+            />
+
+            {/* 2. Full-resolution master photo */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              key={lightboxPhoto.url}
               src={lightboxPhoto.url}
               alt={lightboxPhoto.title}
-              className="max-h-[80vh] max-w-full object-contain rounded-xl shadow-2xl border border-white/10"
+              decoding="async"
+              onLoad={() => setLightboxLoaded(true)}
+              className={`absolute max-h-[80vh] max-w-full object-contain rounded-xl shadow-2xl border border-white/10 transition-opacity duration-300 ${
+                lightboxLoaded ? "opacity-100" : "opacity-0"
+              }`}
             />
+
+            {/* Discreet progressive loading pill over low-res preview */}
+            {!lightboxLoaded && (
+              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-3.5 py-1.5 rounded-full bg-black/80 backdrop-blur-md border border-white/15 flex items-center gap-2 text-white text-[11px] font-medium shadow-xl pointer-events-none select-none animate-in fade-in zoom-in-95 duration-150">
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-brand-400 shrink-0" />
+                <span>Showing fast preview • Loading full resolution...</span>
+              </div>
+            )}
           </div>
 
           {/* Lightbox Footer Bar */}
           <div className="text-center text-[11px] text-white/50 pt-2 shrink-0">
             Click outside or press Esc to close
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* =========================================================================
+          MODAL 6: DELETE PHOTO CONFIRMATION
+         ========================================================================= */}
+      {mounted && deletingPhoto && createPortal(
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-[160] bg-slate-950/70 backdrop-blur-xs flex items-center justify-center overscroll-contain touch-none p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !deletePhotoBusy) setDeletingPhoto(null);
+          }}
+        >
+          <div
+            className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl p-5 space-y-4 flex flex-col overflow-hidden touch-auto animate-in fade-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200/80 dark:border-rose-900/60 flex items-center justify-center shrink-0 text-rose-600 dark:text-rose-400">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="text-sm font-black text-slate-900 dark:text-slate-100">
+                  Remove Proof Photo?
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Are you sure you want to remove this photo documentation?
+                </p>
+              </div>
+            </div>
+
+            {/* Thumbnail Preview of the photo being removed */}
+            <div className="relative aspect-16/9 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-850 shadow-2xs">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={deletingPhoto.photoUrl}
+                alt="Photo to remove"
+                className="w-full h-full object-cover"
+              />
+              {deletingPhoto.sessionTitle && (
+                <div className="absolute inset-x-0 bottom-0 p-2 bg-gradient-to-t from-black/80 via-black/40 to-transparent text-[11px] font-medium text-white truncate">
+                  {deletingPhoto.sessionTitle}
+                </div>
+              )}
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                disabled={deletePhotoBusy}
+                onClick={() => setDeletingPhoto(null)}
+                className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 active:scale-95 text-xs font-bold text-slate-700 dark:text-slate-300 transition-all cursor-pointer select-none"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deletePhotoBusy}
+                onClick={handleConfirmDeletePhoto}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 active:scale-95 text-white text-xs font-bold transition-all cursor-pointer disabled:opacity-50 select-none shadow-xs"
+              >
+                {deletePhotoBusy ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Removing...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Remove Photo</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>,
         document.body

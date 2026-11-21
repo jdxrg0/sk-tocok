@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { sql, query } from "@/lib/db";
 import { getCurrentUser, isOfficialUser } from "@/lib/auth";

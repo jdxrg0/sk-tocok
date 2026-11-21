@@ -234,6 +234,31 @@ async function main() {
   `;
 
   await sql`
+    CREATE TABLE IF NOT EXISTS anonymous_device_identities (
+      id                 SERIAL PRIMARY KEY,
+      device_id          VARCHAR(100) UNIQUE NOT NULL,
+      alias              VARCHAR(100) NOT NULL,
+      ip_hash            VARCHAR(100),
+      device_fingerprint VARCHAR(100),
+      user_agent         TEXT,
+      created_at         TIMESTAMPTZ DEFAULT NOW(),
+      last_seen_at       TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_device_identities_device_id
+    ON anonymous_device_identities (device_id)
+  `;
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_device_identities_fingerprint
+    ON anonymous_device_identities (device_fingerprint)
+  `;
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_device_identities_alias
+    ON anonymous_device_identities (alias)
+  `;
+
+  await sql`
     CREATE TABLE IF NOT EXISTS push_subscriptions (
       id             SERIAL PRIMARY KEY,
       user_id        INTEGER REFERENCES users(id) ON DELETE CASCADE,
