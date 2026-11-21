@@ -2954,6 +2954,7 @@ export default function AnonymousCouncilMessages({
                                           <button
                                             type="button"
                                             onClick={() => {
+                                              if (currentCommentSort === "top") return;
                                               tactileFeedback("tap");
                                               setCommentSortByPost((prev) => ({
                                                 ...prev,
@@ -2971,6 +2972,7 @@ export default function AnonymousCouncilMessages({
                                           <button
                                             type="button"
                                             onClick={() => {
+                                              if (currentCommentSort === "newest") return;
                                               tactileFeedback("tap");
                                               setCommentSortByPost((prev) => ({
                                                 ...prev,
@@ -2988,6 +2990,7 @@ export default function AnonymousCouncilMessages({
                                           <button
                                             type="button"
                                             onClick={() => {
+                                              if (currentCommentSort === "oldest") return;
                                               tactileFeedback("tap");
                                               setCommentSortByPost((prev) => ({
                                                 ...prev,
@@ -3021,8 +3024,10 @@ export default function AnonymousCouncilMessages({
                                       No comments yet. Be the first to share your thoughts!
                                     </p>
                                   ) : (
-                                    <div className="space-y-3 pt-1">
-                                      {sortedRootReplies.map((rootReply) => (
+                                    <AnimatedCommentList
+                                      replies={sortedRootReplies}
+                                      sortKey={currentCommentSort}
+                                      renderReply={(rootReply) => (
                                         <ThreadedCommentItem
                                           key={rootReply.id}
                                           reply={rootReply}
@@ -3058,8 +3063,8 @@ export default function AnonymousCouncilMessages({
                                           isMyComment={isMyReply(rootReply) || isOfficialRole(user?.role)}
                                           isMyReplyFn={(rep) => isMyReply(rep) || isOfficialRole(user?.role)}
                                         />
-                                      ))}
-                                    </div>
+                                      )}
+                                    />
                                   )}
                                 </>
                               );

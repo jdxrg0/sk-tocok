@@ -1764,7 +1764,7 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
           <div
             className="bg-white dark:bg-slate-900 w-full sm:max-w-xl rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col overflow-hidden touch-auto"
             style={{
-              maxHeight: "calc(100dvh - 1.5rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))",
+              maxHeight: "calc(100dvh - 1rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))",
               opacity: isFormOpen ? 1 : 0,
               transform: isFormOpen
                 ? "scale(1) translateY(0px)"
@@ -1773,20 +1773,24 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
             }}
           >
             {/* Header: shrink-0 */}
-            <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3 shrink-0">
-              <div>
-                <h3 className="text-base font-black text-slate-900 dark:text-slate-100">
+            <div className="px-4 py-3 sm:px-5 sm:py-3.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3 shrink-0">
+              <div className="min-w-0 flex-1">
+                <h3 className="text-sm sm:text-base font-black text-slate-900 dark:text-slate-100 leading-tight">
                   {editingSession ? "Edit Attendance Session" : "Record Attendance Session"}
                 </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
+                <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 truncate">
                   Mark Present or Absent for each council member.
                 </p>
               </div>
               <button
                 type="button"
-                onClick={closeFormModal}
+                onTouchStart={() => triggerHaptic(12)}
+                onClick={() => {
+                  triggerHaptic(15);
+                  closeFormModal();
+                }}
                 disabled={formSaving}
-                className="p-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer shrink-0"
+                className="p-1.5 -mr-1 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-90 transition-all cursor-pointer shrink-0 select-none"
                 aria-label="Close"
               >
                 <X className="w-4 h-4" />
@@ -1795,9 +1799,9 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
 
             {/* Form */}
             <form onSubmit={handleSaveForm} className="flex flex-col flex-1 min-h-0 overflow-hidden">
-              <div className="p-4 sm:p-5 overflow-y-auto space-y-3.5 flex-1 min-h-0 themed-scrollbar overscroll-contain">
+              <div className="p-3.5 sm:p-5 overflow-y-auto space-y-2.5 sm:space-y-3.5 flex-1 min-h-0 themed-scrollbar overscroll-contain">
                 {formError && (
-                  <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-xs font-semibold text-rose-700 dark:text-rose-300 flex items-center gap-2">
+                  <div className="p-2.5 sm:p-3 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-xs font-semibold text-rose-700 dark:text-rose-300 flex items-center gap-2">
                     <AlertCircle className="w-4 h-4 shrink-0" />
                     <span>{formError}</span>
                   </div>
@@ -1805,7 +1809,7 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
 
                 {/* Session Title */}
                 <div className="space-y-1">
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  <label className="block text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                     Session / Activity Title *
                   </label>
                   <input
@@ -1814,14 +1818,14 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
                     value={formTitle}
                     onChange={(e) => setFormTitle(e.target.value)}
                     placeholder="e.g. 7th Regular Session"
-                    className="w-full px-3.5 py-2 text-xs sm:text-sm bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+                    className="w-full px-3 py-1.5 sm:px-3.5 sm:py-2 text-xs sm:text-sm bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
                   />
                 </div>
 
-                {/* Date & Type */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Date & Type: Side-by-side on all screens to conserve mobile vertical space */}
+                <div className="grid grid-cols-2 gap-2 sm:gap-3">
                   <div className="space-y-1">
-                    <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    <label className="block text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                       Date *
                     </label>
                     <input
@@ -1829,18 +1833,18 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
                       required
                       value={formDate}
                       onChange={(e) => setFormDate(e.target.value)}
-                      className="w-full px-3.5 py-2 text-xs sm:text-sm bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+                      className="w-full px-2.5 py-1.5 sm:px-3.5 sm:py-2 text-xs sm:text-sm bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
                     />
                   </div>
 
                   <div className="space-y-1">
-                    <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    <label className="block text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                       Type
                     </label>
                     <select
                       value={formActivityType}
                       onChange={(e) => setFormActivityType(e.target.value)}
-                      className="w-full px-3.5 py-2 text-xs sm:text-sm bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+                      className="w-full px-2.5 py-1.5 sm:px-3.5 sm:py-2 text-xs sm:text-sm bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-brand-500/30 truncate"
                     >
                       {ACTIVITY_TYPES.map((t) => (
                         <option key={t} value={t}>
@@ -1853,7 +1857,7 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
 
                 {/* Venue / Location */}
                 <div className="space-y-1">
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  <label className="block text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                     Location / Venue
                   </label>
                   <input
@@ -1861,11 +1865,11 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
                     value={formLocation}
                     onChange={(e) => setFormLocation(e.target.value)}
                     placeholder="Barangay Tocok SK Hall"
-                    className="w-full px-3.5 py-2 text-xs sm:text-sm bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+                    className="w-full px-3 py-1.5 sm:px-3.5 sm:py-2 text-xs sm:text-sm bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
                   />
                 </div>
 
-                {/* Roll Call Checklist */}
+                {/* Roll Call Checklist: Responsive 2-column grid with avatars & status pills */}
                 <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-xs font-bold text-slate-900 dark:text-slate-100">
@@ -1874,14 +1878,22 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
                     <div className="flex items-center gap-1.5">
                       <button
                         type="button"
-                        onClick={() => setAllChecklistStatus("Present")}
+                        onTouchStart={() => triggerHaptic(12)}
+                        onClick={() => {
+                          triggerHaptic(15);
+                          setAllChecklistStatus("Present");
+                        }}
                         className="px-2 py-0.5 rounded text-[10.5px] font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 active:scale-95 transition-all select-none cursor-pointer"
                       >
                         All Present
                       </button>
                       <button
                         type="button"
-                        onClick={() => setAllChecklistStatus("Absent")}
+                        onTouchStart={() => triggerHaptic(12)}
+                        onClick={() => {
+                          triggerHaptic(15);
+                          setAllChecklistStatus("Absent");
+                        }}
                         className="px-2 py-0.5 rounded text-[10.5px] font-bold bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 hover:bg-rose-100 dark:hover:bg-rose-900/40 active:scale-95 transition-all select-none cursor-pointer"
                       >
                         All Absent
@@ -1889,44 +1901,86 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div className="grid grid-cols-2 gap-1.5 sm:gap-2">
                     {hierarchyOfficials.map((official) => {
                       const isPresent = formChecklist[official.id] === "Present";
+                      const { surname } = splitOfficialName(official.name);
+
                       return (
                         <button
                           key={official.id}
                           type="button"
-                          onClick={() => toggleOfficialStatus(official.id)}
-                          className={`flex items-center justify-between gap-2 p-2.5 rounded-xl border text-left transition-all duration-100 cursor-pointer select-none active:scale-[0.97] ${
+                          onTouchStart={() => triggerHaptic(10)}
+                          onClick={() => {
+                            triggerHaptic(15);
+                            toggleOfficialStatus(official.id);
+                          }}
+                          className={`flex items-center gap-2 p-2 sm:p-2.5 rounded-xl border text-left transition-all duration-100 cursor-pointer select-none active:scale-[0.96] ${
                             isPresent
-                              ? "bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800 active:bg-emerald-100/70"
-                              : "bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 hover:border-rose-300 active:bg-slate-100 dark:active:bg-slate-700"
+                              ? "bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800"
+                              : "bg-slate-50/70 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700/80 hover:border-rose-300"
                           }`}
                         >
-                          <div className="min-w-0">
-                            <p className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
-                              {getOfficialShortName(official.name)}
-                            </p>
-                            <p className="text-[10px] text-slate-400 truncate">{official.role}</p>
+                          {/* Avatar with corner status badge */}
+                          <div className="relative shrink-0">
+                            <div
+                              className={`relative w-8 h-8 sm:w-9 sm:h-9 rounded-full overflow-hidden bg-brand-50 dark:bg-brand-950/60 flex items-center justify-center border ${
+                                isPresent
+                                  ? "border-emerald-200 dark:border-emerald-800"
+                                  : "border-slate-200 dark:border-slate-700 opacity-60 grayscale"
+                              }`}
+                            >
+                              <span className="text-[10px] sm:text-xs font-black text-brand-700 dark:text-brand-300 select-none">
+                                {getOfficialInitials(official.name)}
+                              </span>
+                              {official.avatar_url && (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={official.avatar_url}
+                                  alt={official.name}
+                                  onError={(e) => {
+                                    (e.currentTarget as HTMLElement).style.display = "none";
+                                  }}
+                                  className="absolute inset-0 w-full h-full object-cover"
+                                />
+                              )}
+                            </div>
+
+                            {/* Corner Status Badge */}
+                            <span
+                              className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center ring-2 ring-white dark:ring-slate-900 shadow-2xs ${
+                                isPresent
+                                  ? "bg-emerald-500 text-white"
+                                  : "bg-rose-500 text-white"
+                              }`}
+                            >
+                              {isPresent ? (
+                                <Check className="w-2 h-2 stroke-[3]" />
+                              ) : (
+                                <X className="w-2 h-2 stroke-[3]" />
+                              )}
+                            </span>
                           </div>
+
+                          {/* Official Identity: Bold Surname + Clean Role */}
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
+                              {surname}
+                            </p>
+                            <p className="text-[10px] text-slate-400 dark:text-slate-500 truncate">
+                              {official.role.replace("SK ", "")}
+                            </p>
+                          </div>
+
+                          {/* Status Pill */}
                           <span
-                            className={`px-2 py-0.5 rounded-md text-[10.5px] font-extrabold flex items-center gap-1 shrink-0 ${
+                            className={`px-1.5 py-0.5 rounded text-[9.5px] font-extrabold shrink-0 ${
                               isPresent
                                 ? "bg-emerald-600 text-white"
                                 : "bg-rose-100 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300"
                             }`}
                           >
-                            {isPresent ? (
-                              <>
-                                <Check className="w-3 h-3 stroke-[3]" />
-                                Present
-                              </>
-                            ) : (
-                              <>
-                                <X className="w-3 h-3 stroke-[2.5]" />
-                                Absent
-                              </>
-                            )}
+                            {isPresent ? "Present" : "Absent"}
                           </span>
                         </button>
                       );
@@ -1937,10 +1991,10 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
                 {/* Proof Pictures & Documentation */}
                 <div className="space-y-1.5 pt-2 border-t border-slate-100 dark:border-slate-800">
                   <div className="flex items-center justify-between">
-                    <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    <label className="block text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                       Proof Pictures & Documentation
                     </label>
-                    <label className="inline-flex items-center gap-1 text-[11px] font-bold text-brand-600 dark:text-brand-400 hover:underline cursor-pointer">
+                    <label className="inline-flex items-center gap-1 text-[11px] font-bold text-brand-600 dark:text-brand-400 hover:underline cursor-pointer select-none">
                       <Plus className="w-3 h-3 stroke-[2.5]" />
                       <span>{uploadingPhotos ? "Uploading..." : "Add Picture"}</span>
                       <input
@@ -2005,19 +2059,24 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
               </div>
 
               {/* Footer: shrink-0 */}
-              <div className="px-5 py-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900 flex items-center justify-end gap-2 shrink-0">
+              <div className="px-4 py-2.5 sm:px-5 sm:py-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900 flex items-center justify-end gap-2 shrink-0">
                 <button
                   type="button"
                   disabled={formSaving}
-                  onClick={closeFormModal}
-                  className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 active:scale-95 transition-all cursor-pointer select-none"
+                  onTouchStart={() => triggerHaptic(12)}
+                  onClick={() => {
+                    triggerHaptic(15);
+                    closeFormModal();
+                  }}
+                  className="px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 active:scale-95 transition-all cursor-pointer select-none"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={formSaving}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-brand-600 hover:bg-brand-700 active:scale-95 active:brightness-95 text-white text-xs font-bold shadow-xs transition-all cursor-pointer disabled:opacity-50 select-none"
+                  onTouchStart={() => triggerHaptic(20)}
+                  className="inline-flex items-center gap-1.5 px-4 py-1.5 sm:py-2 rounded-xl bg-brand-600 hover:bg-brand-700 active:scale-95 active:brightness-95 text-white text-xs font-bold shadow-xs transition-all cursor-pointer disabled:opacity-50 select-none"
                 >
                   {formSaving ? (
                     <>
