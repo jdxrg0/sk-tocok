@@ -1,6 +1,11 @@
 import fs from "fs";
 import path from "path";
 
+if (process.platform !== "win32") {
+  console.log(`[patch-next] Skipping Next.js Windows patches on platform: ${process.platform}`);
+  process.exit(0);
+}
+
 const targets = [
   "node_modules/next/dist/server/lib/find-page-file.js",
   "node_modules/next/dist/esm/server/lib/find-page-file.js",

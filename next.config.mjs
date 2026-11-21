@@ -27,7 +27,7 @@ const nextConfig = {
     ignoreBuildErrors: true,
   },
   webpack: (config, { isServer }) => {
-    if (isServer) {
+    if (isServer && process.platform === 'win32') {
       config.plugins.push({
         apply(compiler) {
           compiler.hooks.afterEmit.tap('FixWebpackRuntime', () => {
