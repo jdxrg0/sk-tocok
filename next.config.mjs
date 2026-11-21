@@ -46,6 +46,33 @@ const nextConfig = {
             } catch (err) {
               console.warn('[FixWebpackRuntime plugin warning]', err);
             }
+
+            // Ensure server pages-manifest.json registers default pages (_app, _document, _error)
+            try {
+              const pagesManifestPath = path.join(compiler.outputPath, 'pages-manifest.json');
+              let manifest = {};
+              if (fs.existsSync(pagesManifestPath)) {
+                try {
+                  manifest = JSON.parse(fs.readFileSync(pagesManifestPath, 'utf8'));
+                } catch {
+                  manifest = {};
+                }
+              }
+              const defaultPages = ['_app', '_document', '_error'];
+              let updated = false;
+              for (const p of defaultPages) {
+                const route = `/${p}`;
+                if (!manifest[route] && fs.existsSync(path.join(compiler.outputPath, 'pages', `${p}.js`))) {
+                  manifest[route] = `pages/${p}.js`;
+                  updated = true;
+                }
+              }
+              if (updated) {
+                fs.writeFileSync(pagesManifestPath, JSON.stringify(manifest, null, 2), 'utf8');
+              }
+            } catch (err) {
+              console.warn('[FixWebpackRuntime pages-manifest warning]', err);
+            }
           });
         },
       });

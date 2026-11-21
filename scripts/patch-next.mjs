@@ -203,13 +203,34 @@ for (const target of buildIndexTargets) {
   if (!fs.existsSync(filePath)) continue;
 
   let content = fs.readFileSync(filePath, "utf8");
+  let changed = false;
   if (!content.includes("/* patched readManifest */")) {
     content = content.replace(
       "async function readManifest(filePath) {\n    return JSON.parse(await readFileUtf8(filePath));\n}",
       "/* patched readManifest */\nasync function readManifest(filePath) {\n    try {\n        const content = await readFileUtf8(filePath);\n        return content && content.trim() ? JSON.parse(content) : {};\n    } catch { return {}; }\n}"
     );
+    changed = true;
+  }
+
+  if (content.includes("const middlewareManifest = require(_path.default.join(distDir, _constants1.SERVER_DIRECTORY, _constants1.MIDDLEWARE_MANIFEST));")) {
+    content = content.replace(
+      "const middlewareManifest = require(_path.default.join(distDir, _constants1.SERVER_DIRECTORY, _constants1.MIDDLEWARE_MANIFEST));",
+      "const middlewareManifest = await readManifest(_path.default.join(distDir, _constants1.SERVER_DIRECTORY, _constants1.MIDDLEWARE_MANIFEST));"
+    );
+    changed = true;
+  }
+
+  if (content.includes("const actionManifest = appDir ? require(_path.default.join(distDir, _constants1.SERVER_DIRECTORY, _constants1.SERVER_REFERENCE_MANIFEST + '.json')) : null;")) {
+    content = content.replace(
+      "const actionManifest = appDir ? require(_path.default.join(distDir, _constants1.SERVER_DIRECTORY, _constants1.SERVER_REFERENCE_MANIFEST + '.json')) : null;",
+      "const actionManifest = appDir ? await readManifest(_path.default.join(distDir, _constants1.SERVER_DIRECTORY, _constants1.SERVER_REFERENCE_MANIFEST + '.json')) : null;"
+    );
+    changed = true;
+  }
+
+  if (changed) {
     fs.writeFileSync(filePath, content, "utf8");
-    console.log(`[patch-next] Patched readManifest in ${target}`);
+    console.log(`[patch-next] Patched readManifest & middlewareManifest in ${target}`);
   }
 }
 
@@ -217,6 +238,20 @@ for (const target of buildIndexTargets) {
 const routeModuleTargets = [
   "node_modules/next/dist/server/route-modules/route-module.js",
   "node_modules/next/dist/esm/server/route-modules/route-module.js",
+  "node_modules/next/dist/server/next-server.js",
+  "node_modules/next/dist/esm/server/next-server.js",
+  "node_modules/next/dist/compiled/next-server/app-page.runtime.dev.js",
+  "node_modules/next/dist/compiled/next-server/app-page-turbo.runtime.dev.js",
+  "node_modules/next/dist/compiled/next-server/app-page-experimental.runtime.dev.js",
+  "node_modules/next/dist/compiled/next-server/app-page-turbo-experimental.runtime.dev.js",
+  "node_modules/next/dist/compiled/next-server/app-route.runtime.dev.js",
+  "node_modules/next/dist/compiled/next-server/app-route-turbo.runtime.dev.js",
+  "node_modules/next/dist/compiled/next-server/app-route-experimental.runtime.dev.js",
+  "node_modules/next/dist/compiled/next-server/app-route-turbo-experimental.runtime.dev.js",
+  "node_modules/next/dist/compiled/next-server/pages.runtime.dev.js",
+  "node_modules/next/dist/compiled/next-server/pages-turbo.runtime.dev.js",
+  "node_modules/next/dist/compiled/next-server/pages-api.runtime.dev.js",
+  "node_modules/next/dist/compiled/next-server/pages-api-turbo.runtime.dev.js",
 ];
 
 for (const target of routeModuleTargets) {
@@ -224,11 +259,25 @@ for (const target of routeModuleTargets) {
   if (!fs.existsSync(filePath)) continue;
 
   let content = fs.readFileSync(filePath, "utf8");
-  if (!content.includes("/* patched interceptionRoutePatterns */")) {
+  let changed = false;
+
+  if (content.includes("interceptionRoutePatterns: routesManifest.rewrites.beforeFiles.filter(_generateinterceptionroutesrewrites.isInterceptionRouteRewrite).map((rewrite)=>new RegExp(rewrite.regex))")) {
     content = content.replace(
       "interceptionRoutePatterns: routesManifest.rewrites.beforeFiles.filter(_generateinterceptionroutesrewrites.isInterceptionRouteRewrite).map((rewrite)=>new RegExp(rewrite.regex))",
       "/* patched interceptionRoutePatterns */\n                interceptionRoutePatterns: ((Array.isArray(routesManifest == null ? void 0 : routesManifest.rewrites) ? [] : (routesManifest == null ? void 0 : routesManifest.rewrites?.beforeFiles) || []).filter(_generateinterceptionroutesrewrites.isInterceptionRouteRewrite).map((rewrite)=>new RegExp(rewrite.regex)))"
     );
+    changed = true;
+  }
+
+  if (content.includes("routesManifest.rewrites.beforeFiles.filter(")) {
+    content = content.replaceAll(
+      "routesManifest.rewrites.beforeFiles.filter(",
+      "((routesManifest?.rewrites?.beforeFiles)||[]).filter("
+    );
+    changed = true;
+  }
+
+  if (changed) {
     fs.writeFileSync(filePath, content, "utf8");
     console.log(`[patch-next] Patched interceptionRoutePatterns in ${target}`);
   }
@@ -344,6 +393,15 @@ for (const target of requireTargets) {
     );
     fs.writeFileSync(filePath, content, "utf8");
     console.log(`[patch-next] Patched requirePage in ${target}`);
+  }
+
+  if (!content.includes("/* patched builtin pages fallback */")) {
+    content = content.replace(
+      "if (!pagePath) {\n        pagePath = checkManifest(pagesManifest);\n    }",
+      "if (!pagePath) {\n        pagePath = checkManifest(pagesManifest);\n    }\n    /* patched builtin pages fallback */\n    if (!pagePath) {\n        const fallbackFile = page.endsWith('.js') ? page : `${page}.js`;\n        const rel = (_path.default || path).join('pages', fallbackFile);\n        const full = (_path.default || path).join(serverBuildPath, rel);\n        try {\n            const fsMod = typeof _fs !== 'undefined' ? _fs : require('fs');\n            if (fsMod.existsSync(full)) {\n                pagePath = rel;\n            }\n        } catch {}\n    }"
+    );
+    fs.writeFileSync(filePath, content, "utf8");
+    console.log(`[patch-next] Patched builtin pages fallback in ${target}`);
   }
 }
 

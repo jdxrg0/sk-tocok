@@ -122,8 +122,6 @@ function ProofPhotoThumbnail({
   canManage,
   onOpenLightbox,
   onDelete,
-  aspectClass = "aspect-4/3",
-  hero = false,
 }: {
   url: string;
   alt: string;
@@ -132,8 +130,6 @@ function ProofPhotoThumbnail({
   canManage: boolean;
   onOpenLightbox: () => void;
   onDelete?: () => void;
-  aspectClass?: string;
-  hero?: boolean;
 }) {
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -141,8 +137,8 @@ function ProofPhotoThumbnail({
 
   // Serve lightweight low-resolution thumbnail (WebP) for instant mobile loading
   const thumbUrl = useMemo(
-    () => getThumbnailUrl(url, hero ? 600 : 400),
-    [url, hero]
+    () => getThumbnailUrl(url, 250),
+    [url]
   );
   const [currentSrc, setCurrentSrc] = useState(thumbUrl);
 
@@ -166,47 +162,24 @@ function ProofPhotoThumbnail({
       onClick={() => {
         if (!failed) onOpenLightbox();
       }}
-      className={`group relative ${aspectClass} rounded-2xl overflow-hidden border border-slate-200/90 dark:border-slate-700/80 bg-slate-100 dark:bg-slate-800 shadow-2xs hover:shadow-md cursor-pointer select-none active:scale-[0.99] transition-all`}
+      className="group relative w-20 h-20 sm:w-24 sm:h-24 shrink-0 rounded-xl overflow-hidden border border-slate-200/90 dark:border-slate-700/80 bg-slate-100 dark:bg-slate-800 shadow-2xs hover:shadow-md cursor-pointer select-none active:scale-[0.96] transition-all"
     >
       {/* Loading Skeleton / Placeholder for slow internet */}
       {!loaded && !failed && (
-        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-3 text-center bg-slate-100/95 dark:bg-slate-800/95 animate-pulse">
-          <div className="w-8 h-8 rounded-full bg-white dark:bg-slate-700 shadow-2xs flex items-center justify-center mb-1.5">
-            <Loader2 className="w-4 h-4 text-brand-600 dark:text-brand-400 animate-spin" />
-          </div>
-          <p className="text-[11px] font-bold text-slate-700 dark:text-slate-200 flex items-center justify-center gap-1">
-            <Camera className="w-3 h-3 text-brand-600 dark:text-brand-400 shrink-0" />
-            <span>Loading photo {idx + 1}...</span>
-          </p>
-          <p className="text-[9.5px] text-slate-400 dark:text-slate-500 font-medium mt-0.5">
-            Fast thumbnail preview
-          </p>
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-1 text-center bg-slate-100/95 dark:bg-slate-800/95 animate-pulse">
+          <Loader2 className="w-3.5 h-3.5 text-brand-600 dark:text-brand-400 animate-spin" />
         </div>
       )}
 
       {/* Error Fallback */}
       {failed && (
-        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-2.5 text-center bg-slate-100 dark:bg-slate-800 text-slate-400">
-          <AlertCircle className="w-5 h-5 text-amber-500 mb-1" />
-          <p className="text-[10.5px] font-semibold text-slate-700 dark:text-slate-300">
-            Failed to load photo
-          </p>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setFailed(false);
-              setLoaded(false);
-              setRetryCount((c) => c + 1);
-            }}
-            className="mt-1.5 px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-300 active:scale-95 transition-all cursor-pointer"
-          >
-            Retry
-          </button>
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-1 text-center bg-slate-100 dark:bg-slate-800 text-slate-400">
+          <AlertCircle className="w-3.5 h-3.5 text-amber-500 mb-0.5" />
+          <span className="text-[9px] font-semibold text-slate-500">Retry</span>
         </div>
       )}
 
-      {/* Lightweight Thumbnail with Smooth Fade-in */}
+      {/* Lightweight Thumbnail with Smooth Fade-in & Uniform Object-Cover */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         key={`${currentSrc}-${retryCount}`}
@@ -216,29 +189,22 @@ function ProofPhotoThumbnail({
         decoding="async"
         onLoad={() => setLoaded(true)}
         onError={handleImageError}
-        className={`w-full h-full object-cover group-hover:scale-105 transition-all duration-300 ${
+        className={`w-full h-full object-cover group-hover:scale-105 transition-all duration-200 ${
           loaded ? "opacity-100" : "opacity-0"
         }`}
       />
 
       {/* Floating Bottom Badge */}
-      <div className="absolute bottom-2 left-2 px-2 py-1 rounded-lg bg-black/65 backdrop-blur-md text-[10px] font-semibold text-white z-10 pointer-events-none flex items-center gap-1.5 shadow-sm">
-        {hero ? (
-          <>
-            <Maximize2 className="w-3 h-3 text-white/90" />
-            <span>1/1 • Tap to view full size</span>
-          </>
-        ) : (
-          <span>
-            {idx + 1}/{total}
-          </span>
-        )}
+      <div className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded-md bg-black/65 backdrop-blur-xs text-[9px] font-bold text-white z-10 pointer-events-none flex items-center gap-1 shadow-2xs leading-none">
+        <span>
+          {idx + 1}/{total}
+        </span>
       </div>
 
       {/* Floating Expand hint on top right on desktop hover */}
       {loaded && (
-        <div className="absolute inset-0 bg-slate-900/0 group-hover:bg-slate-900/25 transition-colors flex items-center justify-center">
-          <Maximize2 className="w-5 h-5 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-md" />
+        <div className="absolute inset-0 bg-slate-900/0 group-hover:bg-slate-900/25 transition-colors flex items-center justify-center pointer-events-none">
+          <Maximize2 className="w-4 h-4 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-md" />
         </div>
       )}
 
@@ -246,14 +212,19 @@ function ProofPhotoThumbnail({
       {canManage && onDelete && (
         <button
           type="button"
+          onTouchStart={(e) => {
+            e.stopPropagation();
+            triggerHaptic(12);
+          }}
           onClick={(e) => {
             e.stopPropagation();
+            triggerHaptic(15);
             onDelete();
           }}
           title="Remove this photo"
-          className="absolute top-2 right-2 z-20 p-1.5 rounded-xl bg-rose-600/90 hover:bg-rose-700 active:scale-90 text-white opacity-95 sm:opacity-0 sm:group-hover:opacity-100 transition-all shadow-md cursor-pointer"
+          className="absolute top-1 right-1 z-20 w-5 h-5 rounded-full bg-rose-600/95 hover:bg-rose-700 active:scale-90 text-white flex items-center justify-center transition-all shadow-xs cursor-pointer select-none"
         >
-          <Trash2 className="w-3.5 h-3.5" />
+          <Trash2 className="w-2.5 h-2.5" />
         </button>
       )}
     </div>
@@ -270,15 +241,14 @@ function FormPhotoThumbnail({
   onRemove: () => void;
 }) {
   const [loaded, setLoaded] = useState(false);
-  const thumbUrl = useMemo(() => getThumbnailUrl(url, 300), [url]);
+  const thumbUrl = useMemo(() => getThumbnailUrl(url, 250), [url]);
   const [currentSrc, setCurrentSrc] = useState(thumbUrl);
 
   return (
-    <div className="group relative aspect-4/3 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 shadow-2xs">
+    <div className="group relative w-20 h-20 sm:w-24 sm:h-24 shrink-0 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 shadow-2xs">
       {!loaded && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-slate-100/90 dark:bg-slate-800/90 animate-pulse text-[10px] text-slate-400 font-semibold gap-1">
           <Loader2 className="w-3.5 h-3.5 animate-spin text-brand-600" />
-          <span>Loading...</span>
         </div>
       )}
       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -297,9 +267,17 @@ function FormPhotoThumbnail({
       />
       <button
         type="button"
-        onClick={onRemove}
+        onTouchStart={(e) => {
+          e.stopPropagation();
+          triggerHaptic(12);
+        }}
+        onClick={(e) => {
+          e.stopPropagation();
+          triggerHaptic(15);
+          onRemove();
+        }}
         title="Remove photo"
-        className="absolute top-1 right-1 z-20 p-1 rounded-md bg-rose-600 hover:bg-rose-700 text-white shadow-xs cursor-pointer active:scale-90 transition-transform"
+        className="absolute top-1 right-1 z-20 w-5 h-5 rounded-full bg-rose-600 hover:bg-rose-700 text-white shadow-xs cursor-pointer active:scale-90 transition-transform flex items-center justify-center select-none"
       >
         <X className="w-3 h-3" />
       </button>
@@ -971,116 +949,68 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
           )}
         </div>
 
-        {/* Dynamic Mobile-Optimized Photo Grid */}
+        {/* Uniform Small Photo Thumbnails */}
         {photos.length > 0 ? (
-          photos.length === 1 ? (
-            /* Single Hero Photo on mobile: full width, high impact */
-            <div className="pt-0.5">
+          <div className="flex flex-wrap items-center gap-2 pt-0.5">
+            {photos.map((photoUrl, idx) => (
               <ProofPhotoThumbnail
-                url={photos[0]}
-                alt={`${session.title} proof 1`}
-                idx={0}
-                total={1}
+                key={photoUrl + idx}
+                url={photoUrl}
+                alt={`${session.title} proof ${idx + 1}`}
+                idx={idx}
+                total={photos.length}
                 canManage={canManage}
-                aspectClass="aspect-16/10 sm:aspect-16/9"
-                hero={true}
                 onOpenLightbox={() => {
                   setLightboxLoaded(false);
                   setLightboxPhoto({
-                    url: photos[0],
-                    title: `${session.title} (Photo 1/1)`,
-                    index: 0,
-                    total: 1,
+                    url: photoUrl,
+                    title: `${session.title} (Photo ${idx + 1}/${photos.length})`,
+                    index: idx,
+                    total: photos.length,
                   });
                 }}
-                onDelete={() => handleRequestDeletePhoto(session.id, photos[0], session.title)}
+                onDelete={() => handleRequestDeletePhoto(session.id, photoUrl, session.title)}
               />
-            </div>
-          ) : photos.length === 3 ? (
-            /* 3 Photos: 1 Hero Top + 2 Side-by-Side Below */
-            <div className="grid grid-cols-2 gap-2 pt-0.5">
-              <div className="col-span-2">
-                <ProofPhotoThumbnail
-                  url={photos[0]}
-                  alt={`${session.title} proof 1`}
-                  idx={0}
-                  total={3}
-                  canManage={canManage}
-                  aspectClass="aspect-16/9"
-                  hero={true}
-                  onOpenLightbox={() => {
-                    setLightboxLoaded(false);
-                    setLightboxPhoto({
-                      url: photos[0],
-                      title: `${session.title} (Photo 1/3)`,
-                      index: 0,
-                      total: 3,
-                    });
+            ))}
+            {canManage && (
+              <label
+                title="Add more photos"
+                className="w-20 h-20 sm:w-24 sm:h-24 rounded-xl border-2 border-dashed border-slate-200 dark:border-slate-700 hover:border-brand-500 dark:hover:border-brand-500 bg-slate-50/60 dark:bg-slate-800/40 hover:bg-brand-50/50 dark:hover:bg-brand-950/30 flex flex-col items-center justify-center gap-0.5 text-slate-400 hover:text-brand-600 dark:hover:text-brand-400 active:scale-95 transition-all cursor-pointer select-none shrink-0"
+              >
+                {inlineUploading ? (
+                  <Loader2 className="w-4 h-4 animate-spin text-brand-600" />
+                ) : (
+                  <>
+                    <Plus className="w-4 h-4 stroke-[2.5]" />
+                    <span className="text-[10px] font-bold">Add</span>
+                  </>
+                )}
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  disabled={inlineUploading}
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files.length > 0) {
+                      handleDirectUploadProof(session.id, e.target.files);
+                      e.target.value = "";
+                    }
                   }}
-                  onDelete={() => handleRequestDeletePhoto(session.id, photos[0], session.title)}
+                  className="hidden"
                 />
-              </div>
-              {photos.slice(1).map((photoUrl, i) => {
-                const idx = i + 1;
-                return (
-                  <ProofPhotoThumbnail
-                    key={photoUrl + idx}
-                    url={photoUrl}
-                    alt={`${session.title} proof ${idx + 1}`}
-                    idx={idx}
-                    total={photos.length}
-                    canManage={canManage}
-                    aspectClass="aspect-4/3"
-                    onOpenLightbox={() => {
-                      setLightboxLoaded(false);
-                      setLightboxPhoto({
-                        url: photoUrl,
-                        title: `${session.title} (Photo ${idx + 1}/${photos.length})`,
-                        index: idx,
-                        total: photos.length,
-                      });
-                    }}
-                    onDelete={() => handleRequestDeletePhoto(session.id, photoUrl, session.title)}
-                  />
-                );
-              })}
-            </div>
-          ) : (
-            /* 2 or 4+ Photos: Clean 2-column grid on mobile, 3-column on tablet/desktop */
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-0.5">
-              {photos.map((photoUrl, idx) => (
-                <ProofPhotoThumbnail
-                  key={photoUrl + idx}
-                  url={photoUrl}
-                  alt={`${session.title} proof ${idx + 1}`}
-                  idx={idx}
-                  total={photos.length}
-                  canManage={canManage}
-                  aspectClass="aspect-4/3"
-                  onOpenLightbox={() => {
-                    setLightboxLoaded(false);
-                    setLightboxPhoto({
-                      url: photoUrl,
-                      title: `${session.title} (Photo ${idx + 1}/${photos.length})`,
-                      index: idx,
-                      total: photos.length,
-                    });
-                  }}
-                  onDelete={() => handleRequestDeletePhoto(session.id, photoUrl, session.title)}
-                />
-              ))}
-            </div>
-          )
+              </label>
+            )}
+          </div>
         ) : (
-          <div className="rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 p-4 text-center">
-            <div className="flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 py-1">
-              <ImageIcon className="w-5 h-5 mb-1 text-slate-300 dark:text-slate-600 stroke-[1.5]" />
+          <div className="rounded-xl border border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 p-3 text-center">
+            <div className="flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 py-0.5">
+              <ImageIcon className="w-4 h-4 mb-1 text-slate-300 dark:text-slate-600 stroke-[1.5]" />
               <p className="text-xs font-semibold text-slate-600 dark:text-slate-400">
                 No proof pictures attached yet
               </p>
               {canManage ? (
-                <label className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-200/80 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold cursor-pointer active:scale-95 transition-all shadow-2xs">
-                  <Upload className="w-3.5 h-3.5" />
+                <label className="mt-1.5 inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-slate-200/80 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold cursor-pointer active:scale-95 transition-all shadow-2xs">
+                  <Upload className="w-3 h-3" />
                   <span>Upload Documentation Photo</span>
                   <input
                     type="file"
@@ -1098,7 +1028,7 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
                 </label>
               ) : (
                 <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
-                  Sign in as an SK Official or Admin to upload documentation photos.
+                  Photos will appear here once uploaded by officials.
                 </p>
               )}
             </div>
@@ -2014,7 +1944,7 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
                   </div>
 
                   {formProofPhotos.length > 0 ? (
-                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 pt-1">
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
                       {formProofPhotos.map((url, idx) => (
                         <FormPhotoThumbnail
                           key={url + idx}
@@ -2023,6 +1953,32 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
                           onRemove={() => handleRemoveFormPhoto(idx)}
                         />
                       ))}
+                      <label
+                        title="Add more pictures"
+                        className="w-20 h-20 sm:w-24 sm:h-24 rounded-xl border-2 border-dashed border-slate-200 dark:border-slate-700 hover:border-brand-500 dark:hover:border-brand-500 bg-slate-50/60 dark:bg-slate-800/40 hover:bg-brand-50/50 dark:hover:bg-brand-950/30 flex flex-col items-center justify-center gap-0.5 text-slate-400 hover:text-brand-600 dark:hover:text-brand-400 active:scale-95 transition-all cursor-pointer select-none shrink-0"
+                      >
+                        {uploadingPhotos ? (
+                          <Loader2 className="w-4 h-4 animate-spin text-brand-600" />
+                        ) : (
+                          <>
+                            <Plus className="w-4 h-4 stroke-[2.5]" />
+                            <span className="text-[10px] font-bold">Add</span>
+                          </>
+                        )}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          disabled={uploadingPhotos}
+                          onChange={(e) => {
+                            if (e.target.files && e.target.files.length > 0) {
+                              handleUploadFormPhotos(e.target.files);
+                              e.target.value = "";
+                            }
+                          }}
+                          className="hidden"
+                        />
+                      </label>
                     </div>
                   ) : (
                     <label className="border border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-3 flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800/40 cursor-pointer transition-colors text-center">
