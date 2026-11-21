@@ -4,23 +4,14 @@ const fs = require('fs');
 const path = require('path');
 
 const port = parseInt(process.env.PORT || '3000', 10);
-const dev = process.env.NODE_ENV !== 'production';
+const hostname = 'localhost';
 
-process.on('exit', (code) => {
-  console.log(`[Server Process Exit] Code: ${code}`);
-});
-process.on('beforeExit', (code) => {
-  console.log(`[Server Process BeforeExit] Code: ${code}`);
-});
-const origExit = process.exit;
-process.exit = function(code) {
-  console.error(`[Server process.exit called with code ${code}] Trace:\n${new Error().stack}`);
-  return origExit.apply(this, arguments);
-};
+const hasBuild = fs.existsSync(path.join(__dirname, '.next', 'BUILD_ID'));
+const dev = process.argv.includes('--dev') || process.env.NODE_ENV === 'development' || (!hasBuild && process.env.NODE_ENV !== 'production');
 
 console.log(`[Server] Starting Next.js (mode: ${dev ? 'DEVELOPMENT' : 'PRODUCTION'}, port: ${port})...`);
 
-const app = next({ dev, hostname: '0.0.0.0', port, dir: __dirname });
+const app = next({ dev, hostname, port, dir: __dirname });
 const handle = app.getRequestHandler();
 
 process.on('uncaughtException', (err) => {
@@ -30,6 +21,13 @@ process.on('uncaughtException', (err) => {
 process.on('unhandledRejection', (reason) => {
   console.warn('[Server UnhandledRejection]', reason?.stack || reason?.message || reason);
 });
+
+process.on('exit', (code) => {
+  console.log(`[Server Process Exit] Code: ${code}`);
+});
+
+// Active keepalive heartbeat to prevent event loop exhaustion
+setInterval(() => {}, 30000);
 
 app.prepare().then(() => {
   const server = createServer(async (req, res) => {
@@ -45,11 +43,11 @@ app.prepare().then(() => {
     }
   });
 
+  // Listen on port without binding to a single IP; Node defaults to dual-stack IPv6 (::) and IPv4 (0.0.0.0)
   server.listen(port, () => {
-    console.log(`✓ [Server Ready] Listening on port ${port} (IPv4 and IPv6 dual-stack)`);
+    console.log(`✓ [Server Ready] Listening on port ${port} (IPv4 and IPv6 dual-stack at http://localhost:${port})`);
   });
 }).catch((err) => {
   console.error('[Server Preparation Error]', err?.stack || err);
   process.exit(1);
 });
-

@@ -160,7 +160,7 @@ function startDevServer() {
   }
 
   const serverScript = path.join(rootDir, 'server.js');
-  const args = [serverScript];
+  const args = isDevCommand ? [serverScript, '--dev'] : [serverScript];
 
   devProcess = spawn(process.execPath, args, {
     cwd: rootDir,

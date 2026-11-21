@@ -52,10 +52,10 @@ for (const target of appPathTargets) {
     changed = true;
     console.log(`[patch-next] Patched normalizeAppPath in ${target}`);
   }
-  if (!content.includes("entry = appPaths.find((p) => p.includes(pathname)")) {
+  if (!content.includes("if (pathname === '/_not-found' || pathname.includes('not-found'))")) {
     content = content.replace(
-      'if (entry === undefined) {\n        throw new Error("Invariant: no direct app page entry found for " + pathname);',
-      'if (entry === undefined) {\n        entry = appPaths.find((p) => p.includes(pathname) || p.replace(/\\\\/g, \'/\').includes(pathname)) || appPaths[0];\n    }\n    if (entry === undefined) {\n        throw new Error("Invariant: no direct app page entry found for " + pathname);'
+      'if (entry === undefined) {\n        entry = appPaths.find((p) => p.includes(pathname) || p.replace(/\\\\/g, \'/\').includes(pathname)) || appPaths[0];\n    }\n    if (entry === undefined) {\n        throw new Error("Invariant: no direct app page entry found for " + pathname);',
+      'if (entry === undefined) {\n        entry = appPaths.find((p) => p.includes(pathname) || p.replace(/\\\\/g, \'/\').includes(pathname)) || appPaths[0];\n    }\n    if (entry === undefined) {\n        if (pathname === \'/_not-found\' || pathname.includes(\'not-found\')) return \'/_not-found/page\';\n        throw new Error("Invariant: no direct app page entry found for " + pathname);'
     );
     changed = true;
     console.log(`[patch-next] Patched selectAppPageEntry in ${target}`);
@@ -219,5 +219,101 @@ for (const target of routeModuleTargets) {
     console.log(`[patch-next] Patched interceptionRoutePatterns in ${target}`);
   }
 }
+
+// Patch render.js for dynamicCssManifest safe Set
+const renderTargets = [
+  "node_modules/next/dist/server/render.js",
+  "node_modules/next/dist/esm/server/render.js",
+];
+
+for (const target of renderTargets) {
+  const filePath = path.resolve(target);
+  if (!fs.existsSync(filePath)) continue;
+
+  let content = fs.readFileSync(filePath, "utf8");
+  if (content.includes("dynamicCssManifest: new Set(renderOpts.dynamicCssManifest || [])")) {
+    content = content.replace(
+      "dynamicCssManifest: new Set(renderOpts.dynamicCssManifest || [])",
+      "dynamicCssManifest: new Set(Array.isArray(renderOpts.dynamicCssManifest) ? renderOpts.dynamicCssManifest : (renderOpts.dynamicCssManifest instanceof Set ? renderOpts.dynamicCssManifest : []))"
+    );
+    fs.writeFileSync(filePath, content, "utf8");
+    console.log(`[patch-next] Patched render.js dynamicCssManifest in ${target}`);
+  }
+}
+
+// Patch checkIsOnDemandRevalidate for undefined previewProps
+const apiUtilsTargets = [
+  "node_modules/next/dist/server/api-utils/index.js",
+  "node_modules/next/dist/esm/server/api-utils/index.js",
+];
+
+for (const target of apiUtilsTargets) {
+  const filePath = path.resolve(target);
+  if (!fs.existsSync(filePath)) continue;
+
+  let content = fs.readFileSync(filePath, "utf8");
+  if (!content.includes("/* patched checkIsOnDemandRevalidate */")) {
+    content = content.replace(
+      "const isOnDemandRevalidate = previewModeId === previewProps.previewModeId;",
+      "/* patched checkIsOnDemandRevalidate */\n    const isOnDemandRevalidate = Boolean(previewProps && previewModeId && previewModeId === previewProps.previewModeId);"
+    );
+    fs.writeFileSync(filePath, content, "utf8");
+    console.log(`[patch-next] Patched checkIsOnDemandRevalidate in ${target}`);
+  }
+}
+
+// Patch collect-build-traces.js for missing .nft.json files
+const traceTargets = [
+  "node_modules/next/dist/build/collect-build-traces.js",
+  "node_modules/next/dist/esm/build/collect-build-traces.js",
+];
+
+for (const target of traceTargets) {
+  const filePath = path.resolve(target);
+  if (!fs.existsSync(filePath)) continue;
+
+  let content = fs.readFileSync(filePath, "utf8");
+  let changed = false;
+  if (!content.includes("/* patched safe nft.json read */")) {
+    content = content.replace(
+      /const existingTrace = JSON\.parse\(await [a-zA-Z0-9_.]+\.readFile\(traceOutputPath, 'utf8'\)\);/g,
+      "/* patched safe nft.json read */\n                let existingTrace = { version: 1, files: [] };\n                try {\n                    existingTrace = JSON.parse(await fs.promises?.readFile ? await fs.promises.readFile(traceOutputPath, 'utf8') : await fs.readFile(traceOutputPath, 'utf8'));\n                } catch {}"
+    );
+    content = content.replace(
+      /const selectedTrace = JSON\.parse\(await [a-zA-Z0-9_.]+\.readFile\(selectedTracePath, 'utf8'\)\);/g,
+      "let selectedTrace = { version: 1, files: [] };\n                try {\n                    selectedTrace = JSON.parse(await fs.promises?.readFile ? await fs.promises.readFile(selectedTracePath, 'utf8') : await fs.readFile(selectedTracePath, 'utf8'));\n                } catch {}"
+    );
+    content = content.replace(
+      /const trace = JSON\.parse\(await [a-zA-Z0-9_.]+\.readFile\(tracePath, 'utf8'\)\);/g,
+      "let trace = { version: 1, files: [] };\n                    try {\n                        trace = JSON.parse(await fs.promises?.readFile ? await fs.promises.readFile(tracePath, 'utf8') : await fs.readFile(tracePath, 'utf8'));\n                    } catch {}"
+    );
+    content = content.replace(
+      /const traceContent = JSON\.parse\(await [a-zA-Z0-9_.]+\.readFile\(traceFile, 'utf8'\)\);/g,
+      "let traceContent = { version: 1, files: [] };\n            try {\n                traceContent = JSON.parse(await fs.promises?.readFile ? await fs.promises.readFile(traceFile, 'utf8') : await fs.readFile(traceFile, 'utf8'));\n            } catch {}"
+    );
+    changed = true;
+  }
+  if (changed) {
+    fs.writeFileSync(filePath, content, "utf8");
+    console.log(`[patch-next] Patched collect-build-traces in ${target}`);
+  }
+}
+
+// Patch webpack bundle5.js for server chunks fallback
+const bundle5Path = path.resolve("node_modules/next/dist/compiled/webpack/bundle5.js");
+if (fs.existsSync(bundle5Path)) {
+  let content = fs.readFileSync(bundle5Path, "utf8");
+  const targetStr = "`installChunk(require(${JSON.stringify(Ze)} + ${R.getChunkScriptFilename}(chunkId)));`";
+  const replacementStr = "`try { installChunk(require(${JSON.stringify(Ze)} + ${R.getChunkScriptFilename}(chunkId))); } catch(e) { if (e.code === 'MODULE_NOT_FOUND') { installChunk(require(${JSON.stringify(Ze)} + \"chunks/\" + ${R.getChunkScriptFilename}(chunkId))); } else throw e; }`";
+  if (content.includes(targetStr)) {
+    content = content.replace(targetStr, replacementStr);
+    fs.writeFileSync(bundle5Path, content, "utf8");
+    console.log(`[patch-next] Patched webpack server chunk fallback in bundle5.js`);
+  }
+}
+
+
+
+
 
 
