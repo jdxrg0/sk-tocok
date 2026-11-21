@@ -98,78 +98,14 @@ function getTodayIso(): string {
   return `${y}-${m}-${d}`;
 }
 
-// Synthesized subtle acoustic tick & physical vibration (iOS Taptic + Android Haptics + Web Audio)
-let sharedAudioCtx: AudioContext | null = null;
-function playTactileTick() {
-  try {
-    if (typeof window === "undefined") return;
-    const AudioContextClass =
-      window.AudioContext ||
-      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    if (!AudioContextClass) return;
-    if (!sharedAudioCtx) {
-      sharedAudioCtx = new AudioContextClass();
-    }
-    if (sharedAudioCtx.state === "suspended") {
-      sharedAudioCtx.resume();
-    }
-    const osc = sharedAudioCtx.createOscillator();
-    const gain = sharedAudioCtx.createGain();
-    const now = sharedAudioCtx.currentTime;
-
-    // Solid 16ms mechanical transient pop (180Hz down to 45Hz at 18% volume) - distinctly audible & tactile
-    osc.type = "sine";
-    osc.frequency.setValueAtTime(180, now);
-    osc.frequency.exponentialRampToValueAtTime(45, now + 0.016);
-
-    gain.gain.setValueAtTime(0.18, now);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.016);
-
-    osc.connect(gain);
-    gain.connect(sharedAudioCtx.destination);
-
-    osc.start(now);
-    osc.stop(now + 0.017);
-  } catch {
-    // AudioContext blocked or restricted
-  }
-}
-
-function triggerHaptic(pattern: number | number[] = 45) {
-  // 1. Android Web Vibration API (solid 45ms pulse)
+function triggerHaptic(pattern: number | number[] = 15) {
   if (typeof window !== "undefined" && typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
     try {
       navigator.vibrate(pattern);
     } catch {
-      // Ignore vibration error
+      // Ignore vibration error if unsupported or blocked
     }
   }
-
-  // 2. iOS Taptic Engine Trigger via hidden native switch toggle (iOS 17.4+ Safari)
-  if (typeof document !== "undefined") {
-    try {
-      let switchEl = document.getElementById("sk-taptic-switch") as HTMLInputElement | null;
-      if (!switchEl) {
-        switchEl = document.createElement("input");
-        switchEl.type = "checkbox";
-        switchEl.setAttribute("switch", "");
-        switchEl.id = "sk-taptic-switch";
-        switchEl.style.position = "fixed";
-        switchEl.style.top = "-9999px";
-        switchEl.style.left = "-9999px";
-        switchEl.style.opacity = "0";
-        switchEl.style.pointerEvents = "none";
-        switchEl.setAttribute("aria-hidden", "true");
-        document.body.appendChild(switchEl);
-      }
-      switchEl.click();
-    } catch {
-      // Ignore
-    }
-  }
-
-  // 3. Universal Web Audio Mechanical Click
-  playTactileTick();
 }
 
 export default function AttendanceTracker({ mode = "public" }: AttendanceTrackerProps) {
@@ -779,18 +715,20 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
                             onClick={() => setViewingOfficial(official)}
                             className="flex items-center gap-3 text-left group/btn cursor-pointer w-full select-none active:scale-[0.98] transition-transform duration-100 ease-out"
                           >
-                            <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-full overflow-hidden shrink-0 bg-brand-50 dark:bg-brand-950/60 flex items-center justify-center border border-slate-200 dark:border-slate-700 ring-2 ring-brand-500/15 shadow-xs">
-                              {official.avatar_url ? (
+                            <div className="relative w-11 h-11 sm:w-12 sm:h-12 rounded-full overflow-hidden shrink-0 bg-brand-50 dark:bg-brand-950/60 flex items-center justify-center border border-slate-200 dark:border-slate-700 ring-2 ring-brand-500/15 shadow-xs">
+                              <span className="text-sm font-black text-brand-700 dark:text-brand-300 select-none">
+                                {getOfficialInitials(official.name)}
+                              </span>
+                              {official.avatar_url && (
                                 // eslint-disable-next-line @next/next/no-img-element
                                 <img
                                   src={official.avatar_url}
                                   alt={official.name}
-                                  className="w-full h-full object-cover"
+                                  onError={(e) => {
+                                    (e.currentTarget as HTMLElement).style.display = "none";
+                                  }}
+                                  className="absolute inset-0 w-full h-full object-cover"
                                 />
-                              ) : (
-                                <span className="text-sm font-black text-brand-700 dark:text-brand-300">
-                                  {getOfficialInitials(official.name)}
-                                </span>
                               )}
                             </div>
                             <div className="min-w-0 flex-1 leading-snug">
@@ -922,18 +860,20 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
                         className="flex items-center gap-3 text-left min-w-0 flex-1 cursor-pointer group select-none active:scale-[0.98] transition-transform duration-100 ease-out"
                       >
                         {/* Avatar (Large & clear, 44px) */}
-                        <div className="w-11 h-11 rounded-full overflow-hidden shrink-0 bg-brand-50 dark:bg-brand-950/60 flex items-center justify-center border border-slate-200 dark:border-slate-700 ring-2 ring-brand-500/15 shadow-xs">
-                          {official.avatar_url ? (
+                        <div className="relative w-11 h-11 rounded-full overflow-hidden shrink-0 bg-brand-50 dark:bg-brand-950/60 flex items-center justify-center border border-slate-200 dark:border-slate-700 ring-2 ring-brand-500/15 shadow-xs">
+                          <span className="text-sm font-black text-brand-700 dark:text-brand-300 select-none">
+                            {getOfficialInitials(official.name)}
+                          </span>
+                          {official.avatar_url && (
                             // eslint-disable-next-line @next/next/no-img-element
                             <img
                               src={official.avatar_url}
                               alt={official.name}
-                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                (e.currentTarget as HTMLElement).style.display = "none";
+                              }}
+                              className="absolute inset-0 w-full h-full object-cover"
                             />
-                          ) : (
-                            <span className="text-sm font-black text-brand-700 dark:text-brand-300">
-                              {getOfficialInitials(official.name)}
-                            </span>
                           )}
                         </div>
 
@@ -1473,7 +1413,7 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
               transition: "transform 260ms cubic-bezier(0.16, 1, 0.3, 1), opacity 240ms cubic-bezier(0.16, 1, 0.3, 1)",
             }}
           >
-            <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-start justify-between gap-3 shrink-0">
+            <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 shrink-0">
               <div className="space-y-1 min-w-0">
                 <span
                   className={`inline-flex text-[10px] font-bold px-2 py-0.5 rounded-full border ${getActivityTypeBadge(
@@ -1491,13 +1431,6 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
                   {viewingSession.location && ` • ${viewingSession.location}`}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={closeSessionModal}
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 active:scale-90 active:bg-slate-100 dark:active:bg-slate-800 transition-all cursor-pointer shrink-0 select-none"
-              >
-                <X className="w-4 h-4" />
-              </button>
             </div>
 
             <div className="p-4 overflow-y-auto space-y-2 flex-1 min-h-0 themed-scrollbar overscroll-contain">
@@ -1529,23 +1462,25 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
                       {/* Avatar with corner status badge */}
                       <div className="relative shrink-0">
                         <div
-                          className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full overflow-hidden bg-brand-50 dark:bg-brand-950/60 flex items-center justify-center border ${
+                          className={`relative w-9 h-9 sm:w-10 sm:h-10 rounded-full overflow-hidden bg-brand-50 dark:bg-brand-950/60 flex items-center justify-center border ${
                             isPresent
                               ? "border-emerald-200 dark:border-emerald-800"
                               : "border-slate-200 dark:border-slate-700 opacity-60 grayscale"
                           }`}
                         >
-                          {official.avatar_url ? (
+                          <span className="text-xs font-black text-brand-700 dark:text-brand-300 select-none">
+                            {getOfficialInitials(official.name)}
+                          </span>
+                          {official.avatar_url && (
                             // eslint-disable-next-line @next/next/no-img-element
                             <img
                               src={official.avatar_url}
                               alt={official.name}
-                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                (e.currentTarget as HTMLElement).style.display = "none";
+                              }}
+                              className="absolute inset-0 w-full h-full object-cover"
                             />
-                          ) : (
-                            <span className="text-xs font-black text-brand-700 dark:text-brand-300">
-                              {getOfficialInitials(official.name)}
-                            </span>
                           )}
                         </div>
 
@@ -1673,18 +1608,20 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
               <div className="px-5 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-4 bg-slate-50/70 dark:bg-slate-900/80 shrink-0">
                 <div className="flex items-center gap-3 min-w-0">
                   {/* Official photo avatar */}
-                  <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full overflow-hidden shrink-0 border border-slate-200 dark:border-slate-700 ring-2 ring-slate-200 dark:ring-slate-700 bg-slate-100 dark:bg-slate-800">
-                    {viewingMonthGroup.official.avatar_url ? (
+                  <div className="relative w-9 h-9 sm:w-10 sm:h-10 rounded-full overflow-hidden shrink-0 border border-slate-200 dark:border-slate-700 ring-2 ring-slate-200 dark:ring-slate-700 bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+                    <span className="text-xs font-black text-brand-700 dark:text-brand-300 select-none">
+                      {getOfficialInitials(viewingMonthGroup.official.name)}
+                    </span>
+                    {viewingMonthGroup.official.avatar_url && (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={viewingMonthGroup.official.avatar_url}
                         alt={viewingMonthGroup.official.name}
-                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          (e.currentTarget as HTMLElement).style.display = "none";
+                        }}
+                        className="absolute inset-0 w-full h-full object-cover"
                       />
-                    ) : (
-                      <span className="text-xs font-black text-brand-700 dark:text-brand-300 flex items-center justify-center w-full h-full">
-                        {getOfficialInitials(viewingMonthGroup.official.name)}
-                      </span>
                     )}
                   </div>
 
@@ -1920,23 +1857,25 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
                                 {/* Avatar with corner status badge */}
                                 <div className="relative shrink-0">
                                   <div
-                                    className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full overflow-hidden bg-brand-50 dark:bg-brand-950/60 flex items-center justify-center border ${
+                                    className={`relative w-9 h-9 sm:w-10 sm:h-10 rounded-full overflow-hidden bg-brand-50 dark:bg-brand-950/60 flex items-center justify-center border ${
                                       isPresent
                                         ? "border-emerald-200 dark:border-emerald-800"
                                         : "border-slate-200 dark:border-slate-700 opacity-60 grayscale"
                                     }`}
                                   >
-                                    {off.avatar_url ? (
+                                    <span className="text-xs font-black text-brand-700 dark:text-brand-300 select-none">
+                                      {getOfficialInitials(off.name)}
+                                    </span>
+                                    {off.avatar_url && (
                                       // eslint-disable-next-line @next/next/no-img-element
                                       <img
                                         src={off.avatar_url}
                                         alt={off.name}
-                                        className="w-full h-full object-cover"
+                                        onError={(e) => {
+                                          (e.currentTarget as HTMLElement).style.display = "none";
+                                        }}
+                                        className="absolute inset-0 w-full h-full object-cover"
                                       />
-                                    ) : (
-                                      <span className="text-xs font-black text-brand-700 dark:text-brand-300">
-                                        {getOfficialInitials(off.name)}
-                                      </span>
                                     )}
                                   </div>
 

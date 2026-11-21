@@ -39,21 +39,31 @@ export async function GET(request: Request) {
       params
     );
 
-    // Get statistics for the dashboard
-    const [totalRow, pendingRow, printingRow, readyRow, completedRow] = await Promise.all([
-      sql`SELECT COUNT(*) AS count FROM print_requests`,
-      sql`SELECT COUNT(*) AS count FROM print_requests WHERE status = 'Pending Review'`,
-      sql`SELECT COUNT(*) AS count FROM print_requests WHERE status = 'Printing In Progress'`,
-      sql`SELECT COUNT(*) AS count FROM print_requests WHERE status = 'Ready for Pickup'`,
-      sql`SELECT COUNT(*) AS count FROM print_requests WHERE status = 'Completed'`,
-    ]);
+    // Get statistics for the dashboard in a single query
+    const statsRows = await sql`
+      SELECT
+        COUNT(*) AS total,
+        COUNT(*) FILTER (WHERE status = 'Pending Review') AS pending,
+        COUNT(*) FILTER (WHERE status = 'Printing In Progress') AS printing,
+        COUNT(*) FILTER (WHERE status = 'Ready for Pickup') AS ready,
+        COUNT(*) FILTER (WHERE status = 'Completed') AS completed
+      FROM print_requests
+    `;
+
+    const row = (statsRows[0] || {}) as {
+      total?: number;
+      pending?: number;
+      printing?: number;
+      ready?: number;
+      completed?: number;
+    };
 
     const stats = {
-      total: Number((totalRow[0] as { count: number }).count),
-      pending: Number((pendingRow[0] as { count: number }).count),
-      printing: Number((printingRow[0] as { count: number }).count),
-      ready: Number((readyRow[0] as { count: number }).count),
-      completed: Number((completedRow[0] as { count: number }).count),
+      total: Number(row.total || 0),
+      pending: Number(row.pending || 0),
+      printing: Number(row.printing || 0),
+      ready: Number(row.ready || 0),
+      completed: Number(row.completed || 0),
     };
 
     return NextResponse.json({ success: true, jobs, stats });

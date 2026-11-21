@@ -209,6 +209,7 @@ export default function AttendanceCharts({
             <div style={{ height: `${chartHeight}px` }} className="w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
+                  accessibilityLayer={false}
                   data={rankingData}
                   layout="vertical"
                   margin={{ top: 6, right: 24, left: 4, bottom: 6 }}
@@ -300,6 +301,7 @@ export default function AttendanceCharts({
         <div className="h-[310px] w-full">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart
+              accessibilityLayer={false}
               data={monthlyData}
               margin={{ top: 10, right: 16, left: 0, bottom: 8 }}
             >

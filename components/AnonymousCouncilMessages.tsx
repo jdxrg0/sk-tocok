@@ -107,85 +107,15 @@ function triggerHaptic(pattern: number | number[] = 15) {
   }
 }
 
-function triggerAudioClick(type: "tap" | "pop" | "success" | "toggle" = "tap") {
-  if (typeof window === "undefined") return;
-  try {
-    const AudioContextClass =
-      window.AudioContext ||
-      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    if (!AudioContextClass) return;
-
-    const ctx = new AudioContextClass();
-    if (ctx.state === "suspended") {
-      ctx.resume().catch(() => {});
-    }
-
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-
-    const now = ctx.currentTime;
-    if (type === "tap") {
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(520, now);
-      osc.frequency.exponentialRampToValueAtTime(140, now + 0.035);
-      gain.gain.setValueAtTime(0.04, now);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.035);
-      osc.start(now);
-      osc.stop(now + 0.04);
-    } else if (type === "pop") {
-      // Upvote pop
-      osc.type = "triangle";
-      osc.frequency.setValueAtTime(320, now);
-      osc.frequency.exponentialRampToValueAtTime(800, now + 0.05);
-      gain.gain.setValueAtTime(0.065, now);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.05);
-      osc.start(now);
-      osc.stop(now + 0.055);
-    } else if (type === "toggle") {
-      // Expand/collapse comments
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(420, now);
-      osc.frequency.exponentialRampToValueAtTime(260, now + 0.04);
-      gain.gain.setValueAtTime(0.045, now);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.04);
-      osc.start(now);
-      osc.stop(now + 0.045);
-    } else if (type === "success") {
-      // Submit / Copy
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(440, now);
-      osc.frequency.setValueAtTime(587.33, now + 0.05);
-      osc.frequency.setValueAtTime(880, now + 0.1);
-      gain.gain.setValueAtTime(0.05, now);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.2);
-      osc.start(now);
-      osc.stop(now + 0.21);
-    }
-    setTimeout(() => {
-      try {
-        ctx.close();
-      } catch {}
-    }, 280);
-  } catch {
-    // Audio unsupported or blocked
-  }
-}
-
 function tactileFeedback(type: "tap" | "pop" | "success" | "toggle" = "tap") {
   if (type === "pop") {
     triggerHaptic(20);
-    triggerAudioClick("pop");
   } else if (type === "success") {
     triggerHaptic([20, 45, 25]);
-    triggerAudioClick("success");
   } else if (type === "toggle") {
     triggerHaptic(12);
-    triggerAudioClick("toggle");
   } else {
     triggerHaptic(10);
-    triggerAudioClick("tap");
   }
 }
 
@@ -280,16 +210,9 @@ function ThreadedCommentItem({
   const children = repliesByParent[reply.id] || [];
   const isReplyingThis = selectedReplyTo?.id === reply.id;
   const isAnimatingLike = animatingReplyLikeIds[reply.id];
-  const isNewlyAdded = newlyAddedReplyId === reply.id;
 
   return (
-    <div
-      className={`space-y-1.5 animate-comment-enter transition-all duration-300 ${
-        isNewlyAdded
-          ? "p-1.5 -ml-1.5 rounded-xl bg-brand-500/10 dark:bg-brand-500/15 ring-1 ring-brand-500/30"
-          : ""
-      }`}
-    >
+    <div className="space-y-1.5 animate-comment-enter">
       {/* Comment Header & Content */}
       <div className="space-y-1">
         <div className="flex items-center gap-1.5 text-xs">
@@ -301,11 +224,6 @@ function ThreadedCommentItem({
           <span className="text-slate-400 text-[10px]">
             {formatTimeAgo(reply.created_at)}
           </span>
-          {isNewlyAdded && (
-            <span className="text-[9px] font-semibold text-brand-700 dark:text-brand-300 bg-brand-100 dark:bg-brand-950/80 px-1.5 py-0.2 rounded-full animate-in fade-in zoom-in-95 duration-200">
-              Just now
-            </span>
-          )}
         </div>
         <p className="text-xs text-slate-800 dark:text-slate-200 leading-relaxed pl-6.5 whitespace-pre-wrap">
           {reply.reply}
@@ -355,7 +273,7 @@ function ThreadedCommentItem({
       {/* Dynamic Inline Reply Box: Moves directly under this comment when replying */}
       {isReplyingThis && (
         <div className="pl-6.5 pt-1 space-y-1 animate-reply-box-enter">
-          <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800/70 p-1.5 rounded-xl border border-brand-400/80 dark:border-brand-600/80 shadow-xs focus-within:ring-2 focus-within:ring-brand-500/25 transition-all duration-200">
+          <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800/70 p-1.5 rounded-xl border border-slate-200/90 dark:border-slate-700/80 shadow-xs focus-within:border-slate-400 dark:focus-within:border-slate-500 transition-all duration-200">
             <AnonymousAvatar alias={userAlias} size="xs" className="shrink-0" />
             <textarea
               id={`reply-input-${messageId}`}
@@ -377,7 +295,7 @@ function ThreadedCommentItem({
                 }
               }}
               placeholder={`Reply to u/${reply.alias.replace(/^u\//i, "")}...`}
-              className="flex-1 py-1 px-2.5 text-xs sm:text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none leading-normal min-h-[34px] max-h-[100px]"
+              className="flex-1 py-1 px-2.5 text-xs sm:text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-slate-400 dark:focus:border-slate-500 resize-none leading-normal min-h-[34px] max-h-[100px]"
             />
             <button
               type="button"
@@ -392,10 +310,13 @@ function ThreadedCommentItem({
               onClick={() => onSubmitReply(reply.id)}
               disabled={submittingReply || !replyInput.trim()}
               title="Send reply (Enter on desktop)"
-              className="px-2.5 py-1.5 h-8.5 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-40 text-white font-semibold text-xs flex items-center justify-center gap-1 transition-all shrink-0 cursor-pointer disabled:cursor-not-allowed shadow-2xs hover:shadow-xs tactile-btn"
+              className="h-8.5 px-3 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-40 text-white font-semibold text-xs flex items-center justify-center gap-1 transition-all shrink-0 cursor-pointer disabled:cursor-not-allowed shadow-2xs hover:shadow-xs tactile-btn min-w-[34px] sm:w-[84px]"
             >
               {submittingReply ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span className="hidden sm:inline">Sending...</span>
+                </>
               ) : (
                 <>
                   <Send className="w-3.5 h-3.5 transition-transform duration-200 hover:translate-x-0.5 hover:-translate-y-0.5" />
@@ -1958,9 +1879,7 @@ export default function AnonymousCouncilMessages({
                       <div
                         key={msg.id}
                         className={`bg-white dark:bg-slate-900 rounded-xl sm:rounded-2xl border transition-all duration-300 p-3.5 sm:p-4.5 space-y-3 shadow-xs hover:border-slate-300 dark:hover:border-slate-700 ${
-                          isNewlyAddedPost
-                            ? "animate-new-post ring-2 ring-brand-500/50 border-brand-400"
-                            : msg.is_pinned
+                          msg.is_pinned
                             ? "border-emerald-300/80 dark:border-emerald-800/80 bg-emerald-50/10"
                             : "border-slate-200/90 dark:border-slate-800"
                         }`}
@@ -1973,11 +1892,6 @@ export default function AnonymousCouncilMessages({
                               <span className="font-semibold text-slate-900 dark:text-slate-100">
                                 u/{msg.alias.replace(/^u\//i, "")}
                               </span>
-                              {isNewlyAddedPost && (
-                                <span className="text-[9px] font-semibold text-brand-700 dark:text-brand-300 bg-brand-100 dark:bg-brand-950/80 px-1.5 py-0.2 rounded-full animate-in fade-in zoom-in-95 duration-200">
-                                  Just posted
-                                </span>
-                              )}
                               <span className="text-slate-400">•</span>
                               <span className="text-slate-400 text-[11px]">
                                 {formatTimeAgo(msg.created_at)}
@@ -2150,7 +2064,7 @@ export default function AnonymousCouncilMessages({
                                   {/* Root Comment Composer: Shown at top ONLY when not actively replying inline */}
                                   {!currentReplyTarget && (
                                     <div className="space-y-1.5 animate-comment-enter">
-                                      <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800/60 p-1.5 rounded-xl border border-slate-200/80 dark:border-slate-700/60 focus-within:ring-2 focus-within:ring-brand-500/25 transition-all duration-200">
+                                      <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800/60 p-1.5 rounded-xl border border-slate-200/80 dark:border-slate-700/60 focus-within:border-slate-300 dark:focus-within:border-slate-600 transition-all duration-200">
                                         <AnonymousAvatar
                                           alias={formAlias || "Anonymous Youth"}
                                           size="sm"
@@ -2190,7 +2104,7 @@ export default function AnonymousCouncilMessages({
                                             }
                                           }}
                                           placeholder="What are your thoughts?"
-                                          className="flex-1 py-1.5 px-3 text-xs sm:text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none leading-normal min-h-[36px] max-h-[100px]"
+                                          className="flex-1 py-1.5 px-3 text-xs sm:text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-slate-300 dark:focus:border-slate-600 resize-none leading-normal min-h-[36px] max-h-[100px]"
                                         />
                                         <button
                                           type="button"
@@ -2200,10 +2114,13 @@ export default function AnonymousCouncilMessages({
                                             !(replyInputs[msg.id] || "").trim()
                                           }
                                           title="Comment (Enter on desktop)"
-                                          className="px-3 py-1.5 h-9 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-40 text-white font-semibold text-xs flex items-center justify-center gap-1.5 transition-all shrink-0 cursor-pointer disabled:cursor-not-allowed shadow-2xs hover:shadow-xs tactile-btn"
+                                          className="px-3 py-1.5 h-9 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-40 text-white font-semibold text-xs flex items-center justify-center gap-1.5 transition-all shrink-0 cursor-pointer disabled:cursor-not-allowed shadow-2xs hover:shadow-xs tactile-btn min-w-[36px] sm:w-[96px]"
                                         >
                                           {submittingReply[msg.id] ? (
-                                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                            <>
+                                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                              <span className="hidden sm:inline">Sending...</span>
+                                            </>
                                           ) : (
                                             <>
                                               <Send className="w-3.5 h-3.5 transition-transform duration-200 hover:translate-x-0.5 hover:-translate-y-0.5" />
@@ -2377,26 +2294,26 @@ export default function AnonymousCouncilMessages({
                   </div>
 
                   {/* 3. PINNED FOOTER (shrink-0) */}
-                  <div className="shrink-0 px-4 sm:px-6 py-3 sm:py-3.5 border-t border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900 flex items-center justify-between gap-2">
-                    <span className="text-[11px] text-slate-400 hidden sm:inline">
+                  <div className="shrink-0 px-4 sm:px-6 py-3 sm:py-3.5 border-t border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900 flex items-center justify-between gap-3">
+                    <span className="text-[11px] text-slate-400 hidden sm:inline whitespace-nowrap shrink-0 select-none">
                       Press <kbd className="px-1 py-0.5 text-[10px] font-mono bg-slate-100 dark:bg-slate-700 rounded border border-slate-300 dark:border-slate-600">Enter ↵</kbd> to post, <kbd className="px-1 py-0.5 text-[10px] font-mono bg-slate-100 dark:bg-slate-700 rounded border border-slate-300 dark:border-slate-600">Shift+Enter</kbd> for new line
                     </span>
-                    <div className="flex items-center gap-2 ml-auto">
+                    <div className="flex items-center gap-2 ml-auto shrink-0">
                       <button
                         type="button"
                         onClick={() => setShowAddModal(false)}
-                        className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                        className="h-9 px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer tactile-btn flex items-center justify-center"
                       >
                         Cancel
                       </button>
                       <button
                         type="submit"
                         disabled={formSubmitting}
-                        className="px-6 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white font-semibold text-xs transition-colors flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
+                        className="w-24 h-9 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-80 text-white font-semibold text-xs transition-colors flex items-center justify-center gap-1.5 shadow-xs cursor-pointer disabled:cursor-not-allowed tactile-btn shrink-0"
                       >
                         {formSubmitting ? (
                           <>
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
                             <span>Posting...</span>
                           </>
                         ) : (

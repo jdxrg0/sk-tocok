@@ -204,7 +204,7 @@ export default function ExpenseCharts({
             {/* Donut Chart (Non-tappable clean visual display) */}
             <div className="lg:col-span-6 h-52 sm:h-56 lg:h-full w-full min-w-0 relative flex items-center justify-center shrink-0 pointer-events-none select-none">
               <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
+                <PieChart accessibilityLayer={false}>
                   <Pie
                     data={chartCategoryData}
                     cx="50%"
@@ -313,7 +313,11 @@ export default function ExpenseCharts({
 
             <div className="flex-1 w-full min-h-0 relative">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartMonthlyData} margin={{ top: 12, right: 12, left: -12, bottom: 6 }}>
+                <BarChart
+                  accessibilityLayer={false}
+                  data={chartMonthlyData}
+                  margin={{ top: 12, right: 12, left: -12, bottom: 6 }}
+                >
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartColors.grid} />
                   <XAxis
                     dataKey="name"

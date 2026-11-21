@@ -145,10 +145,13 @@ function startDevServer() {
 
   log(`Starting Next.js server in [${mode.toUpperCase()}] mode on 0.0.0.0:3000...`);
 
-  const existingNodeOpts = process.env.NODE_OPTIONS || '';
-  const nodeOptions = existingNodeOpts.includes('max-old-space-size')
-    ? existingNodeOpts
-    : `${existingNodeOpts} --max-old-space-size=4096`.trim();
+  let nodeOptions = process.env.NODE_OPTIONS || '';
+  if (!nodeOptions.includes('max-old-space-size')) {
+    nodeOptions = `${nodeOptions} --max-old-space-size=4096`.trim();
+  }
+  if (!nodeOptions.includes('unhandled-rejections')) {
+    nodeOptions = `${nodeOptions} --unhandled-rejections=warn`.trim();
+  }
 
   devProcess = spawn(process.execPath, [nextBin, mode, '-H', '0.0.0.0'], {
     cwd: rootDir,
