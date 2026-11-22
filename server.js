@@ -4,10 +4,10 @@ const fs = require('fs');
 const path = require('path');
 
 const port = parseInt(process.env.PORT || '3000', 10);
-const hostname = '0.0.0.0';
+const hostname = 'localhost';
 
 const hasBuild = fs.existsSync(path.join(__dirname, '.next', 'BUILD_ID'));
-const dev = process.argv.includes('--dev') || process.env.NODE_ENV === 'development';
+const dev = process.argv.includes('--dev') || process.env.NODE_ENV === 'development' || (!hasBuild && process.env.NODE_ENV !== 'production');
 
 console.log(`[Server] Starting Next.js (mode: ${dev ? 'DEVELOPMENT' : 'PRODUCTION'}, port: ${port})...`);
 
@@ -43,8 +43,9 @@ app.prepare().then(() => {
     }
   });
 
-  server.listen(port, hostname, () => {
-    console.log(`✓ [Server Ready] Listening on http://localhost:${port} and http://${hostname}:${port}`);
+  // Listen on port without binding to a single IP; Node defaults to dual-stack IPv6 (::) and IPv4 (0.0.0.0)
+  server.listen(port, () => {
+    console.log(`✓ [Server Ready] Listening on port ${port} (IPv4 and IPv6 dual-stack at http://localhost:${port})`);
   });
 }).catch((err) => {
   console.error('[Server Preparation Error]', err?.stack || err);

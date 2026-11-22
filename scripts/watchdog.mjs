@@ -76,8 +76,8 @@ let restartCount = 0;
 let lastRestartTimestamp = 0;
 
 function ensureBuild() {
-  const isDevCommand = process.argv.includes('--dev') || process.env.npm_lifecycle_event?.startsWith('dev');
-  if (isDevCommand) {
+  const isProd = process.argv.includes('--prod') || process.env.NODE_ENV === 'production';
+  if (!isProd) {
     return; // In dev mode, always run Next.js in development mode without running a blocking build
   }
   const hasProdBuild = fs.existsSync(path.join(rootDir, '.next', 'BUILD_ID'));
@@ -145,11 +145,11 @@ function startDevServer() {
   
   ensureBuild();
 
-  const isDevCommand = process.argv.includes('--dev') || process.env.npm_lifecycle_event?.startsWith('dev');
-  const hasProdBuild = fs.existsSync(path.join(rootDir, '.next', 'BUILD_ID'));
-  const mode = (hasProdBuild && !isDevCommand) ? 'start' : 'dev';
+  const isProd = process.argv.includes('--prod') || process.env.NODE_ENV === 'production';
+  const mode = isProd ? 'start' : 'dev';
+  const isDevCommand = mode === 'dev';
 
-  log(`Starting Next.js server in [${mode.toUpperCase()}] mode on 0.0.0.0:3000...`);
+  log(`Starting Next.js server in [${mode.toUpperCase()}] mode on port 3000...`);
 
   let nodeOptions = process.env.NODE_OPTIONS || '';
   if (!nodeOptions.includes('max-old-space-size')) {
@@ -159,7 +159,8 @@ function startDevServer() {
     nodeOptions = `${nodeOptions} --unhandled-rejections=warn`.trim();
   }
 
-  const args = mode === 'start' ? [nextBin, 'start', '-H', '0.0.0.0'] : [nextBin, 'dev', '-H', '0.0.0.0'];
+  const serverScript = path.join(rootDir, 'server.js');
+  const args = isDevCommand ? [serverScript, '--dev'] : [serverScript];
 
   devProcess = spawn(process.execPath, args, {
     cwd: rootDir,
