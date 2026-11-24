@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import Header from "@/components/Header";
-import Footer from "@/components/Footer";
 import PreventZoom from "@/components/PreventZoom";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { AuthProvider } from "@/components/AuthProvider";
@@ -55,7 +54,6 @@ export default function RootLayout({
             <PreventZoom />
             <Header />
             <main className="flex-1 min-h-[calc(100vh-58px)] md:min-h-[calc(100vh-110px)] min-h-[calc(100dvh-58px)] md:min-h-[calc(100dvh-110px)]">{children}</main>
-            <Footer />
           </ThemeProvider>
         </AuthProvider>
       </body>

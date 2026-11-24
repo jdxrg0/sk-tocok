@@ -13,6 +13,7 @@ export default function Navbar() {
     { href: "/", label: "Overview" },
     { href: "/transparency", label: "Finances & Transparency" },
     { href: "/printing", label: "Printing & Tracking" },
+    { href: "/cse", label: "Free CSE Subsidy" },
     { href: "/attendance", label: "Attendance" },
   ];
 

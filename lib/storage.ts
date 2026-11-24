@@ -51,7 +51,7 @@ export async function ensureStoredFilesTable(): Promise<void> {
  */
 export async function saveUploadedFile(
   file: File,
-  folder: "prints" | "receipts" | "officials" | "attendance"
+  folder: "prints" | "receipts" | "officials" | "attendance" | "cse"
 ): Promise<{ filePath: string; fileName: string; fileSize: number; fileId: string }> {
   await ensureStoredFilesTable();
 

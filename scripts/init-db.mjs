@@ -280,6 +280,66 @@ async function main() {
     ON push_subscriptions (user_email)
   `;
 
+  // CSE Applications Table
+  await sql`
+    CREATE TABLE IF NOT EXISTS cse_applications (
+      id                          SERIAL PRIMARY KEY,
+      tracking_code               TEXT UNIQUE NOT NULL,
+      full_name                   TEXT NOT NULL,
+      contact_number              TEXT NOT NULL,
+      email                       TEXT,
+      facebook_name               TEXT,
+      purok                       TEXT NOT NULL,
+      birthdate                   TEXT NOT NULL,
+      age                         INTEGER NOT NULL,
+      school_or_employment        TEXT,
+      
+      exam_level                  TEXT NOT NULL,
+      exam_date                   TEXT NOT NULL,
+      is_first_time               BOOLEAN DEFAULT TRUE,
+      
+      payout_preference           TEXT NOT NULL DEFAULT 'Barangay Hall Cash Pickup',
+      gcash_number                TEXT,
+      gcash_account_name          TEXT,
+      
+      valid_id_url                TEXT NOT NULL,
+      csc_receipt_url             TEXT NOT NULL,
+      csc_receipt_no              TEXT,
+      exam_schedule_proof_url     TEXT NOT NULL,
+      
+      reimbursement_status        TEXT NOT NULL DEFAULT 'Pending Review',
+      reimbursement_amount        NUMERIC NOT NULL DEFAULT 500,
+      disbursement_voucher_no     TEXT,
+      reimbursed_at               TIMESTAMPTZ,
+      reimbursed_by               TEXT,
+      payout_station_or_method    TEXT,
+      admin_notes                 TEXT,
+      
+      attendance_status           TEXT NOT NULL DEFAULT 'Not Yet Taken',
+      exam_attendance_proof_url   TEXT,
+      exam_attendance_notes       TEXT,
+      attendance_verified_at      TIMESTAMPTZ,
+      
+      exam_result_status          TEXT NOT NULL DEFAULT 'Awaiting Results',
+      rating                      NUMERIC,
+      result_proof_url            TEXT,
+      is_featured_in_hall_of_fame BOOLEAN DEFAULT TRUE,
+      result_verified_at          TIMESTAMPTZ,
+      user_id                     INTEGER,
+      user_email                  TEXT,
+      
+      created_at                  TIMESTAMPTZ DEFAULT NOW(),
+      updated_at                  TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+  await sql`ALTER TABLE cse_applications ADD COLUMN IF NOT EXISTS user_id INTEGER`;
+  await sql`ALTER TABLE cse_applications ADD COLUMN IF NOT EXISTS user_email TEXT`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_cse_tracking ON cse_applications(tracking_code)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_cse_status ON cse_applications(reimbursement_status, exam_result_status)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_cse_purok ON cse_applications(purok)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_cse_user_id ON cse_applications(user_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_cse_user_email ON cse_applications(user_email)`;
+
   console.log("✅ Tables verified.");
 
   // 2. SEED SETTINGS
@@ -297,6 +357,10 @@ async function main() {
     ["hall_location", "Barangay Tocok Hall, Youth Development Center"],
     ["contact_email", "sktocok.youth@gmail.com"],
     ["contact_phone", "+63 912 345 6789"],
+    ["cse_program_active", "true"],
+    ["cse_slot_quota", "20"],
+    ["cse_annual_budget", "10000"],
+    ["cse_target_exam_batch", "March 2027 CSE-PPT"],
   ];
 
   for (const [key, value] of settingsSeed) {
@@ -305,6 +369,13 @@ async function main() {
       ON CONFLICT (key) DO NOTHING
     `;
   }
+
+  // Update batch to 2027 launch batch
+  await sql`
+    UPDATE settings 
+    SET value = 'March 2027 CSE-PPT' 
+    WHERE key = 'cse_target_exam_batch'
+  `;
 
   // 3. SEED CATEGORIES
   console.log("🏷️  Checking default budget categories...");
@@ -338,13 +409,13 @@ async function main() {
       ["JELENA ROSE H. CABANLIG", "chairperson@sktocok.gov.ph", "SK Chairperson", "+63 912 111 2222", "/images/officials/cabanlig.jpg"],
       ["ANNIECKA REINE C. QUINTO", "secretary@sktocok.gov.ph", "SK Secretary", "+63 912 333 4444", "/images/officials/quinto_anniecka.jpg"],
       ["JOHN DAVID R. GARCIA", "treasurer@sktocok.gov.ph", "SK Treasurer", "+63 912 555 6666", "/images/officials/garcia.jpg"],
-      ["DOVIE ELLARES", "ellares@sktocok.gov.ph", "SK Kagawad", "+63 912 777 0001", "/images/officials/ellares.jpg"],
-      ["DANNAH MAE M. AQUINO", "aquino@sktocok.gov.ph", "SK Kagawad", "+63 912 777 0002", "/images/officials/aquino.jpg"],
-      ["RENZ LESTER S. RAMOS", "ramos@sktocok.gov.ph", "SK Kagawad", "+63 912 777 0003", "/images/officials/ramos.jpg"],
+      ["DOVIE ELLARES", "ellares@sktocok.gov.ph", "Education", "+63 912 777 0001", "/images/officials/ellares.jpg"],
+      ["DANNAH MAE M. AQUINO", "aquino@sktocok.gov.ph", "Livelihood", "+63 912 777 0002", "/images/officials/aquino.jpg"],
+      ["RENZ LESTER S. RAMOS", "ramos@sktocok.gov.ph", "Sports", "+63 912 777 0003", "/images/officials/ramos.jpg"],
       ["ROBBIE D. BARRO", "barro@sktocok.gov.ph", "SK Kagawad", "+63 912 777 0004", "/images/officials/barro.jpg"],
-      ["SANDRO J. QUINTO", "quinto.sandro@sktocok.gov.ph", "SK Kagawad", "+63 912 777 0005", "/images/officials/quinto_sandro.jpg"],
+      ["SANDRO J. QUINTO", "quinto.sandro@sktocok.gov.ph", "Health", "+63 912 777 0005", "/images/officials/quinto_sandro.jpg"],
       ["ANGELA S. SERRANA", "serrana@sktocok.gov.ph", "SK Kagawad", "+63 912 777 0006", "/images/officials/serrana.jpg"],
-      ["BABY JULHITZ R. PICAR", "picar@sktocok.gov.ph", "SK Kagawad", "+63 912 777 0007", "/images/officials/picar.jpg"],
+      ["BABY JULHITZ R. PICAR", "picar@sktocok.gov.ph", "GAD", "+63 912 777 0007", "/images/officials/picar.jpg"],
     ];
 
     for (const [name, email, role, contact, avatar] of officials) {

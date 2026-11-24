@@ -1225,18 +1225,6 @@ function UnifiedPrintingContent() {
   const switchTab = (tab: "submit" | "track") => {
     if (activeTab === tab) return;
 
-    const collapseDist =
-      typeof window !== "undefined"
-        ? window.innerWidth >= 768
-          ? 196
-          : 178
-        : 178;
-
-    const isCollapsed =
-      typeof window !== "undefined" &&
-      (sessionStorage.getItem("sk_header_collapsed") === "1" ||
-        window.scrollY >= collapseDist * 0.51);
-
     setActiveTab(tab);
 
     // Update URL query smoothly without reload - keep URL clean without saving ticket
@@ -1245,22 +1233,8 @@ function UnifiedPrintingContent() {
     url.searchParams.delete("code");
     window.history.replaceState({}, "", url.toString());
 
-    // Coordinate position and folding header state seamlessly across tabs
     if (typeof window !== "undefined") {
-      const targetY = isCollapsed ? collapseDist : 0;
-      try {
-        sessionStorage.setItem("sk_header_collapsed", isCollapsed ? "1" : "0");
-      } catch {}
-
-      const applyScrollState = () => {
-        window.scrollTo({ top: targetY, behavior: "instant" });
-        window.dispatchEvent(new Event("scroll"));
-      };
-
-      applyScrollState();
-      requestAnimationFrame(applyScrollState);
-      setTimeout(applyScrollState, 50);
-      setTimeout(applyScrollState, 150);
+      window.scrollTo({ top: 0, behavior: "instant" });
     }
 
     if (tab === "track") {

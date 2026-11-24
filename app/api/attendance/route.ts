@@ -6,6 +6,7 @@ import {
   isRegularSessionType,
   getActivityStanding,
   getOfficialRoleRank,
+  ACTIVITY_TYPES,
   type AttendanceStatus,
   type AttendanceSessionItem,
   type MonthlyAttendanceTrend,
@@ -43,8 +44,8 @@ export async function GET(request: Request) {
     const yearFilter = (searchParams.get("year") || "all").trim();
     const searchQuery = (searchParams.get("q") || "").trim();
 
-    // Fetch SK officials (exclude non-official Student accounts) & available years in parallel
-    const [officialsRows, yearsRows] = await Promise.all([
+    // Fetch SK officials (exclude non-official Student accounts), available years & activity types in parallel
+    const [officialsRows, yearsRows, typesRows] = await Promise.all([
       sql`
         SELECT id, name, role, contact_number, avatar_url
         FROM users
@@ -56,6 +57,9 @@ export async function GET(request: Request) {
         FROM attendance_sessions
         WHERE LENGTH(session_date) >= 4
         ORDER BY year DESC
+      `,
+      sql`
+        SELECT value FROM settings WHERE key = 'attendance_activity_types' LIMIT 1
       `,
     ]);
 
@@ -366,6 +370,18 @@ export async function GET(request: Request) {
       .map((r) => String(r.year))
       .filter((y) => /^\d{4}$/.test(y));
 
+    let customActivityTypes = [...ACTIVITY_TYPES];
+    if (typesRows && typesRows.length > 0 && (typesRows[0] as { value?: string }).value) {
+      try {
+        const parsed = JSON.parse((typesRows[0] as { value: string }).value);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          customActivityTypes = parsed;
+        }
+      } catch {
+        // Fallback to default ACTIVITY_TYPES
+      }
+    }
+
     return NextResponse.json({
       success: true,
       summary: {
@@ -385,6 +401,7 @@ export async function GET(request: Request) {
       sessions,
       monthlyTrend,
       availableYears,
+      activityTypes: customActivityTypes,
     });
   } catch (error) {
     console.error("Attendance GET error:", error);

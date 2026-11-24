@@ -822,7 +822,7 @@ export default function AnonymousCouncilMessages({
       setShowAddModal(false);
       setAddModalClosing(false);
       setFormError(null);
-    }, 180);
+    }, 200);
   }, [addModalClosing]);
 
   const handleCloseTrackModal = useCallback(() => {
@@ -833,7 +833,7 @@ export default function AnonymousCouncilMessages({
       setTrackModalClosing(false);
       setLookupError(null);
       setLookupResult(null);
-    }, 180);
+    }, 200);
   }, [trackModalClosing]);
 
   const handleCloseDeletePostModal = useCallback((force = false) => {
@@ -843,7 +843,7 @@ export default function AnonymousCouncilMessages({
     setTimeout(() => {
       setDeletingPost(null);
       setPostDeleteClosing(false);
-    }, 180);
+    }, 200);
   }, [postDeleteClosing, userDeleteBusy]);
 
   const handleCloseDeleteReplyModal = useCallback((force = false) => {
@@ -853,7 +853,7 @@ export default function AnonymousCouncilMessages({
     setTimeout(() => {
       setDeletingReply(null);
       setReplyDeleteClosing(false);
-    }, 180);
+    }, 200);
   }, [replyDeleteClosing, userDeleteBusy]);
 
   const handleCloseDeleteMessageModal = useCallback((force = false) => {
@@ -863,7 +863,7 @@ export default function AnonymousCouncilMessages({
     setTimeout(() => {
       setDeletingMessage(null);
       setDeleteMessageClosing(false);
-    }, 180);
+    }, 200);
   }, [deleteMessageClosing, deleteBusy]);
 
   // Prevent background page scrolling & shifting while any modal is open on mobile and desktop

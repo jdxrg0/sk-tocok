@@ -1,15 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Home, Landmark, Printer, LayoutGrid, ClipboardCheck, MessageSquareQuote, X } from "lucide-react";
+import { Home, Landmark, Printer, LayoutGrid, ClipboardCheck, MessageSquareQuote, X, Award, Compass } from "lucide-react";
 import AccountMenu from "@/components/AccountMenu";
 
 const DESKTOP_NAV_LINKS = [
   { href: "/", label: "Overview", icon: Home },
   { href: "/transparency", label: "Finances", icon: Landmark },
   { href: "/printing", label: "Printing", icon: Printer },
+  { href: "/cse", label: "CSE Subsidy", icon: Award },
   { href: "/attendance", label: "Attendance", icon: ClipboardCheck },
   { href: "/messages", label: "Bumo-Boses", icon: MessageSquareQuote },
 ];
@@ -17,291 +18,55 @@ const DESKTOP_NAV_LINKS = [
 const MOBILE_NAV_LINKS = [
   { href: "/", label: "Overview", shortLabel: "Overview", icon: Home },
   { href: "/transparency", label: "Finances", shortLabel: "Finances", icon: Landmark },
-  { href: "/printing", label: "Printing", shortLabel: "Printing", icon: Printer },
+  { href: "/attendance", label: "Attendance", shortLabel: "Attendance", icon: ClipboardCheck },
   { href: "/others", label: "Others", shortLabel: "Others", icon: LayoutGrid },
 ];
 
 const OTHERS_POPUP_OPTIONS = [
+  { href: "/cse", label: "Free CSE Subsidy", icon: Award },
   { href: "/messages", label: "Bumo-Boses", icon: MessageSquareQuote },
-  { href: "/attendance", label: "Attendance", icon: ClipboardCheck },
+  { href: "/printing", label: "Student Printing", icon: Printer },
 ];
 
 export default function Header() {
-  const headerRef = useRef<HTMLElement>(null);
   const pathname = usePathname();
   const router = useRouter();
-  const isNavigatingRef = useRef(false);
   const [pendingHref, setPendingHref] = useState<string | null>(null);
   const [othersMenuOpen, setOthersMenuOpen] = useState(false);
+  const [desktopNavOpen, setDesktopNavOpen] = useState(false);
 
-  // Clear optimistic pending state whenever route changes
+  // Clear optimistic pending state and close menus whenever route changes
   useEffect(() => {
     setPendingHref(null);
     setOthersMenuOpen(false);
+    setDesktopNavOpen(false);
   }, [pathname]);
 
-  // Suppress in-page floating action buttons when mobile navigation speed-dial is open
+  // Lock background scroll and suppress in-page floating action buttons when any navigation speed-dial is open
   useEffect(() => {
-    if (othersMenuOpen) {
+    if (othersMenuOpen || desktopNavOpen) {
       document.documentElement.dataset.navMenuOpen = "true";
+      const prevHtmlOverflow = document.documentElement.style.overflow;
+      const prevBodyOverflow = document.body.style.overflow;
+      document.documentElement.style.overflow = "hidden";
+      document.body.style.overflow = "hidden";
+
+      return () => {
+        delete document.documentElement.dataset.navMenuOpen;
+        document.documentElement.style.overflow = prevHtmlOverflow;
+        document.body.style.overflow = prevBodyOverflow;
+      };
     } else {
       delete document.documentElement.dataset.navMenuOpen;
     }
-    return () => {
-      delete document.documentElement.dataset.navMenuOpen;
-    };
-  }, [othersMenuOpen]);
+  }, [othersMenuOpen, desktopNavOpen]);
 
-  // Matches the exact delta height of the brand container:
-  // Mobile: 236px - 58px = 178px
-  // Desktop: 260px - 64px = 196px
-  // Content scrolls in 1:1 lockstep with the folding header, eliminating any gap.
-  const getCollapseDistance = () => {
-    if (typeof window === "undefined") return 178;
-    return window.innerWidth >= 768 ? 196 : 178;
-  };
-
-  useEffect(() => {
-    let ticking = false;
-    let lastProgress = -1;
-    let lastStoredState: string | null = null;
-    let scrollTimeout: NodeJS.Timeout | null = null;
-    let isTouching = false;
-    let isAutoSnapping = false;
-    const supportsScrollEnd = typeof window !== "undefined" && "onscrollend" in window;
-
-    // 51% Auto-Snap:
-    // If stopped halfway in the transition zone (0 < y < collapseDistance):
-    // >= 51%: smooth scroll to collapseDistance (auto-collapses)
-    // < 51%: smooth scroll to 0 (auto-expands)
-    const snapToNearest = () => {
-      if (isTouching || isAutoSnapping || isNavigatingRef.current) return;
-      if (
-        typeof document !== "undefined" &&
-        (document.documentElement.style.overflow === "hidden" ||
-          document.body.style.overflow === "hidden" ||
-          document.body.style.position === "fixed")
-      ) {
-        return;
-      }
-      const y = window.scrollY;
-      const collapseDistance = getCollapseDistance();
-      const maxScroll = Math.max(
-        0,
-        document.documentElement.scrollHeight - window.innerHeight
-      );
-
-      // If page cannot scroll at all, do nothing
-      if (maxScroll <= 0) return;
-
-      if (y > 16 && y < collapseDistance - 16) {
-        // Guard against unreachable targets when content height is constrained
-        const reachableTarget =
-          maxScroll >= collapseDistance
-            ? collapseDistance
-            : maxScroll >= collapseDistance * 0.51
-            ? maxScroll
-            : 0;
-        const targetY = y >= collapseDistance * 0.51 ? reachableTarget : 0;
-
-        // If already at or within 1.5px of the target, avoid redundant scroll triggers
-        if (Math.abs(y - targetY) < 1.5) return;
-
-        isAutoSnapping = true;
-
-        window.scrollTo({
-          top: targetY,
-          behavior: "smooth",
-        });
-
-        setTimeout(() => {
-          isAutoSnapping = false;
-        }, 500);
-      }
-    };
-
-    let latestY = 0;
-    const getScrollY = () => {
-      if (typeof window === "undefined") return 0;
-      return window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
-    };
-
-    const update = () => {
-      ticking = false;
-      if (isNavigatingRef.current) return;
-      if (!headerRef.current) return;
-
-      // If page scrolling is locked (e.g. modal popup is open), freeze header state
-      if (
-        typeof document !== "undefined" &&
-        (document.documentElement.style.overflow === "hidden" ||
-          document.body.style.overflow === "hidden" ||
-          document.body.style.position === "fixed")
-      ) {
-        return;
-      }
-
-      const y = latestY;
-      const collapseDistance = getCollapseDistance();
-
-      const clampedY = Math.max(0, y);
-      const progress = Math.min(1, clampedY / collapseDistance);
-      // Quantize to ~1px steps to eliminate continuous font reshaping and layout thrashing in Chromium
-      const rounded = Math.round(progress * 200) / 200;
-
-      if (rounded !== lastProgress) {
-        lastProgress = rounded;
-        headerRef.current.style.setProperty("--p", rounded.toString());
-      }
-
-      // Automatically remember state only when crossing state boundaries
-      // (avoids running synchronous sessionStorage IPC calls on every scroll frame in Safari)
-      try {
-        if (progress >= 1 && lastStoredState !== "1") {
-          lastStoredState = "1";
-          sessionStorage.setItem("sk_header_collapsed", "1");
-        } else if (clampedY < 40 && lastStoredState !== "0") {
-          lastStoredState = "0";
-          sessionStorage.setItem("sk_header_collapsed", "0");
-        }
-      } catch {}
-    };
-
-    let lastSnapY = -1;
-
-    const checkAndSnap = () => {
-      if (isTouching || isAutoSnapping || isNavigatingRef.current) return;
-      const currentY = getScrollY();
-      // If momentum scroll is still gliding, let it finish naturally without interruption
-      if (Math.abs(currentY - lastSnapY) > 0.5) {
-        lastSnapY = currentY;
-        scrollTimeout = setTimeout(checkAndSnap, 150);
-        return;
-      }
-      snapToNearest();
-    };
-
-    const handleScroll = () => {
-      if (isNavigatingRef.current) return;
-      latestY = getScrollY();
-
-      if (!ticking) {
-        window.requestAnimationFrame(update);
-        ticking = true;
-      }
-
-      if (scrollTimeout) {
-        clearTimeout(scrollTimeout);
-      }
-
-      // In browsers without native scrollend, check that momentum scrolling has completely stopped
-      if (!supportsScrollEnd && !isTouching && !isAutoSnapping && !isNavigatingRef.current) {
-        lastSnapY = latestY;
-        scrollTimeout = setTimeout(checkAndSnap, 300);
-      }
-    };
-
-    const handleTouchStart = () => {
-      isTouching = true;
-      isAutoSnapping = false;
-      if (scrollTimeout) clearTimeout(scrollTimeout);
-    };
-
-    const handleTouchEnd = () => {
-      isTouching = false;
-      if (scrollTimeout) clearTimeout(scrollTimeout);
-      if (!supportsScrollEnd && !isAutoSnapping && !isNavigatingRef.current) {
-        lastSnapY = getScrollY();
-        scrollTimeout = setTimeout(checkAndSnap, 300);
-      }
-    };
-
-    const handleScrollEnd = () => {
-      if (!isTouching && !isAutoSnapping && !isNavigatingRef.current) {
-        snapToNearest();
-      }
-    };
-
-    // On page navigation: check if previously collapsed, and position at collapseDistance seamlessly
-    isNavigatingRef.current = true;
-    const navTimers: NodeJS.Timeout[] = [];
-
-    try {
-      const wasCollapsed = sessionStorage.getItem("sk_header_collapsed") === "1";
-      lastStoredState = wasCollapsed ? "1" : "0";
-      if (wasCollapsed) {
-        const collapseDistance = getCollapseDistance();
-
-        const applyCollapsed = () => {
-          window.scrollTo({ top: collapseDistance, behavior: "instant" });
-          if (headerRef.current) {
-            headerRef.current.style.setProperty("--p", "1");
-          }
-          lastProgress = 1;
-        };
-
-        applyCollapsed();
-        requestAnimationFrame(applyCollapsed);
-        navTimers.push(setTimeout(applyCollapsed, 50));
-        navTimers.push(setTimeout(applyCollapsed, 120));
-        navTimers.push(setTimeout(applyCollapsed, 250));
-      } else {
-        const applyExpanded = () => {
-          window.scrollTo({ top: 0, behavior: "instant" });
-          if (headerRef.current) {
-            headerRef.current.style.setProperty("--p", "0");
-          }
-          lastProgress = 0;
-        };
-
-        applyExpanded();
-        requestAnimationFrame(applyExpanded);
-      }
-    } catch {
-      latestY = getScrollY();
-      update();
-    }
-
-    const navTimer = setTimeout(() => {
-      isNavigatingRef.current = false;
-    }, 350);
-
-    const handleResize = () => {
-      if (window.innerWidth >= 768) {
-        setOthersMenuOpen(false);
-      }
-      latestY = getScrollY();
-      if (!ticking) {
-        window.requestAnimationFrame(update);
-        ticking = true;
-      }
-    };
-
-    window.addEventListener("scroll", handleScroll, { passive: true });
-    window.addEventListener("resize", handleResize, { passive: true });
-    window.addEventListener("touchstart", handleTouchStart, { passive: true });
-    window.addEventListener("touchend", handleTouchEnd, { passive: true });
-    window.addEventListener("touchcancel", handleTouchEnd, { passive: true });
-    window.addEventListener("scrollend", handleScrollEnd, { passive: true });
-
-    return () => {
-      clearTimeout(navTimer);
-      navTimers.forEach(clearTimeout);
-      if (scrollTimeout) clearTimeout(scrollTimeout);
-      window.removeEventListener("scroll", handleScroll);
-      window.removeEventListener("resize", handleResize);
-      window.removeEventListener("touchstart", handleTouchStart);
-      window.removeEventListener("touchend", handleTouchEnd);
-      window.removeEventListener("touchcancel", handleTouchEnd);
-      window.removeEventListener("scrollend", handleScrollEnd);
-    };
-  }, [pathname]);
-
-  // Close "Others" floating options popup on Escape key
+  // Close floating options popups on Escape key
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setOthersMenuOpen(false);
+        setDesktopNavOpen(false);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -329,7 +94,11 @@ export default function Header() {
     if (path === "/printing" && currentPath.startsWith("/track")) return true;
     if (
       path === "/others" &&
-      (currentPath.startsWith("/attendance") || currentPath.startsWith("/messages") || currentPath === "/others")
+      (currentPath.startsWith("/printing") ||
+        currentPath.startsWith("/track") ||
+        currentPath.startsWith("/messages") ||
+        currentPath.startsWith("/cse") ||
+        currentPath === "/others")
     ) {
       return true;
     }
@@ -337,6 +106,12 @@ export default function Header() {
   };
 
   const isOptionActive = (href: string) => {
+    if (href === "/") {
+      return currentPath === "/";
+    }
+    if (href === "/printing" && currentPath?.startsWith("/track")) {
+      return true;
+    }
     if (href === "/others") {
       return currentPath === "/others";
     }
@@ -351,8 +126,7 @@ export default function Header() {
     <>
       {/* =========================================================================
           STATIC PLACEHOLDER SPACER IN DOCUMENT FLOW
-          Matches the uncollapsed header height (236px mobile / 306px desktop).
-          Content underneath NEVER jumps because this spacer stays static in flow.
+          Matches the fixed header height. Content underneath stays static in flow.
           ========================================================================= */}
       <div
         className="w-full shrink-0 pointer-events-none"
@@ -361,217 +135,71 @@ export default function Header() {
       />
 
       {/* =========================================================================
-          FIXED STICKY HEADER: CONTINUOUS 1:1 SCROLL-DRIVEN FOLDING ANIMATION
-          Pins to top: 0 through the entire page.
-          Driven smoothly at 60/120fps by --p (0 = expanded, 1 = collapsed).
+          FIXED STICKY HEADER
+          Pins cleanly to top: 0 with no expand/collapse animation.
           ========================================================================= */}
       <header
-        ref={headerRef}
-        className="fixed top-0 left-0 right-0 z-50 bg-white dark:bg-slate-900 md:bg-white/95 md:dark:bg-slate-900/95 md:backdrop-blur-md shadow-xs dark:shadow-slate-950/40 border-b border-slate-200 dark:border-slate-800"
+        className="fixed top-0 left-0 right-0 z-50 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-xs dark:shadow-slate-950/40 border-b border-slate-200/90 dark:border-slate-800/90"
         style={{
           paddingTop: "env(safe-area-inset-top, 0px)",
-          WebkitTransform: "translate3d(0, 0, 0)",
-          transform: "translate3d(0, 0, 0)",
-          WebkitBackfaceVisibility: "hidden",
-          backfaceVisibility: "hidden",
         }}
       >
-        {/* Unclipped Floating Layer: SK Circular Seal (z-30, on top when overlapping) & Account/Appearance Menu (splits to right on scroll) */}
+        {/* ROW 1: BRAND HEADER */}
         <div
-          className="pointer-events-none absolute inset-x-0 z-30"
-          style={{
-            top: "env(safe-area-inset-top, 0px)",
-            WebkitTransform: "translate3d(0, 0, 0)",
-            transform: "translate3d(0, 0, 0)",
-          }}
+          className="relative z-10 w-full max-w-6xl mx-auto px-4 sm:px-6 flex items-center justify-between"
+          style={{ height: "var(--brand-h)" }}
         >
-          <div className="relative w-full max-w-6xl mx-auto">
-            {/* SK Circular Seal: Clicking scrolls smoothly to top (unfolding the header) */}
-            <Link
-              href="/"
-              prefetch={true}
-              scroll={false}
-              onClick={(e) => {
-                if (pathname === "/") {
-                  e.preventDefault();
-                  window.scrollTo({ top: 0, behavior: "smooth" });
-                } else {
-                  setPendingHref("/");
-                }
-              }}
-              className="pointer-events-auto absolute z-30 group"
-              style={{
-                left: "calc((50% - var(--logo-half-start)) * (1 - var(--p)) + var(--logo-left-end) * var(--p))",
-                top: "calc(var(--logo-top-start) * (1 - var(--p)) + var(--logo-top-end) * var(--p))",
-                width:
-                  "calc(var(--logo-size-start) * (1 - var(--p)) + var(--logo-size-end) * var(--p))",
-                height:
-                  "calc(var(--logo-size-start) * (1 - var(--p)) + var(--logo-size-end) * var(--p))",
-                willChange: "transform, left, top",
-                WebkitTransform: "translate3d(0, 0, 0)",
-                transform: "translate3d(0, 0, 0)",
-              }}
-              aria-label="SK Tocok Home"
-            >
-              <div className="w-full h-full rounded-full border-2 border-brand-600/80 dark:border-brand-500/80 overflow-hidden shadow-sm bg-[#ffffff] ring-2 ring-brand-500/20 dark:ring-brand-400/25 group-hover:scale-105 transition-transform flex items-center justify-center">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <picture>
-                  <source srcSet="/images/sk-logo-sm.webp" type="image/webp" />
-                  <img
-                    src="/images/sk-logo-sm.png"
-                    alt="Sangguniang Kabataan Barangay Tocok Official Seal"
-                    width={48}
-                    height={48}
-                    className="w-full h-full object-cover scale-[1.03]"
-                  />
-                </picture>
-              </div>
-            </Link>
-
-            {/* User Profile Picture (starts behind SK Seal at center, splits symmetrically to right on scroll) / Guest Appearance Toggle */}
-            <AccountMenu />
-          </div>
-        </div>
-
-        {/* -----------------------------------------------------------------------
-            ROW 1: BRAND HEADER (ANIMATES & FOLDS AS USER SCROLLS)
-            ----------------------------------------------------------------------- */}
-        <div
-          className="relative z-10 w-full max-w-6xl mx-auto px-4 sm:px-6 overflow-hidden"
-          style={{
-            height:
-              "calc(var(--brand-h-start) * (1 - var(--p)) + var(--brand-h-end) * var(--p))",
-            willChange: "height",
-            WebkitTransform: "translate3d(0, 0, 0)",
-            transform: "translate3d(0, 0, 0)",
-          }}
-        >
-
-          {/* JURISDICTION KICKER (Fades out in place as user scrolls down) */}
+          {/* Left: SK Circular Seal (Static display, non-clickable) */}
           <div
-            className="absolute inset-x-0 text-center pointer-events-none px-4"
+            className="relative z-20 shrink-0 flex items-center justify-center rounded-full select-none"
             style={{
-              top: "var(--kicker-top)",
-              opacity: "calc(max(0, 1 - (var(--p) * 2.8)))",
-              willChange: "opacity",
+              width: "var(--logo-size)",
+              height: "var(--logo-size)",
             }}
           >
-            <p className="text-[8.5px] sm:text-xs font-semibold uppercase tracking-wider sm:tracking-widest text-slate-500 dark:text-slate-400 whitespace-nowrap">
-              Republic of the Philippines • San Fabian, Pangasinan
+            <div className="w-full h-full rounded-full border-2 border-brand-600/80 dark:border-brand-500/80 overflow-hidden shadow-xs bg-[#ffffff] ring-2 ring-brand-500/20 dark:ring-brand-400/25 flex items-center justify-center">
+              <picture>
+                <source srcSet="/images/sk-logo-sm.webp" type="image/webp" />
+                <img
+                  src="/images/sk-logo-sm.png"
+                  alt="Sangguniang Kabataan Barangay Tocok Official Seal"
+                  width={48}
+                  height={48}
+                  className="w-full h-full object-cover scale-[1.03]"
+                />
+              </picture>
+            </div>
+          </div>
+
+          {/* Center: Jurisdiction, Primary Identity, and Subtitle */}
+          <div className="absolute inset-x-0 mx-auto flex flex-col items-center justify-center text-center pointer-events-none px-14 sm:px-20">
+            {/* Kicker: San Fabian, Pangasinan */}
+            <p className="text-[8.5px] sm:text-[9.5px] font-semibold uppercase tracking-wider sm:tracking-widest text-slate-500 dark:text-slate-400 whitespace-nowrap leading-tight">
+              San Fabian, Pangasinan
             </p>
-          </div>
 
-          {/* CORE BRAND IDENTITY: GLIDES CONTINUOUSLY FROM CENTER TO TARGET */}
-          <div
-            className="absolute z-10 flex flex-col items-center text-center pointer-events-none"
-            style={{
-              left: "calc(50% * (1 - var(--p)) + var(--brand-text-left-end) * var(--p))",
-              top: "calc(var(--brand-text-top-start) * (1 - var(--p)) + var(--brand-text-top-end) * var(--p))",
-              willChange: "transform, left, top",
-              WebkitTransform:
-                "translate3d(calc(-50% * (1 - var(--p)) + var(--brand-text-transform-end) * var(--p)), 0, 0)",
-              transform:
-                "translate3d(calc(-50% * (1 - var(--p)) + var(--brand-text-transform-end) * var(--p)), 0, 0)",
-              width: "max-content",
-              maxWidth: "calc(100% - 32px)",
-            }}
-          >
-            {/* Primary Identity: "Sangguniang Kabataan" */}
-            <h1
-              className="font-black tracking-tight leading-tight whitespace-nowrap"
-              style={{
-                fontSize:
-                  "calc(var(--title-size-start) * (1 - var(--p)) + var(--title-size-end) * var(--p))",
-                fontOpticalSizing: "none",
-                WebkitFontSmoothing: "antialiased",
-              }}
-            >
-              <span className="text-brand-600 dark:text-brand-400">Sangguniang</span>{" "}
-              <span className="text-brand-800 dark:text-brand-200">Kabataan</span>
+            {/* Primary Identity: SK Tocok */}
+            <h1 className="text-base sm:text-lg lg:text-xl font-black tracking-tight leading-tight whitespace-nowrap pt-0.5">
+              <span className="text-[#023baf] dark:text-[#60a5fa]">S</span>
+              <span className="text-[#e0001a] dark:text-[#f87171]">K</span>{" "}
+              <span className="text-brand-800 dark:text-brand-200">Tocok</span>
             </h1>
 
-            {/* Locality: "Barangay Tocok" */}
-            <div className="pt-0.5">
-              <span
-                className="font-bold text-slate-800 dark:text-slate-100 tracking-tight whitespace-nowrap block"
-                style={{
-                  fontSize:
-                    "calc(var(--sub-size-start) * (1 - var(--p)) + var(--sub-size-end) * var(--p))",
-                  fontOpticalSizing: "none",
-                  WebkitFontSmoothing: "antialiased",
-                }}
-              >
-                Barangay Tocok
-              </span>
-            </div>
-
-            {/* Portal Subtitle (Fades out cleanly on scroll) */}
-            <div
-              style={{
-                opacity: "calc(max(0, 1 - (var(--p) * 2.8)))",
-                transform: "translate3d(0, calc(var(--p) * -4px), 0)",
-                willChange: "opacity, transform",
-                pointerEvents: "none",
-              }}
-            >
-              <p className="text-[10.5px] sm:text-xs font-semibold text-slate-600 dark:text-slate-300 whitespace-nowrap pt-0.5">
-                Financial Transparency &amp; Youth Services Portal
-              </p>
-            </div>
-          </div>
-
-          {/* COMPLIANCE DISCLOSURE (Fades out in place as user scrolls down) */}
-          <div
-            className="absolute inset-x-0 text-center pointer-events-none px-4"
-            style={{
-              top: "var(--compliance-top)",
-              opacity: "calc(max(0, 1 - (var(--p) * 2.8)))",
-              willChange: "opacity",
-            }}
-          >
-            <p className="text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400 max-w-sm sm:max-w-xl mx-auto leading-normal sm:leading-relaxed text-center">
-              Official public disclosure under Republic Act No. 10742
-              <span className="block">(SK Reform Act of 2015)</span>
+            {/* Portal Subtitle */}
+            <p className="text-[9.5px] sm:text-[11px] font-semibold text-slate-600 dark:text-slate-300 whitespace-nowrap pt-0.5 leading-tight">
+              Transparency &amp; Service Portal
             </p>
           </div>
-        </div>
 
-        {/* -----------------------------------------------------------------------
-            ROW 2: DEDICATED SEPARATE NAVIGATION BAR (DESKTOP ONLY)
-            ----------------------------------------------------------------------- */}
-        <div className="hidden md:block bg-slate-50/95 dark:bg-slate-950/85 backdrop-blur-md border-t border-slate-200/90 dark:border-slate-800/90">
-          <div className="max-w-6xl mx-auto px-4 sm:px-6">
-            {/* Desktop Navigation */}
-            <nav className="flex items-center justify-center gap-1.5 lg:gap-2 py-2 overflow-x-auto no-scrollbar">
-              {DESKTOP_NAV_LINKS.map((link) => {
-                const active = isActive(link.href);
-                const Icon = link.icon;
-                return (
-                  <Link
-                    key={link.href}
-                    href={link.href}
-                    prefetch={true}
-                    scroll={false}
-                    onClick={() => handleNavClick(link.href)}
-                    className={`group inline-flex items-center gap-2 text-xs font-bold px-3.5 lg:px-4 py-2 rounded-lg transition-colors whitespace-nowrap ${
-                      active
-                        ? "bg-white dark:bg-slate-800 text-brand-700 dark:text-brand-300 shadow-xs border border-slate-200/90 dark:border-slate-700/90 font-extrabold"
-                        : "text-slate-600 dark:text-slate-400 hover:text-brand-800 dark:hover:text-brand-300 hover:bg-brand-50/60 dark:hover:bg-slate-800/60"
-                    }`}
-                  >
-                    <Icon
-                      className={`w-3.5 h-3.5 shrink-0 relative -top-[1.5px] transition-colors ${
-                        active
-                          ? "text-brand-600 dark:text-brand-400"
-                          : "text-slate-400 dark:text-slate-500 group-hover:text-brand-700 dark:group-hover:text-brand-300"
-                      }`}
-                      strokeWidth={active ? 2.5 : 2}
-                    />
-                    <span>{link.label}</span>
-                  </Link>
-                );
-              })}
-            </nav>
+          {/* Right: Account Menu */}
+          <div
+            className="relative z-20 shrink-0 flex items-center justify-center"
+            style={{
+              width: "var(--logo-size)",
+              height: "var(--logo-size)",
+            }}
+          >
+            <AccountMenu />
           </div>
         </div>
       </header>
@@ -625,11 +253,11 @@ export default function Header() {
                     {OTHERS_POPUP_OPTIONS.map((option, idx) => {
                       const optionActive = isOptionActive(option.href);
                       const OptionIcon = option.icon;
-                      // Index 0 is top button (Freedom Wall), index 1 is bottom button (Attendance, closest to dock)
-                      const isBottomItem = idx === OTHERS_POPUP_OPTIONS.length - 1;
-                      const openDelay = isBottomItem ? 0 : 75;
-                      const closeDelay = isBottomItem ? 75 : 0;
-                      const closeTranslateY = isBottomItem ? "translate-y-10" : "translate-y-16";
+                      // Stagger animations from bottom (closest to dock) to top
+                      const reverseIdx = OTHERS_POPUP_OPTIONS.length - 1 - idx;
+                      const openDelay = reverseIdx * 50;
+                      const closeDelay = idx * 40;
+                      const closeTranslateY = idx === 0 ? "translate-y-20" : idx === 1 ? "translate-y-14" : "translate-y-8";
 
                       return (
                         <Link
@@ -783,6 +411,120 @@ export default function Header() {
           })}
         </div>
       </nav>
+
+      {/* =========================================================================
+          DESKTOP FLOATING NAVIGATION (SPEED-DIAL FAB IN BOTTOM-RIGHT CORNER)
+          Replaces the horizontal header navigation bar with sleek floating icons.
+          ========================================================================= */}
+      {/* Desktop Click-Outside Overlay */}
+      <div
+        role="button"
+        tabIndex={-1}
+        aria-label="Close navigation menu"
+        onClick={() => setDesktopNavOpen(false)}
+        onWheel={(e) => e.preventDefault()}
+        onTouchMove={(e) => e.preventDefault()}
+        className={`fixed inset-0 z-40 hidden md:block bg-slate-900/15 dark:bg-black/35 backdrop-blur-[1.5px] overscroll-none touch-none transition-opacity duration-200 ${
+          desktopNavOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+        }`}
+      />
+
+      <div
+        data-nav-fab
+        className="fixed right-6 md:right-8 bottom-6 md:bottom-8 z-40 hidden md:flex flex-col items-end pointer-events-auto select-none"
+      >
+        {/* Speed-Dial Options Menu */}
+        <div
+          role="menu"
+          aria-label="Navigation pages"
+          aria-hidden={!desktopNavOpen}
+          className={`absolute bottom-[calc(100%+0.875rem)] right-0 flex flex-col items-end gap-3 z-50 ${
+            desktopNavOpen ? "pointer-events-auto" : "pointer-events-none"
+          }`}
+        >
+          {DESKTOP_NAV_LINKS.map((link, idx) => {
+            const linkActive = isOptionActive(link.href);
+            const LinkIcon = link.icon;
+            const reverseIdx = DESKTOP_NAV_LINKS.length - 1 - idx;
+            const openDelay = reverseIdx * 45;
+            const closeDelay = idx * 30;
+
+            return (
+              <Link
+                key={link.href}
+                href={link.href}
+                prefetch={true}
+                scroll={false}
+                tabIndex={desktopNavOpen ? 0 : -1}
+                onClick={() => {
+                  setDesktopNavOpen(false);
+                  handleNavClick(link.href);
+                }}
+                className={`relative flex items-center justify-end group cursor-pointer touch-manipulation active:scale-95 ${
+                  desktopNavOpen
+                    ? "opacity-100 translate-y-0 scale-100 pointer-events-auto"
+                    : "opacity-0 translate-y-8 scale-50 pointer-events-none"
+                }`}
+                style={{
+                  transitionProperty: "transform, opacity",
+                  transitionDuration: desktopNavOpen ? "300ms" : "240ms",
+                  transitionTimingFunction: desktopNavOpen
+                    ? "cubic-bezier(0.34, 1.4, 0.64, 1)"
+                    : "cubic-bezier(0.4, 0, 0.2, 1)",
+                  transitionDelay: `${desktopNavOpen ? openDelay : closeDelay}ms`,
+                }}
+              >
+                {/* Label Pill on the Left */}
+                <span
+                  className={`font-sans mr-3 px-3.5 py-1.5 rounded-xl text-xs font-bold shadow-lg shadow-slate-900/15 dark:shadow-black/50 border whitespace-nowrap transition-all duration-150 ${
+                    desktopNavOpen
+                      ? "opacity-100 translate-x-0 scale-100"
+                      : "opacity-0 translate-x-4 scale-75"
+                  } ${
+                    linkActive
+                      ? "bg-brand-50 dark:bg-brand-950 text-brand-700 dark:text-brand-300 border-brand-300 dark:border-brand-700 ring-1 ring-brand-500/25 font-extrabold"
+                      : "bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 border-slate-200/90 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-brand-700 dark:hover:text-brand-300"
+                  }`}
+                >
+                  {link.label}
+                </span>
+
+                {/* Circular Floating Action Button */}
+                <div
+                  className={`w-12 h-12 rounded-full flex items-center justify-center text-white shadow-xl border border-white/25 dark:border-brand-400/30 transition-all duration-200 group-hover:scale-110 group-active:scale-90 ${
+                    linkActive
+                      ? "bg-brand-700 dark:bg-brand-500 shadow-brand-950/35 ring-2 ring-brand-400/50"
+                      : "bg-brand-600 hover:bg-brand-700 shadow-brand-900/25 dark:shadow-black/60"
+                  }`}
+                >
+                  <LinkIcon className="w-5 h-5 stroke-[2.2]" />
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+
+        {/* Primary Navigation FAB Trigger */}
+        <button
+          type="button"
+          onClick={() => setDesktopNavOpen((prev) => !prev)}
+          aria-expanded={desktopNavOpen}
+          aria-label={desktopNavOpen ? "Close navigation menu" : "Open navigation menu"}
+          className="relative w-14 h-14 md:w-13 md:h-13 rounded-full bg-brand-600 hover:bg-brand-700 text-white shadow-xl md:shadow-lg shadow-brand-950/25 hover:shadow-brand-900/35 border-2 border-white/20 dark:border-brand-400/25 flex items-center justify-center cursor-pointer hover:scale-105 active:scale-90 transition-all duration-200 group focus:outline-none focus:ring-4 focus:ring-brand-500/30 select-none"
+        >
+          <div
+            className={`transition-transform duration-250 ease-out ${
+              desktopNavOpen ? "rotate-90 scale-105" : "rotate-0 scale-100 group-hover:rotate-45"
+            }`}
+          >
+            {desktopNavOpen ? (
+              <X className="w-6 h-6 stroke-[2.5]" />
+            ) : (
+              <Compass className="w-6 h-6 stroke-[2.2]" />
+            )}
+          </div>
+        </button>
+      </div>
     </>
   );
 }

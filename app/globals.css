@@ -4,6 +4,12 @@
 @tailwind components;
 @tailwind utilities;
 
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 :root {
   color-scheme: light;
   --background: #f8fafc;
@@ -41,33 +47,11 @@
   --brand-950: 22 38 2;
   --brand: rgb(var(--brand-600));
 
-  /* Folding Header Animation Responsive Custom Properties */
-  --header-spacer-h: calc(236px + env(safe-area-inset-top, 0px));
-  --brand-h-start: 236px;
-  --brand-h-end: 58px;
+  /* Fixed Header Responsive Custom Properties */
+  --brand-h: 68px;
   --nav-h: 44px;
-  --logo-size-start: 76px;
-  --logo-size-end: 48px;
-  --logo-half-start: 38px;
-  --logo-left-end: 16px;
-  --logo-top-start: 12px;
-  --logo-top-end: 5px;
-
-  --brand-text-left-end: 74px;
-  --brand-text-transform-end: 0%;
-  --brand-text-top-start: 116px;
-  --brand-text-top-end: 7px;
-  --title-size-start: 23px;
-  --title-size-end: 17px;
-  --sub-size-start: 13.5px;
-  --sub-size-end: 12px;
-
-  --kicker-top: 98px;
-  --compliance-top: 184px;
-  --toggle-top-start: 12px;
-  --toggle-top-end: 11px;
-
-  --p: 0;
+  --header-spacer-h: calc(var(--brand-h) + env(safe-area-inset-top, 0px));
+  --logo-size: 44px;
 }
 
 /* =========================================================================
@@ -302,30 +286,10 @@ html[data-accent="rose"] {
 
 @media (min-width: 768px) {
   :root {
-    --header-spacer-h: calc(306px + env(safe-area-inset-top, 0px));
-    --brand-h-start: 260px;
-    --brand-h-end: 64px;
-    --nav-h: 46px;
-    --logo-size-start: 84px;
-    --logo-size-end: 52px;
-    --logo-half-start: 42px;
-    --logo-left-end: 24px;
-    --logo-top-start: 16px;
-    --logo-top-end: 6px;
-
-    --brand-text-left-end: 50%;
-    --brand-text-transform-end: -50%;
-    --brand-text-top-start: 132px;
-    --brand-text-top-end: 9px;
-    --title-size-start: 32px;
-    --title-size-end: 20px;
-    --sub-size-start: 15px;
-    --sub-size-end: 13px;
-
-    --kicker-top: 112px;
-    --compliance-top: 214px;
-    --toggle-top-start: 16px;
-    --toggle-top-end: 14px;
+    --brand-h: 72px;
+    --nav-h: 0px;
+    --header-spacer-h: calc(var(--brand-h) + env(safe-area-inset-top, 0px));
+    --logo-size: 48px;
   }
 }
 
@@ -441,7 +405,15 @@ a, button, [role="button"] {
   scrollbar-width: none;
 }
 
-/* Suppress in-page floating action buttons when mobile navigation speed-dial is open */
+/* Lock background scrolling when navigation speed-dial is open */
+html[data-nav-menu-open="true"],
+html[data-nav-menu-open="true"] body {
+  overflow: hidden !important;
+  overscroll-behavior: none !important;
+  touch-action: none !important;
+}
+
+/* Suppress in-page floating action buttons when navigation speed-dial is open */
 html[data-nav-menu-open="true"] [data-page-fab] {
   opacity: 0 !important;
   pointer-events: none !important;
@@ -449,13 +421,33 @@ html[data-nav-menu-open="true"] [data-page-fab] {
   transition: opacity 0.15s ease, transform 0.15s ease !important;
 }
 
-/* Suppress mobile navigation bar and page floating action buttons when any modal is open */
+/* Elevate header and suppress in-page floating action buttons when Account Menu is open */
+html[data-account-menu-open="true"] header {
+  z-index: 60 !important;
+}
+
+html[data-account-menu-open="true"] [data-page-fab] {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transform: scale(0.85) !important;
+  transition: opacity 0.15s ease, transform 0.15s ease !important;
+}
+
+/* Suppress mobile navigation bar, navigation FAB, and page floating action buttons when any modal is open */
 html[data-modal-open="true"] nav[aria-label="Mobile Navigation"],
+html[data-modal-open="true"] [data-nav-fab],
 html[data-modal-open="true"] [data-page-fab] {
   display: none !important;
   opacity: 0 !important;
   pointer-events: none !important;
   visibility: hidden !important;
+}
+
+/* On desktop, neatly offset in-page floating action buttons to sit alongside the navigation FAB */
+@media (min-width: 768px) {
+  [data-page-fab] {
+    right: 5.75rem !important; /* 92px from right, sitting neatly beside the navigation FAB */
+  }
 }
 
 /* Prevent iOS Safari from auto-zooming into text inputs/textareas with font-size < 16px */
@@ -704,7 +696,7 @@ svg.recharts-surface:focus-visible {
 @keyframes modalCardEnter {
   from {
     opacity: 0;
-    transform: scale(0.94) translateY(12px);
+    transform: scale(0.92) translateY(36px);
   }
   to {
     opacity: 1;
@@ -719,26 +711,30 @@ svg.recharts-surface:focus-visible {
   }
   to {
     opacity: 0;
-    transform: scale(0.95) translateY(8px);
+    transform: scale(0.94) translateY(28px);
   }
 }
 
 .animate-modal-backdrop-in {
-  animation: modalBackdropFadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: modalBackdropFadeIn 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .animate-modal-backdrop-out {
-  animation: modalBackdropFadeOut 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: modalBackdropFadeOut 0.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
 
 .animate-modal-card-in {
-  animation: modalCardEnter 0.24s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: modalCardEnter 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   will-change: transform, opacity;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
 }
 
 .animate-modal-card-out {
-  animation: modalCardExit 0.18s cubic-bezier(0.4, 0, 1, 1) forwards;
+  animation: modalCardExit 0.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
   will-change: transform, opacity;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
 }
 
 /* Delete Confirmation Modal Specific Animations */
@@ -808,6 +804,107 @@ svg.recharts-surface:focus-visible {
 
 .animate-shake {
   animation: buttonShake 0.35s ease-in-out;
+}
+
+/* =========================================================================
+   Mobile WebKit / iOS Native Form Control Normalization
+   ========================================================================= */
+input[type="date"],
+input[type="time"],
+input[type="datetime-local"],
+input[type="month"],
+input[type="week"] {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  height: 50px;
+  line-height: 50px;
+  text-align: left;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  padding-left: 0.875rem;
+  padding-right: 0.875rem;
+}
+
+@media (min-width: 640px) {
+  input[type="date"],
+  input[type="time"],
+  input[type="datetime-local"],
+  input[type="month"],
+  input[type="week"] {
+    height: 42px;
+    line-height: 42px;
+  }
+}
+
+select {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  text-align: left;
+  line-height: 1.5;
+  padding-top: 0.75rem;
+  padding-bottom: 0.75rem;
+  padding-left: 0.875rem;
+  padding-right: 2.5rem !important;
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%2394a3b8' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+  background-position: right 0.75rem center;
+  background-repeat: no-repeat;
+  background-size: 1.25rem 1.25rem;
+}
+
+@media (min-width: 640px) {
+  select {
+    padding-top: 0.625rem;
+    padding-bottom: 0.625rem;
+    line-height: 1.42857;
+  }
+}
+
+input[type="date"]::-webkit-date-and-time-value,
+input[type="time"]::-webkit-date-and-time-value,
+input[type="datetime-local"]::-webkit-date-and-time-value,
+input[type="month"]::-webkit-date-and-time-value,
+input[type="week"]::-webkit-date-and-time-value {
+  text-align: left;
+  min-height: 1.5em;
+  line-height: 50px;
+  margin: 0;
+  padding: 0;
+}
+
+@media (min-width: 640px) {
+  input[type="date"]::-webkit-date-and-time-value,
+  input[type="time"]::-webkit-date-and-time-value,
+  input[type="datetime-local"]::-webkit-date-and-time-value,
+  input[type="month"]::-webkit-date-and-time-value,
+  input[type="week"]::-webkit-date-and-time-value {
+    line-height: 42px;
+  }
+}
+
+input[type="date"]::-webkit-datetime-edit,
+input[type="time"]::-webkit-datetime-edit,
+input[type="datetime-local"]::-webkit-datetime-edit,
+input[type="month"]::-webkit-datetime-edit,
+input[type="week"]::-webkit-datetime-edit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 0;
+  margin: 0;
+  line-height: normal;
 }
 
 

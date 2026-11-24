@@ -318,7 +318,22 @@ export default function TransparencyPage() {
   useEffect(() => {
     setMounted(true);
   }, []);
-  const [activeTab, setActiveTab] = useState<TransparencyTab>("ledgers");
+  const [activeTab, setActiveTab] = useState<TransparencyTab>(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const tabParam = params.get("tab");
+      if (tabParam === "ledgers" || tabParam === "allocations" || tabParam === "analytics") {
+        return tabParam;
+      }
+      if (params.get("ledger") === "deposits" || params.get("ledger") === "expenses") {
+        return "ledgers";
+      }
+      if (window.location.hash === "#deposits" || window.location.hash === "#expenses") {
+        return "ledgers";
+      }
+    }
+    return "ledgers";
+  });
   const [loading, setLoading] = useState(() => !cachedExpensesData && !getStoredExpenses());
   const [summary, setSummary] = useState<SummaryData>(
     cachedExpensesData?.summary || getStoredExpenses()?.summary || {
@@ -333,7 +348,22 @@ export default function TransparencyPage() {
     }
   );
 
-  const [activeLedger, setActiveLedger] = useState<"expenses" | "deposits">("expenses");
+  const [activeLedger, setActiveLedger] = useState<"expenses" | "deposits">(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const ledgerParam = params.get("ledger");
+      if (ledgerParam === "deposits" || ledgerParam === "expenses") {
+        return ledgerParam;
+      }
+      if (window.location.hash === "#deposits") {
+        return "deposits";
+      }
+      if (window.location.hash === "#expenses") {
+        return "expenses";
+      }
+    }
+    return "expenses";
+  });
   const [categoryStats, setCategoryStats] = useState<CategoryStat[]>(
     cachedExpensesData?.categoryStats || getStoredExpenses()?.categoryStats || []
   );
@@ -470,7 +500,8 @@ export default function TransparencyPage() {
   const displayedDepositsTotal = filteredDeposits.reduce((sum, dep) => sum + (Number(dep.amount) || 0), 0);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
+    const handleUrlParams = () => {
+      if (typeof window === "undefined") return;
       const params = new URLSearchParams(window.location.search);
       const tabParam = params.get("tab");
       if (tabParam === "ledgers" || tabParam === "allocations" || tabParam === "analytics") {
@@ -482,7 +513,22 @@ export default function TransparencyPage() {
       } else if (window.location.hash === "#analytics") {
         setActiveTab("analytics");
       }
-    }
+
+      const ledgerParam = params.get("ledger");
+      if (ledgerParam === "deposits" || ledgerParam === "expenses") {
+        setActiveTab("ledgers");
+        setActiveLedger(ledgerParam);
+      } else if (window.location.hash === "#deposits") {
+        setActiveTab("ledgers");
+        setActiveLedger("deposits");
+      } else if (window.location.hash === "#expenses") {
+        setActiveTab("ledgers");
+        setActiveLedger("expenses");
+      }
+    };
+
+    handleUrlParams();
+    window.addEventListener("popstate", handleUrlParams);
 
     try {
       const storedDep = sessionStorage.getItem(DEPOSITS_STORAGE_KEY);
@@ -522,6 +568,8 @@ export default function TransparencyPage() {
 
     loadDeposits();
     fetchExpenses();
+
+    return () => window.removeEventListener("popstate", handleUrlParams);
   }, []);
 
   useEffect(() => {
@@ -667,17 +715,7 @@ export default function TransparencyPage() {
   const handleTabChange = (tabId: TransparencyTab) => {
     setActiveTab(tabId);
     if (typeof window !== "undefined") {
-      const collapseDist = window.innerWidth >= 768 ? 196 : 178;
-      const isCollapsed =
-        sessionStorage.getItem("sk_header_collapsed") === "1" ||
-        window.scrollY >= collapseDist * 0.51;
-      const targetY = isCollapsed ? collapseDist : 0;
-      try {
-        sessionStorage.setItem("sk_header_collapsed", isCollapsed ? "1" : "0");
-      } catch {}
-      if (Math.abs(window.scrollY - targetY) > 4) {
-        window.scrollTo({ top: targetY, behavior: "instant" });
-      }
+      window.scrollTo({ top: 0, behavior: "instant" });
     }
   };
 

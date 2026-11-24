@@ -23,6 +23,8 @@ import {
   Maximize2,
   Upload,
   Download,
+  Tag,
+  Settings2,
 } from "lucide-react";
 import { useAuth, isOfficialRole } from "@/components/AuthProvider";
 import {
@@ -343,6 +345,86 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
   } | null>(null);
   const [deletePhotoBusy, setDeletePhotoBusy] = useState(false);
 
+  // Manage Activity Types in Modal
+  const [showManageTypes, setShowManageTypes] = useState(false);
+  const [newTypeName, setNewTypeName] = useState("");
+  const [savingType, setSavingType] = useState(false);
+
+  const activityTypesList = useMemo(() => {
+    if (data?.activityTypes && Array.isArray(data.activityTypes) && data.activityTypes.length > 0) {
+      return data.activityTypes;
+    }
+    return [...ACTIVITY_TYPES];
+  }, [data?.activityTypes]);
+
+  const handleAddActivityType = async () => {
+    const trimmed = newTypeName.trim();
+    if (!trimmed) return;
+    if (activityTypesList.some((t) => t.toLowerCase() === trimmed.toLowerCase())) {
+      setToast({ type: "error", message: `"${trimmed}" already exists.` });
+      return;
+    }
+    const updated = [...activityTypesList, trimmed];
+    setSavingType(true);
+    try {
+      const res = await fetch("/api/attendance/types", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ types: updated }),
+      });
+      const resJson = await res.json();
+      if (!res.ok || !resJson.success) {
+        throw new Error(resJson.error || "Failed to add activity type.");
+      }
+      const newTypes = resJson.types || updated;
+      setData((prev) => (prev ? { ...prev, activityTypes: newTypes } : prev));
+      setFormActivityType(trimmed);
+      setNewTypeName("");
+      setToast({ type: "success", message: `Added "${trimmed}" to activity types.` });
+      triggerHaptic(20);
+    } catch (err) {
+      setToast({
+        type: "error",
+        message: err instanceof Error ? err.message : "Failed to add activity type.",
+      });
+    } finally {
+      setSavingType(false);
+    }
+  };
+
+  const handleRemoveActivityType = async (typeName: string) => {
+    if (typeName === "Regular Session") {
+      setToast({ type: "error", message: "Regular Session cannot be removed." });
+      return;
+    }
+    const updated = activityTypesList.filter((t) => t !== typeName);
+    setSavingType(true);
+    try {
+      const res = await fetch("/api/attendance/types", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ types: updated }),
+      });
+      const resJson = await res.json();
+      if (!res.ok || !resJson.success) {
+        throw new Error(resJson.error || "Failed to remove activity type.");
+      }
+      const newTypes = resJson.types || updated;
+      setData((prev) => (prev ? { ...prev, activityTypes: newTypes } : prev));
+      if (formActivityType === typeName) {
+        setFormActivityType("Regular Session");
+      }
+      setToast({ type: "success", message: `Removed "${typeName}".` });
+      triggerHaptic(15);
+    } catch (err) {
+      setToast({
+        type: "error",
+        message: err instanceof Error ? err.message : "Failed to remove activity type.",
+      });
+    } finally {
+      setSavingType(false);
+    }
+  };
 
   // Smooth modal open/close animation states
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -392,6 +474,8 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
     setTimeout(() => {
       setShowFormModal(false);
       setEditingSession(null);
+      setShowManageTypes(false);
+      setNewTypeName("");
     }, 260);
   }, [formSaving]);
 
@@ -1703,8 +1787,8 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
             }}
           >
             {/* Header: shrink-0 */}
-            <div className="px-4 py-3 sm:px-5 sm:py-3.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3 shrink-0">
-              <div className="min-w-0 flex-1">
+            <div className="px-4 py-3 sm:px-5 sm:py-3.5 border-b border-slate-100 dark:border-slate-800 shrink-0">
+              <div className="min-w-0">
                 <h3 className="text-sm sm:text-base font-black text-slate-900 dark:text-slate-100 leading-tight">
                   {editingSession ? "Edit Attendance Session" : "Record Attendance Session"}
                 </h3>
@@ -1712,19 +1796,6 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
                   Mark Present or Absent for each council member.
                 </p>
               </div>
-              <button
-                type="button"
-                onTouchStart={() => triggerHaptic(12)}
-                onClick={() => {
-                  triggerHaptic(15);
-                  closeFormModal();
-                }}
-                disabled={formSaving}
-                className="p-1.5 -mr-1 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-90 transition-all cursor-pointer shrink-0 select-none"
-                aria-label="Close"
-              >
-                <X className="w-4 h-4" />
-              </button>
             </div>
 
             {/* Form */}
@@ -1754,7 +1825,7 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
 
                 {/* Date & Type: Side-by-side on all screens to conserve mobile vertical space */}
                 <div className="grid grid-cols-2 gap-2 sm:gap-3">
-                  <div className="space-y-1">
+                  <div className="space-y-1 min-w-0">
                     <label className="block text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                       Date *
                     </label>
@@ -1763,27 +1834,119 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
                       required
                       value={formDate}
                       onChange={(e) => setFormDate(e.target.value)}
-                      className="w-full px-2.5 py-1.5 sm:px-3.5 sm:py-2 text-xs sm:text-sm bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+                      className="w-full min-w-0 block text-center px-2.5 py-1.5 sm:px-3.5 sm:py-2 text-xs sm:text-sm bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
                     />
                   </div>
 
-                  <div className="space-y-1">
-                    <label className="block text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                      Type
-                    </label>
+                  <div className="space-y-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                        Type
+                      </label>
+                      {canManage && (
+                        <button
+                          type="button"
+                          onClick={() => setShowManageTypes((prev) => !prev)}
+                          className="text-[10px] font-bold text-brand-600 dark:text-brand-400 hover:underline cursor-pointer select-none"
+                        >
+                          {showManageTypes ? "Done" : "+ Manage"}
+                        </button>
+                      )}
+                    </div>
                     <select
                       value={formActivityType}
-                      onChange={(e) => setFormActivityType(e.target.value)}
-                      className="w-full px-2.5 py-1.5 sm:px-3.5 sm:py-2 text-xs sm:text-sm bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-brand-500/30 truncate"
+                      onChange={(e) => {
+                        if (e.target.value === "__manage__") {
+                          setShowManageTypes(true);
+                        } else {
+                          setFormActivityType(e.target.value);
+                        }
+                      }}
+                      className="w-full min-w-0 block px-2.5 py-1.5 sm:px-3.5 sm:py-2 text-xs sm:text-sm bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-brand-500/30 truncate"
                     >
-                      {ACTIVITY_TYPES.map((t) => (
+                      {activityTypesList.map((t) => (
                         <option key={t} value={t}>
                           {t}
                         </option>
                       ))}
+                      {canManage && (
+                        <option value="__manage__">+ Add / Manage Types...</option>
+                      )}
                     </select>
                   </div>
                 </div>
+
+                {/* Manage Activity Types Inline Drawer */}
+                {canManage && showManageTypes && (
+                  <div className="p-3 rounded-xl border border-brand-200 dark:border-brand-800/60 bg-brand-50/50 dark:bg-brand-950/30 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                        <Tag className="w-3.5 h-3.5 text-brand-600 dark:text-brand-400" />
+                        <span>Manage Activity Types</span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setShowManageTypes(false)}
+                        className="text-[11px] font-bold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 select-none cursor-pointer"
+                      >
+                        Done
+                      </button>
+                    </div>
+
+                    {/* Chips / Pills of current types */}
+                    <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto themed-scrollbar p-0.5">
+                      {activityTypesList.map((type) => {
+                        const isProtected = type === "Regular Session";
+                        return (
+                          <span
+                            key={type}
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-bold border transition-all ${getActivityTypeBadge(
+                              type
+                            )}`}
+                          >
+                            <span>{type}</span>
+                            {!isProtected && (
+                              <button
+                                type="button"
+                                title={`Remove "${type}"`}
+                                disabled={savingType}
+                                onClick={() => handleRemoveActivityType(type)}
+                                className="w-3.5 h-3.5 rounded-full hover:bg-rose-500 hover:text-white dark:hover:bg-rose-600 flex items-center justify-center transition-colors cursor-pointer select-none ml-0.5 disabled:opacity-50"
+                              >
+                                <X className="w-2.5 h-2.5" />
+                              </button>
+                            )}
+                          </span>
+                        );
+                      })}
+                    </div>
+
+                    {/* Add New Type Input */}
+                    <div className="flex items-center gap-2 pt-1 border-t border-brand-100 dark:border-brand-900/40">
+                      <input
+                        type="text"
+                        value={newTypeName}
+                        onChange={(e) => setNewTypeName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            handleAddActivityType();
+                          }
+                        }}
+                        placeholder="Add new type (e.g. Clean-Up Drive)"
+                        className="flex-1 px-2.5 py-1.5 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+                      />
+                      <button
+                        type="button"
+                        disabled={!newTypeName.trim() || savingType}
+                        onClick={handleAddActivityType}
+                        className="px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 active:scale-95 text-white text-xs font-bold transition-all disabled:opacity-40 cursor-pointer select-none shrink-0"
+                      >
+                        {savingType ? "Saving..." : "+ Add"}
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {/* Venue / Location */}
                 <div className="space-y-1">
@@ -2083,8 +2246,8 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
               transition: "transform 260ms cubic-bezier(0.16, 1, 0.3, 1), opacity 240ms cubic-bezier(0.16, 1, 0.3, 1)",
             }}
           >
-            <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 shrink-0 flex items-start justify-between gap-3">
-              <div className="space-y-1 min-w-0 flex-1">
+            <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 shrink-0">
+              <div className="space-y-1 min-w-0">
                 <span
                   className={`inline-flex text-[10px] font-bold px-2 py-0.5 rounded-full border ${getActivityTypeBadge(
                     viewingSession.activity_type
@@ -2103,21 +2266,6 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
                   )}
                 </p>
               </div>
-
-              {/* Close Button */}
-              <button
-                type="button"
-                onTouchStart={() => triggerHaptic(12)}
-                onClick={() => {
-                  triggerHaptic(15);
-                  closeSessionModal();
-                }}
-                className="p-1.5 -mr-1 -mt-0.5 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-90 transition-all cursor-pointer select-none shrink-0"
-                aria-label="Close dialog"
-                title="Close"
-              >
-                <X className="w-5 h-5" />
-              </button>
             </div>
 
             <div className="p-4 overflow-y-auto space-y-3 flex-1 min-h-0 themed-scrollbar overscroll-contain">

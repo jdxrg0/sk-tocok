@@ -9,8 +9,10 @@ import GoogleDriveStatusCard, { type GoogleDriveStatusData } from "@/components/
 import VercelBlobStatusCard, { type BlobStatusData } from "@/components/VercelBlobStatusCard";
 import AttendanceTracker from "@/components/AttendanceTracker";
 import AnonymousCouncilMessages from "@/components/AnonymousCouncilMessages";
+import CseAdminManager from "@/components/CseAdminManager";
 import { useAuth, isOfficialRole } from "@/components/AuthProvider";
 import { 
+  Award,
   Printer, 
   FileCheck, 
   ClipboardCheck,
@@ -325,9 +327,9 @@ export default function AdminDashboardClient() {
   } = useAuth();
   const isOfficial = isOfficialRole(currentUser?.role);
 
-  // Active Admin Tab: "queue" | "ledgers" | "attendance" | "messages" | "categories" | "settings" | "officials" | "accounts"
+  // Active Admin Tab: "queue" | "ledgers" | "attendance" | "messages" | "cse" | "categories" | "settings" | "officials" | "accounts"
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<"queue" | "ledgers" | "attendance" | "messages" | "categories" | "settings" | "officials" | "accounts">("queue");
+  const [activeTab, setActiveTab] = useState<"queue" | "ledgers" | "attendance" | "messages" | "cse" | "categories" | "settings" | "officials" | "accounts">("queue");
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -345,6 +347,7 @@ export default function AdminDashboardClient() {
     { id: 'ledgers', label: 'Audited Ledgers', shortLabel: 'Ledgers', icon: FileCheck },
     { id: 'attendance', label: 'Attendance', shortLabel: 'Attendance', icon: ClipboardCheck },
     { id: 'messages', label: 'Bumo-Boses', shortLabel: 'Bumo-Boses', icon: MessageSquareQuote },
+    { id: 'cse', label: 'CSE Subsidy (₱500)', shortLabel: 'CSE Subsidy', icon: Award },
     { id: 'categories', label: 'Categories', shortLabel: 'Categories', icon: Layers },
     { id: 'settings', label: 'Settings', shortLabel: 'Settings', icon: Settings },
     { id: 'officials', label: 'Officials', shortLabel: 'Officials', icon: Users },
@@ -580,7 +583,7 @@ export default function AdminDashboardClient() {
   const [cleaningBlobs, setCleaningBlobs] = useState(false);
   const [cleanupMessage, setCleanupMessage] = useState<string | null>(null);
   const [showUnsavedSettingsModal, setShowUnsavedSettingsModal] = useState(false);
-  const [pendingTab, setPendingTab] = useState<"queue" | "ledgers" | "attendance" | "messages" | "categories" | "settings" | "officials" | "accounts" | null>(null);
+  const [pendingTab, setPendingTab] = useState<"queue" | "ledgers" | "attendance" | "messages" | "cse" | "categories" | "settings" | "officials" | "accounts" | null>(null);
   const [pendingHref, setPendingHref] = useState<string | null>(null);
   const [pendingLogout, setPendingLogout] = useState(false);
 
@@ -1514,20 +1517,10 @@ export default function AdminDashboardClient() {
 
   const resetTabScroll = () => {
     if (typeof window === "undefined") return;
-    const collapseDist = window.innerWidth >= 768 ? 196 : 178;
-    const isCollapsed =
-      sessionStorage.getItem("sk_header_collapsed") === "1" ||
-      window.scrollY >= collapseDist * 0.51;
-    const targetY = isCollapsed ? collapseDist : 0;
-    try {
-      sessionStorage.setItem("sk_header_collapsed", isCollapsed ? "1" : "0");
-    } catch {}
-    if (Math.abs(window.scrollY - targetY) > 4) {
-      window.scrollTo({ top: targetY, behavior: "instant" });
-    }
+    window.scrollTo({ top: 0, behavior: "instant" });
   };
 
-  const switchTab = (tabId: "queue" | "ledgers" | "attendance" | "messages" | "categories" | "settings" | "officials" | "accounts") => {
+  const switchTab = (tabId: "queue" | "ledgers" | "attendance" | "messages" | "cse" | "categories" | "settings" | "officials" | "accounts") => {
     if (activeTab === "settings" && tabId !== "settings" && hasUnsavedSettings) {
       setPendingTab(tabId);
       setPendingHref(null);
@@ -1902,6 +1895,11 @@ export default function AdminDashboardClient() {
       {/* TAB: FREEDOM WALL & ANONYMOUS INBOX */}
       {activeTab === "messages" && (
         <AnonymousCouncilMessages mode="admin" />
+      )}
+
+      {/* TAB: CIVIL SERVICE EXAM SUBSIDY */}
+      {activeTab === "cse" && (
+        <CseAdminManager />
       )}
 
       {/* TAB 1: PRINT QUEUE CONTENT */}
@@ -3890,6 +3888,11 @@ export default function AdminDashboardClient() {
             return (
               r.includes("kagawad") ||
               r.includes("council") ||
+              r.includes("health") ||
+              r.includes("livelihood") ||
+              r.includes("sports") ||
+              r.includes("gad") ||
+              r.includes("education") ||
               (!r.includes("staff") && !r.includes("custodian"))
             );
           })
@@ -4121,7 +4124,7 @@ export default function AdminDashboardClient() {
                   </div>
                 )}
 
-                {/* TIER 2: SK COUNCILORS & COMMITTEE CHAIRS (7 KAGAWADS) */}
+                {/* TIER 2: SK KAGAWADS */}
                 {councilors.length > 0 && (
                   <div className="space-y-3 pt-1">
                     <div className="relative flex items-center justify-center">
@@ -4129,7 +4132,7 @@ export default function AdminDashboardClient() {
                         <div className="w-full border-t border-slate-200/80 dark:border-slate-800/90" />
                       </div>
                       <div className="relative bg-slate-50 dark:bg-slate-800/70 px-3.5 py-0.5 rounded-full border border-slate-200 dark:border-slate-800 text-[10.5px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5 shadow-2xs">
-                        <span>SK Councilors &amp; Committee Chairs ({councilors.length})</span>
+                        <span>SK Kagawads</span>
                       </div>
                     </div>
 
@@ -5566,10 +5569,15 @@ export default function AdminDashboardClient() {
                           <option value="SK Secretary">SK Secretary</option>
                           <option value="SK Treasurer">SK Treasurer</option>
                           <option value="SK Kagawad">SK Kagawad</option>
+                          <option value="Health">Health (Committee)</option>
+                          <option value="Livelihood">Livelihood (Committee)</option>
+                          <option value="Sports">Sports (Committee)</option>
+                          <option value="GAD">GAD (Committee)</option>
+                          <option value="Education">Education (Committee)</option>
                           <option value="SK Staff / Custodian">SK Staff / Custodian</option>
                           <option value="Student">Student</option>
                           <option value="Guest">Guest</option>
-                          {!["SK Chairperson", "SK Secretary", "SK Treasurer", "SK Kagawad", "SK Staff / Custodian", "Student", "Guest"].includes(userForm.role) && (
+                          {!["SK Chairperson", "SK Secretary", "SK Treasurer", "SK Kagawad", "Health", "Livelihood", "Sports", "GAD", "Education", "SK Staff / Custodian", "Student", "Guest"].includes(userForm.role) && (
                             <option value={userForm.role}>{userForm.role}</option>
                           )}
                         </select>

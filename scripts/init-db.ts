@@ -180,13 +180,13 @@ async function main() {
       ["HON. JELENA ROSE H. CABANLIG", "chairperson@sktocok.gov.ph", "SK Chairperson", "+63 912 111 2222", "/images/officials/cabanlig.jpg"],
       ["MS. ANNIECKA REINE C. QUINTO", "secretary@sktocok.gov.ph", "SK Secretary", "+63 912 333 4444", "/images/officials/quinto_anniecka.jpg"],
       ["MR. JOHN DAVID R. GARCIA", "treasurer@sktocok.gov.ph", "SK Treasurer", "+63 912 555 6666", "/images/officials/garcia.jpg"],
-      ["HON. DOVIE ELLARES", "ellares@sktocok.gov.ph", "SK Kagawad", "+63 912 777 0001", "/images/officials/ellares.jpg"],
-      ["HON. DANNAH MAE M. AQUINO", "aquino@sktocok.gov.ph", "SK Kagawad", "+63 912 777 0002", "/images/officials/aquino.jpg"],
-      ["HON. RENZ LESTER S. RAMOS", "ramos@sktocok.gov.ph", "SK Kagawad", "+63 912 777 0003", "/images/officials/ramos.jpg"],
+      ["HON. DOVIE ELLARES", "ellares@sktocok.gov.ph", "Education", "+63 912 777 0001", "/images/officials/ellares.jpg"],
+      ["HON. DANNAH MAE M. AQUINO", "aquino@sktocok.gov.ph", "Livelihood", "+63 912 777 0002", "/images/officials/aquino.jpg"],
+      ["HON. RENZ LESTER S. RAMOS", "ramos@sktocok.gov.ph", "Sports", "+63 912 777 0003", "/images/officials/ramos.jpg"],
       ["HON. ROBBIE D. BARRO", "barro@sktocok.gov.ph", "SK Kagawad", "+63 912 777 0004", "/images/officials/barro.jpg"],
-      ["HON. SANDRO J. QUINTO", "quinto.sandro@sktocok.gov.ph", "SK Kagawad", "+63 912 777 0005", "/images/officials/quinto_sandro.jpg"],
+      ["HON. SANDRO J. QUINTO", "quinto.sandro@sktocok.gov.ph", "Health", "+63 912 777 0005", "/images/officials/quinto_sandro.jpg"],
       ["HON. ANGELA S. SERRANA", "serrana@sktocok.gov.ph", "SK Kagawad", "+63 912 777 0006", "/images/officials/serrana.jpg"],
-      ["HON. BABY JULHITZ R. PICAR", "picar@sktocok.gov.ph", "SK Kagawad", "+63 912 777 0007", "/images/officials/picar.jpg"],
+      ["HON. BABY JULHITZ R. PICAR", "picar@sktocok.gov.ph", "GAD", "+63 912 777 0007", "/images/officials/picar.jpg"],
     ];
     for (const [name, email, role, contact, avatar] of officials) {
       await sql`

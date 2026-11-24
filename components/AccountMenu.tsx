@@ -192,6 +192,18 @@ export default function AccountMenu({ className = "" }: AccountMenuProps) {
     }
   }, [open]);
 
+  // Set data attribute on html element when Account Menu is open to coordinate z-indexes & FAB suppression
+  useEffect(() => {
+    if (open) {
+      document.documentElement.dataset.accountMenuOpen = "true";
+    } else {
+      delete document.documentElement.dataset.accountMenuOpen;
+    }
+    return () => {
+      delete document.documentElement.dataset.accountMenuOpen;
+    };
+  }, [open]);
+
   useEffect(() => {
     setOpen(false);
     setShowSignInModal(false);
@@ -281,21 +293,10 @@ export default function AccountMenu({ className = "" }: AccountMenuProps) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [showSignInModal, signInSubmitting]);
 
-  const containerStyle: React.CSSProperties = {
-    right: "calc((50% - var(--logo-half-start)) * (1 - var(--p)) + var(--logo-left-end) * var(--p))",
-    top: "calc(var(--logo-top-start) * (1 - var(--p)) + var(--logo-top-end) * var(--p))",
-    width: "calc(var(--logo-size-start) * (1 - var(--p)) + var(--logo-size-end) * var(--p))",
-    height: "calc(var(--logo-size-start) * (1 - var(--p)) + var(--logo-size-end) * var(--p))",
-    opacity: open ? 1 : "calc(min(1, max(0, var(--p) * 8)))",
-    transform: "translate3d(0, 0, 0)",
-    WebkitTransform: "translate3d(0, 0, 0)",
-  };
-
   if (!mounted) {
     return (
       <div
-        className={`pointer-events-none absolute z-20 ${className}`}
-        style={containerStyle}
+        className={`pointer-events-none relative w-full h-full flex items-center justify-center ${className}`}
         aria-hidden="true"
       >
         <div className="w-full h-full rounded-full border-2 border-slate-300/80 dark:border-slate-700/80 bg-slate-100 dark:bg-slate-800" />
@@ -545,8 +546,7 @@ export default function AccountMenu({ className = "" }: AccountMenuProps) {
   return (
     <div
       ref={containerRef}
-      style={containerStyle}
-      className={`pointer-events-auto absolute ${open ? "z-40" : "z-20"} ${className}`}
+      className={`pointer-events-auto relative w-full h-full flex items-center justify-center ${open ? "z-40" : "z-20"} ${className}`}
     >
       {user ? (
         /* LOGGED-IN ACCOUNT TRIGGER: MIRRORS SK LOGO SPLIT ANIMATION TO THE RIGHT */
@@ -599,7 +599,7 @@ export default function AccountMenu({ className = "" }: AccountMenuProps) {
         <div
           role="dialog"
           aria-label={user ? "Account and appearance menu" : "Appearance and color settings"}
-          className="fixed sm:absolute right-3 sm:right-0 top-[calc(64px+env(safe-area-inset-top,0px))] sm:top-full sm:mt-2 w-[284px] sm:w-[312px] max-w-[calc(100vw-24px)] max-h-[calc(100dvh-84px-env(safe-area-inset-top,0px))] overflow-y-auto themed-scrollbar rounded-2xl border border-slate-200 dark:border-slate-700/90 bg-white dark:bg-slate-900 shadow-2xl dark:shadow-black/70 p-3 z-[70] font-sans overscroll-contain"
+          className="fixed md:absolute right-3 md:right-0 top-[calc(var(--brand-h,68px)+env(safe-area-inset-top,0px)+8px)] md:top-full md:mt-2 w-[284px] sm:w-[312px] max-w-[calc(100vw-24px)] max-h-[calc(100dvh-var(--brand-h,68px)-env(safe-area-inset-top,0px)-5.5rem-env(safe-area-inset-bottom,0px))] md:max-h-[calc(100dvh-84px)] overflow-y-auto themed-scrollbar rounded-2xl border border-slate-200 dark:border-slate-700/90 bg-white dark:bg-slate-900 shadow-2xl dark:shadow-black/70 p-3 z-[70] font-sans overscroll-contain"
         >
           {user ? (
             <div className="space-y-2.5">
@@ -748,32 +748,34 @@ export default function AccountMenu({ className = "" }: AccountMenuProps) {
               </div>
             </div>
           ) : (
-            /* GUEST MODE: GUEST HEADER + SIGN IN / REGISTER + APPEARANCE CONTROLS */
+            /* GUEST MODE: BIGGER CENTERED GUEST HERO CARD + APPEARANCE CONTROLS */
             <div className="space-y-3">
-              <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-100 dark:border-slate-800">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-center text-slate-500 dark:text-slate-400 shrink-0">
-                    <User className="w-4 h-4" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-xs font-extrabold text-slate-900 dark:text-slate-100 leading-tight">
-                      Guest Visitor
-                    </p>
-                    <p className="text-[10.5px] text-slate-500 dark:text-slate-400 leading-tight mt-0.5">
-                      Not signed in
-                    </p>
-                  </div>
+              {/* Centered Hero Guest Card */}
+              <div className="flex flex-col items-center text-center p-3 sm:p-3.5 rounded-2xl bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800/80">
+                <div className="w-13 h-13 sm:w-14 sm:h-14 rounded-full bg-white dark:bg-slate-800 border-2 border-slate-200/90 dark:border-slate-700 shadow-2xs flex items-center justify-center text-slate-400 dark:text-slate-400 mb-2">
+                  <User className="w-6 h-6 sm:w-7 sm:h-7 stroke-[1.8]" />
                 </div>
+                <h3 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-slate-100 tracking-tight leading-tight">
+                  Guest Visitor
+                </h3>
+                <p className="text-[11.5px] text-slate-500 dark:text-slate-400 font-medium mt-0.5 mb-3">
+                  Not signed in
+                </p>
+
                 <button
                   type="button"
                   onClick={() => openSignInModal("signin")}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-[11px] font-bold shadow-xs transition-colors cursor-pointer active:scale-95 shrink-0"
+                  className="w-full inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-xs sm:text-[13px] font-bold shadow-sm shadow-brand-900/15 hover:shadow-brand-900/25 transition-all cursor-pointer active:scale-[0.98]"
                 >
-                  <LogIn className="w-3.5 h-3.5" />
+                  <LogIn className="w-4 h-4 stroke-[2.2]" />
                   <span>Sign In / Sign Up</span>
                 </button>
               </div>
-              <AppearanceControls showHeader={true} />
+
+              {/* Theme & Appearance Controls */}
+              <div className="pt-0.5">
+                <AppearanceControls showHeader={false} />
+              </div>
             </div>
           )}
         </div>
@@ -833,7 +835,9 @@ export default function AccountMenu({ className = "" }: AccountMenuProps) {
                   </div>
                   <div>
                     <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-slate-100 tracking-tight leading-tight">
-                      SK Tocok Portal
+                      <span className="text-[#023baf] dark:text-[#60a5fa]">S</span>
+                      <span className="text-[#e0001a] dark:text-[#f87171]">K</span>{" "}
+                      <span>Tocok Portal</span>
                     </h2>
                   </div>
                 </div>

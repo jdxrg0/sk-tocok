@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { LayoutGrid, ArrowUpRight, ClipboardCheck, MessageSquareQuote, type LucideIcon } from "lucide-react";
+import { LayoutGrid, ArrowUpRight, Printer, MessageSquareQuote, Award, type LucideIcon } from "lucide-react";
 
 interface OtherPageItem {
   href: string;
@@ -12,6 +12,14 @@ interface OtherPageItem {
 // Add new public pages here as they are created
 const OTHER_PAGES: OtherPageItem[] = [
   {
+    href: "/cse",
+    title: "Free Civil Service Exam (CSE) ₱500 Subsidy",
+    description:
+      "₱500 examination fee reimbursement, attendance verification, and Hall of Fame recognition for Katipunan ng Kabataan examinees.",
+    icon: Award,
+    badge: "20 Annual Slots",
+  },
+  {
     href: "/messages",
     title: "Bumo-Boses",
     description:
@@ -20,12 +28,12 @@ const OTHER_PAGES: OtherPageItem[] = [
     badge: "Community Wall",
   },
   {
-    href: "/attendance",
-    title: "SK Officials Attendance Sheet",
+    href: "/printing",
+    title: "Free Student Printing Service",
     description:
-      "Interactive roll call matrix tracking each Barangay Tocok SK official's attendance across regular sessions to see who is active.",
-    icon: ClipboardCheck,
-    badge: "Matrix View",
+      "Submit school documents, modules, research papers, and reviewer prints for free with live status tracking.",
+    icon: Printer,
+    badge: "Free Service",
   },
 ];
 
