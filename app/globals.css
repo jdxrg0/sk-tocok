@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..800;1,6..72,300..800&family=Plus+Jakarta+Sans:wght@400..800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400..800;1,400..800&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -307,12 +307,13 @@ html {
 html,
 body {
   touch-action: pan-x pan-y;
+  overscroll-behavior-x: none;
 }
 
 body {
   color: var(--foreground);
   background: var(--background);
-  font-family: var(--font-claude-serif);
+  font-family: var(--font-claude-sans);
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -337,16 +338,115 @@ a, button, [role="button"] {
 
 @keyframes pageFadeIn {
   from {
-    opacity: 0.75;
+    opacity: 0;
+    transform: translateY(14px);
   }
   to {
     opacity: 1;
+    transform: translateY(0);
   }
 }
 
 .page-enter {
-  animation: pageFadeIn 0.15s ease-out;
+  animation: pageFadeIn 0.28s cubic-bezier(0.16, 1, 0.3, 1) backwards;
   will-change: opacity;
+}
+
+@keyframes pageExitToTransparency {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+}
+
+.page-exit-to-transparency {
+  animation: pageExitToTransparency 0.16s cubic-bezier(0.4, 0, 1, 1) forwards;
+  will-change: opacity, transform;
+  pointer-events: none;
+}
+
+@keyframes tabPanelSlideNext {
+  0% {
+    opacity: 0;
+    transform: translateX(28px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes tabPanelSlidePrev {
+  0% {
+    opacity: 0;
+    transform: translateX(-28px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.tab-panel-slide-next {
+  animation: tabPanelSlideNext 0.28s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.tab-panel-slide-prev {
+  animation: tabPanelSlidePrev 0.28s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+@keyframes examFieldSlideNext {
+  0% {
+    opacity: 0;
+    transform: translateX(14px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes examFieldSlidePrev {
+  0% {
+    opacity: 0;
+    transform: translateX(-14px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.exam-field-slide-next {
+  animation: examFieldSlideNext 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.exam-field-slide-prev {
+  animation: examFieldSlidePrev 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.tab-sliding-pill {
+  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-enter,
+  .page-exit-to-transparency,
+  .tab-panel-slide-next,
+  .tab-panel-slide-prev,
+  .exam-field-slide-next,
+  .exam-field-slide-prev {
+    animation: none !important;
+  }
+
+  .tab-sliding-pill {
+    transition: none !important;
+  }
 }
 
 ::selection {
@@ -443,10 +543,11 @@ html[data-modal-open="true"] [data-page-fab] {
   visibility: hidden !important;
 }
 
-/* On desktop, neatly offset in-page floating action buttons to sit alongside the navigation FAB */
+/* On desktop, neatly offset in-page floating action buttons to sit comfortably alongside the navigation FAB */
 @media (min-width: 768px) {
   [data-page-fab] {
-    right: 5.75rem !important; /* 92px from right, sitting neatly beside the navigation FAB */
+    right: 7rem !important; /* 112px from right, leaving a comfortable 24px gap beside the navigation FAB (left edge at 5.5rem / 88px) */
+    bottom: 2rem !important; /* 32px from bottom, matching md:bottom-8 of the navigation FAB */
   }
 }
 
@@ -737,6 +838,22 @@ svg.recharts-surface:focus-visible {
   backface-visibility: hidden;
 }
 
+/* Generic modal animation utilities */
+.animate-in {
+  animation-duration: 0.28s;
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  animation-fill-mode: forwards;
+}
+
+.animate-in.fade-in {
+  animation-name: modalBackdropFadeIn;
+}
+
+.animate-in.zoom-in-95 {
+  animation-name: modalCardEnter;
+  will-change: transform, opacity;
+}
+
 /* Delete Confirmation Modal Specific Animations */
 @keyframes deleteModalCardEnter {
   0% {
@@ -822,8 +939,8 @@ input[type="week"] {
   min-width: 0;
   max-width: 100%;
   box-sizing: border-box;
-  height: 50px;
-  line-height: 50px;
+  height: 44px;
+  line-height: 44px;
   text-align: left;
   padding-top: 0 !important;
   padding-bottom: 0 !important;
@@ -853,8 +970,9 @@ select {
   box-sizing: border-box;
   text-align: left;
   line-height: 1.5;
-  padding-top: 0.75rem;
-  padding-bottom: 0.75rem;
+  min-height: 44px;
+  padding-top: 0.5625rem;
+  padding-bottom: 0.5625rem;
   padding-left: 0.875rem;
   padding-right: 2.5rem !important;
   background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%2394a3b8' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
@@ -865,8 +983,9 @@ select {
 
 @media (min-width: 640px) {
   select {
-    padding-top: 0.625rem;
-    padding-bottom: 0.625rem;
+    min-height: 42px;
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
     line-height: 1.42857;
   }
 }
@@ -878,7 +997,7 @@ input[type="month"]::-webkit-date-and-time-value,
 input[type="week"]::-webkit-date-and-time-value {
   text-align: left;
   min-height: 1.5em;
-  line-height: 50px;
+  line-height: 44px;
   margin: 0;
   padding: 0;
 }
@@ -900,7 +1019,7 @@ input[type="month"]::-webkit-datetime-edit,
 input[type="week"]::-webkit-datetime-edit {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   height: 100%;
   padding: 0;
   margin: 0;

@@ -304,6 +304,28 @@ for (const target of renderTargets) {
   }
 }
 
+const compiledDynamicCssTargets = [
+  "node_modules/next/dist/compiled/next-server/pages-turbo.runtime.dev.js",
+  "node_modules/next/dist/compiled/next-server/pages-turbo.runtime.prod.js",
+  "node_modules/next/dist/compiled/next-server/pages.runtime.dev.js",
+  "node_modules/next/dist/compiled/next-server/pages.runtime.prod.js",
+];
+
+for (const target of compiledDynamicCssTargets) {
+  const filePath = path.resolve(target);
+  if (!fs.existsSync(filePath)) continue;
+
+  let content = fs.readFileSync(filePath, "utf8");
+  const patched = content.replace(
+    /new Set\(([a-zA-Z0-9_$.]+)\.dynamicCssManifest\|\|\[\]\)/g,
+    "new Set(Array.isArray($1.dynamicCssManifest)?$1.dynamicCssManifest:$1.dynamicCssManifest instanceof Set?$1.dynamicCssManifest:[])"
+  );
+  if (patched !== content) {
+    fs.writeFileSync(filePath, patched, "utf8");
+    console.log(`[patch-next] Patched compiled dynamicCssManifest in ${target}`);
+  }
+}
+
 // Patch checkIsOnDemandRevalidate for undefined previewProps
 const apiUtilsTargets = [
   "node_modules/next/dist/server/api-utils/index.js",

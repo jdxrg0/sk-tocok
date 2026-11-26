@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { getCurrentUser, isOfficialUser } from "@/lib/auth";
 import { ensureMessagesTable } from "@/lib/messages";
+import { MESSAGE_STATUSES, sanitizeText } from "@/lib/validation";
+import { logSecurityEvent } from "@/lib/securityLogger";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +12,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const user = await getCurrentUser();
+    const user = await getCurrentUser(request);
     if (!user) {
       return NextResponse.json({ error: "Unauthorized access" }, { status: 401 });
     }
@@ -32,6 +34,16 @@ export async function PATCH(
     const body = await request.json().catch(() => ({}));
     const { status, is_public, is_pinned, admin_reply } = body;
 
+    if (
+      status !== undefined &&
+      !MESSAGE_STATUSES.includes(status as (typeof MESSAGE_STATUSES)[number])
+    ) {
+      return NextResponse.json({ error: "Invalid message status" }, { status: 400 });
+    }
+
+    const cleanReply =
+      admin_reply !== undefined ? sanitizeText(String(admin_reply || ""), 3000) : undefined;
+
     // Check existing message
     const existing = await sql`
       SELECT id, admin_reply FROM anonymous_messages WHERE id = ${messageId} LIMIT 1
@@ -41,7 +53,7 @@ export async function PATCH(
     }
 
     // Determine reply metadata
-    const isUpdatingReply = admin_reply !== undefined;
+    const isUpdatingReply = cleanReply !== undefined;
     const repliedBy = isUpdatingReply ? user.name || "SK Council" : null;
 
     // Build update query dynamically
@@ -51,7 +63,7 @@ export async function PATCH(
         status = COALESCE(${status !== undefined ? status : null}, status),
         is_public = COALESCE(${is_public !== undefined ? Boolean(is_public) : null}, is_public),
         is_pinned = COALESCE(${is_pinned !== undefined ? Boolean(is_pinned) : null}, is_pinned),
-        admin_reply = COALESCE(${admin_reply !== undefined ? admin_reply : null}, admin_reply),
+        admin_reply = COALESCE(${cleanReply !== undefined ? cleanReply : null}, admin_reply),
         replied_by = CASE WHEN ${isUpdatingReply} THEN ${repliedBy} ELSE replied_by END,
         replied_at = CASE WHEN ${isUpdatingReply} THEN NOW() ELSE replied_at END,
         updated_at = NOW()
@@ -78,7 +90,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const user = await getCurrentUser();
+    const user = await getCurrentUser(request);
     if (!user) {
       return NextResponse.json({ error: "Unauthorized access" }, { status: 401 });
     }
@@ -98,6 +110,14 @@ export async function DELETE(
     }
 
     await sql`DELETE FROM anonymous_messages WHERE id = ${messageId}`;
+    await logSecurityEvent({
+      eventType: "ADMIN_MESSAGE_DELETED",
+      severity: "info",
+      request,
+      userId: user.id,
+      email: user.email,
+      details: { messageId },
+    });
 
     return NextResponse.json({
       success: true,

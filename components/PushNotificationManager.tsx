@@ -495,7 +495,7 @@ export default function PushNotificationManager({
             onClick={() => setShowHTTPSModal(true)}
             title="Push notifications require HTTPS on mobile"
             className={`inline-flex items-center justify-center gap-1.5 ${
-              isCompact ? "w-8 h-8 sm:w-auto sm:px-2.5 sm:py-1.5" : "px-2.5 py-1.5"
+              isCompact ? "w-10 h-10 sm:w-auto sm:h-10 sm:px-3" : "px-2.5 py-1.5"
             } rounded-xl text-xs font-medium bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60 transition cursor-pointer active:scale-95 shadow-2xs shrink-0 ${className}`}
           >
             <ShieldAlert className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-600 dark:text-amber-400 shrink-0" />
@@ -543,7 +543,7 @@ export default function PushNotificationManager({
             onClick={() => setShowIOSModal(true)}
             title="Tap for quick steps to add SK Tocok to your iPhone Home Screen"
             className={`inline-flex items-center justify-center gap-1.5 ${
-              isCompact ? "w-8 h-8 sm:w-auto sm:px-3 sm:py-1.5" : "px-3 py-1.5"
+              isCompact ? "w-10 h-10 sm:w-auto sm:h-10 sm:px-3" : "px-3 py-1.5"
             } rounded-xl text-xs font-bold bg-brand-50 hover:bg-brand-100 dark:bg-brand-950/60 dark:hover:bg-brand-900/60 border border-brand-200 dark:border-brand-800/70 text-brand-700 dark:text-brand-300 transition cursor-pointer active:scale-95 shadow-2xs shrink-0 ${className}`}
           >
             <Smartphone className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-brand-600 dark:text-brand-400 shrink-0" />
@@ -592,7 +592,7 @@ export default function PushNotificationManager({
           onClick={handle1TapInstall}
           title="Install SK Tocok App to your Home Screen in 1 tap"
           className={`inline-flex items-center justify-center gap-1.5 ${
-            isCompact ? "w-8 h-8 sm:w-auto sm:px-3 sm:py-1.5" : "px-3 py-1.5"
+            isCompact ? "w-10 h-10 sm:w-auto sm:h-10 sm:px-3" : "px-3 py-1.5"
           } rounded-xl text-xs font-bold bg-brand-600 hover:bg-brand-700 text-white transition cursor-pointer active:scale-95 shadow-sm shadow-brand-500/20 shrink-0 ${className}`}
         >
           <DownloadCloud className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
@@ -609,7 +609,7 @@ export default function PushNotificationManager({
           disabled={loading}
           title="Push notifications active on this device. Click to disable."
           className={`inline-flex items-center justify-center gap-1.5 ${
-            isCompact ? "w-8 h-8 sm:w-auto sm:px-3 sm:py-1.5" : "px-3 py-1.5"
+            isCompact ? "w-10 h-10 sm:w-auto sm:h-10 sm:px-3" : "px-3 py-1.5"
           } rounded-xl text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800/70 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition cursor-pointer active:scale-95 shadow-2xs shrink-0 ${className}`}
         >
           {loading ? (
@@ -632,7 +632,7 @@ export default function PushNotificationManager({
         disabled={loading}
         title="Enable push alerts on this device"
         className={`inline-flex items-center justify-center gap-1.5 ${
-          isCompact ? "w-8 h-8 sm:w-auto sm:px-3 sm:py-1.5" : "px-3 py-1.5"
+          isCompact ? "w-10 h-10 sm:w-auto sm:h-10 sm:px-3" : "px-3 py-1.5"
         } rounded-xl text-xs font-bold bg-brand-50 hover:bg-brand-100 dark:bg-brand-950/60 dark:hover:bg-brand-900/60 border border-brand-200 dark:border-brand-800/70 text-brand-700 dark:text-brand-300 transition cursor-pointer active:scale-95 shadow-2xs shrink-0 ${className}`}
       >
         {loading ? (

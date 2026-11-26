@@ -53,6 +53,35 @@ function detectMimeType(
   return "application/octet-stream";
 }
 
+const INLINE_SAFE_MIMES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+  "image/heic",
+  "image/heif",
+  "application/pdf",
+]);
+
+function buildHardenedHeaders(
+  contentType: string,
+  bufferLength: number,
+  fileName: string
+): Record<string, string> {
+  const isSafeInline = INLINE_SAFE_MIMES.has(contentType.toLowerCase());
+  const headers: Record<string, string> = {
+    "Content-Type": isSafeInline ? contentType : "application/octet-stream",
+    "Content-Length": String(bufferLength),
+    "Content-Disposition": `${isSafeInline ? "inline" : "attachment"}; filename="${fileName}"`,
+    "Cache-Control": "public, max-age=31536000, immutable",
+    "X-Content-Type-Options": "nosniff",
+  };
+  if (!isSafeInline) {
+    headers["Content-Security-Policy"] = "sandbox; default-src 'none'";
+  }
+  return headers;
+}
+
 async function maybeResizeImage(
   buffer: Buffer,
   contentType: string,
@@ -134,21 +163,15 @@ export async function GET(
           `https://lh3.googleusercontent.com/d/${encodeURIComponent(cleanId)}`,
           { signal: AbortSignal.timeout(6000), redirect: "follow" }
         );
-        const lh3Type = lh3Res.headers.get("content-type") || "";
-        if (lh3Res.ok && lh3Type && !lh3Type.includes("text/html")) {
+        const lh3Type = (lh3Res.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+        if (lh3Res.ok && lh3Type && !lh3Type.includes("text/html") && !lh3Type.includes("svg")) {
           const lh3RawBuf = Buffer.from(await lh3Res.arrayBuffer());
           const { buffer: lh3Buf, contentType: finalLh3Type, fileName: finalLh3Name } =
             await maybeResizeImage(lh3RawBuf, lh3Type, targetWidth, cleanId);
 
           return new NextResponse(new Uint8Array(lh3Buf), {
             status: 200,
-            headers: {
-              "Content-Type": finalLh3Type,
-              "Content-Length": String(lh3Buf.length),
-              "Content-Disposition": `inline; filename="${finalLh3Name}"`,
-              "Cache-Control": "public, max-age=31536000, immutable",
-              "X-Content-Type-Options": "nosniff",
-            },
+            headers: buildHardenedHeaders(finalLh3Type, lh3Buf.length, finalLh3Name),
           });
         }
       } catch {
@@ -176,18 +199,7 @@ export async function GET(
       safeFileName
     );
 
-    const headers: Record<string, string> = {
-      "Content-Type": contentType,
-      "Content-Length": String(buffer.length),
-      "Content-Disposition": `inline; filename="${fileName}"`,
-      "Cache-Control": "public, max-age=31536000, immutable",
-      "X-Content-Type-Options": "nosniff",
-    };
-
-    if (contentType === "image/svg+xml") {
-      headers["Content-Security-Policy"] =
-        "default-src 'none'; style-src 'unsafe-inline'; img-src data:;";
-    }
+    const headers = buildHardenedHeaders(contentType, buffer.length, fileName);
 
     return new NextResponse(new Uint8Array(buffer), { status: 200, headers });
   } catch (error) {

@@ -16,6 +16,10 @@ import {
 import { BarChart3, TrendingUp } from "lucide-react";
 import { useTheme } from "@/components/ThemeProvider";
 import {
+  getHorizontalPillStyle,
+  useTabPanelDirection,
+} from "@/components/useTabPanelDirection";
+import {
   getActivityStanding,
   getOfficialShortName,
   type MonthlyAttendanceTrend,
@@ -28,12 +32,15 @@ interface AttendanceChartsProps {
   onSelectOfficial?: (official: OfficialAttendanceStat) => void;
 }
 
+const ATTENDANCE_CHART_TAB_ORDER = ["ranking", "monthly"] as const;
+
 export default function AttendanceCharts({
   officials,
   monthlyTrend,
   onSelectOfficial,
 }: AttendanceChartsProps) {
   const [activeTab, setActiveTab] = useState<"ranking" | "monthly">("ranking");
+  const tabAnimClass = useTabPanelDirection(activeTab, ATTENDANCE_CHART_TAB_ORDER);
   const [mounted, setMounted] = useState(false);
   const { chartColors } = useTheme();
 
@@ -170,13 +177,18 @@ export default function AttendanceCharts({
           </p>
         </div>
 
-        <div className="inline-flex bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl border border-slate-200/80 dark:border-slate-700/80 self-start sm:self-auto">
+        <div className="relative inline-grid grid-cols-2 gap-1 bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl border border-slate-200/80 dark:border-slate-700/80 self-start sm:self-auto">
+          <div
+            aria-hidden="true"
+            className="tab-sliding-pill absolute top-1 bottom-1 rounded-lg bg-white dark:bg-slate-900 shadow-2xs pointer-events-none"
+            style={getHorizontalPillStyle(2, activeTab === "monthly" ? 1 : 0, 0.25, 0.25)}
+          />
           <button
             type="button"
             onClick={() => setActiveTab("ranking")}
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+            className={`relative z-10 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors duration-200 cursor-pointer ${
               activeTab === "ranking"
-                ? "bg-white dark:bg-slate-900 text-brand-700 dark:text-brand-300 shadow-2xs"
+                ? "text-brand-700 dark:text-brand-300"
                 : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
             }`}
           >
@@ -186,9 +198,9 @@ export default function AttendanceCharts({
           <button
             type="button"
             onClick={() => setActiveTab("monthly")}
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+            className={`relative z-10 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors duration-200 cursor-pointer ${
               activeTab === "monthly"
-                ? "bg-white dark:bg-slate-900 text-brand-700 dark:text-brand-300 shadow-2xs"
+                ? "text-brand-700 dark:text-brand-300"
                 : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
             }`}
           >
@@ -199,6 +211,7 @@ export default function AttendanceCharts({
       </div>
 
       {/* Chart Canvas */}
+      <div key={activeTab} className={`overflow-x-clip ${tabAnimClass}`}>
       {activeTab === "ranking" ? (
         rankingData.length === 0 ? (
           <div className="h-56 flex items-center justify-center text-xs text-slate-400">
@@ -350,6 +363,7 @@ export default function AttendanceCharts({
           </ResponsiveContainer>
         </div>
       )}
+      </div>
     </div>
   );
 }

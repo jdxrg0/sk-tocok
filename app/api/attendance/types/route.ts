@@ -30,7 +30,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const user = await getCurrentUser();
+    const user = await getCurrentUser(request);
     if (!user) {
       return NextResponse.json({ error: "Unauthorized access" }, { status: 401 });
     }
@@ -46,8 +46,8 @@ export async function POST(request: Request) {
 
     // Sanitize and deduplicate
     const sanitized: string[] = [];
-    for (const item of rawTypes) {
-      const clean = String(item || "").trim();
+    for (const item of rawTypes.slice(0, 30)) {
+      const clean = String(item || "").replace(/\0/g, "").trim().slice(0, 60);
       if (clean && !sanitized.includes(clean)) {
         sanitized.push(clean);
       }

@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import path from "path";
 import { sql } from "./db";
+import { sanitizeFileName } from "./fileValidation";
 
 let tableEnsured = false;
 
@@ -11,7 +12,6 @@ const EXTENSION_MIME_MAP: Record<string, string> = {
   ".jpeg": "image/jpeg",
   ".webp": "image/webp",
   ".gif": "image/gif",
-  ".svg": "image/svg+xml",
   ".doc": "application/msword",
   ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   ".xls": "application/vnd.ms-excel",
@@ -22,11 +22,21 @@ const EXTENSION_MIME_MAP: Record<string, string> = {
 };
 
 export function inferMimeType(fileName: string, providedType?: string): string {
-  if (providedType && providedType !== "application/octet-stream") {
-    return providedType;
-  }
   const ext = path.extname(fileName || "").toLowerCase();
-  return EXTENSION_MIME_MAP[ext] || providedType || "application/octet-stream";
+  if (EXTENSION_MIME_MAP[ext]) {
+    return EXTENSION_MIME_MAP[ext];
+  }
+  const cleanProvided = (providedType || "").split(";")[0].trim().toLowerCase();
+  if (
+    cleanProvided &&
+    cleanProvided !== "application/octet-stream" &&
+    cleanProvided !== "image/svg+xml" &&
+    !cleanProvided.includes("html") &&
+    !cleanProvided.includes("javascript")
+  ) {
+    return cleanProvided;
+  }
+  return "application/octet-stream";
 }
 
 export async function ensureStoredFilesTable(): Promise<void> {
@@ -46,19 +56,19 @@ export async function ensureStoredFilesTable(): Promise<void> {
 }
 
 /**
- * Saves an uploaded file directly into the Neon Postgres Cloud Database (`stored_files` table)
+ * Saves a validated uploaded file directly into the Neon Postgres Cloud Database (`stored_files` table)
  * and returns its immutable serving URL (`/api/files/<id>`).
  */
 export async function saveUploadedFile(
   file: File,
-  folder: "prints" | "receipts" | "officials" | "attendance" | "cse"
+  folder: "prints" | "receipts" | "officials" | "attendance" | "cse" | "passers"
 ): Promise<{ filePath: string; fileName: string; fileSize: number; fileId: string }> {
   await ensureStoredFilesTable();
 
   const bytes = await file.arrayBuffer();
   const buffer = Buffer.from(bytes);
 
-  const originalName = file.name || "document.pdf";
+  const originalName = sanitizeFileName(file.name || "document.pdf");
   const rawExt = path.extname(originalName).toLowerCase();
   const safeExt = /^\.[a-z0-9]{1,8}$/.test(rawExt) ? rawExt : "";
   const fileId = `${crypto.randomUUID()}${safeExt}`;
@@ -87,7 +97,7 @@ export async function saveUploadedFile(
 
 /**
  * Safely deletes a file from `stored_files` if it is a `/api/files/<id>` URL
- * and is no longer referenced by any expense, deposit, user, or print request.
+ * and is no longer referenced by any record.
  */
 export async function deleteStoredFileByUrl(url: string | null | undefined): Promise<void> {
   if (!url || !url.startsWith("/api/files/")) return;
@@ -102,7 +112,13 @@ export async function deleteStoredFileByUrl(url: string | null | undefined): Pro
         (SELECT COUNT(*) FROM deposits WHERE attachment_url = ${url}) +
         (SELECT COUNT(*) FROM users WHERE avatar_url = ${url}) +
         (SELECT COUNT(*) FROM print_requests WHERE file_path = ${url}) +
-        (SELECT COUNT(*) FROM attendance_sessions WHERE proof_photos LIKE '%' || ${url} || '%')
+        (SELECT COUNT(*) FROM attendance_sessions WHERE proof_photos LIKE '%' || ${url} || '%') +
+        (SELECT COUNT(*) FROM cse_applications WHERE valid_id_url = ${url}
+           OR csc_receipt_url = ${url}
+           OR exam_schedule_proof_url = ${url}
+           OR exam_attendance_proof_url = ${url}
+           OR result_proof_url = ${url}
+           OR passer_avatar_url = ${url})
       )::int AS ref_count
     `;
     const refCount = Number((refs[0] as { ref_count: number } | undefined)?.ref_count || 0);

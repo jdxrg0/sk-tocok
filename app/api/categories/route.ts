@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server";
-import { sql, query } from "@/lib/db";
+import { sql } from "@/lib/db";
 import { getCurrentUser, isOfficialUser } from "@/lib/auth";
+import { ALLOWED_CATEGORY_COLORS, parseMoney, sanitizeText } from "@/lib/validation";
+import { invalidateAllTransparencyCache } from "@/lib/transparencyCache";
 
 export const dynamic = "force-dynamic";
+
+const COLOR_SET = new Set<string>(ALLOWED_CATEGORY_COLORS);
 
 export async function GET() {
   try {
@@ -29,17 +33,20 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const user = await getCurrentUser();
+    const user = await getCurrentUser(request);
     if (!user) return NextResponse.json({ error: "Unauthorized access. Please log in." }, { status: 401 });
     if (!isOfficialUser(user)) return NextResponse.json({ error: "Forbidden: SK Officials only." }, { status: 403 });
 
-    const body = await request.json();
-    const name = body.name?.trim();
-    const description = body.description?.trim() || "";
-    const color = body.color?.trim() || "blue";
-    const allocated_budget = parseFloat(body.allocated_budget) || 0;
+    const body = await request.json().catch(() => ({}));
+    const name = sanitizeText(body?.name, 100);
+    const description = sanitizeText(body?.description, 500);
+    const rawColor = sanitizeText(body?.color || "blue", 30).toLowerCase();
+    const color = COLOR_SET.has(rawColor) ? rawColor : "blue";
+    const allocated_budget = parseMoney(body?.allocated_budget ?? 0, { min: 0 }) ?? 0;
 
-    if (!name) return NextResponse.json({ error: "Category name is required." }, { status: 400 });
+    if (!name || name.length < 2) {
+      return NextResponse.json({ error: "Category name must be at least 2 characters." }, { status: 400 });
+    }
 
     const existing = await sql`SELECT id FROM categories WHERE LOWER(name) = LOWER(${name})`;
     if (existing.length > 0) return NextResponse.json({ error: "A category with this name already exists." }, { status: 400 });
@@ -50,6 +57,8 @@ export async function POST(request: Request) {
       RETURNING *
     `;
 
+    invalidateAllTransparencyCache();
+
     return NextResponse.json({ success: true, category: result[0], message: `Category "${name}" created successfully.` });
   } catch (error) {
     console.error("Categories POST error:", error);
@@ -59,18 +68,21 @@ export async function POST(request: Request) {
 
 export async function PUT(request: Request) {
   try {
-    const user = await getCurrentUser();
+    const user = await getCurrentUser(request);
     if (!user) return NextResponse.json({ error: "Unauthorized access. Please log in." }, { status: 401 });
     if (!isOfficialUser(user)) return NextResponse.json({ error: "Forbidden: SK Officials only." }, { status: 403 });
 
-    const body = await request.json();
-    const id = Number(body.id);
-    const newName = body.name?.trim();
-    const description = body.description?.trim() || "";
-    const color = body.color?.trim() || "blue";
-    const allocated_budget = parseFloat(body.allocated_budget) || 0;
+    const body = await request.json().catch(() => ({}));
+    const id = Number(body?.id);
+    const newName = sanitizeText(body?.name, 100);
+    const description = sanitizeText(body?.description, 500);
+    const rawColor = sanitizeText(body?.color || "blue", 30).toLowerCase();
+    const color = COLOR_SET.has(rawColor) ? rawColor : "blue";
+    const allocated_budget = parseMoney(body?.allocated_budget ?? 0, { min: 0 }) ?? 0;
 
-    if (!id || !newName) return NextResponse.json({ error: "Category ID and name are required." }, { status: 400 });
+    if (!Number.isInteger(id) || id <= 0 || !newName || newName.length < 2) {
+      return NextResponse.json({ error: "Valid Category ID and name are required." }, { status: 400 });
+    }
 
     const oldRows = await sql`SELECT id, name FROM categories WHERE id = ${id}`;
     if (oldRows.length === 0) return NextResponse.json({ error: "Category not found." }, { status: 404 });
@@ -88,6 +100,8 @@ export async function PUT(request: Request) {
       await sql`UPDATE expenses SET category = ${newName} WHERE category = ${oldCategory.name}`;
     }
 
+    invalidateAllTransparencyCache();
+
     const updated = await sql`SELECT * FROM categories WHERE id = ${id}`;
     return NextResponse.json({ success: true, category: updated[0], message: `Category "${newName}" updated successfully.` });
   } catch (error) {
@@ -98,13 +112,13 @@ export async function PUT(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const user = await getCurrentUser();
+    const user = await getCurrentUser(request);
     if (!user) return NextResponse.json({ error: "Unauthorized access. Please log in." }, { status: 401 });
     if (!isOfficialUser(user)) return NextResponse.json({ error: "Forbidden: SK Officials only." }, { status: 403 });
 
     const { searchParams } = new URL(request.url);
     const id = Number(searchParams.get("id"));
-    if (!id) return NextResponse.json({ error: "Category ID is required." }, { status: 400 });
+    if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: "Valid Category ID is required." }, { status: 400 });
 
     const catRows = await sql`SELECT id, name FROM categories WHERE id = ${id}`;
     if (catRows.length === 0) return NextResponse.json({ error: "Category not found." }, { status: 404 });
@@ -119,6 +133,7 @@ export async function DELETE(request: Request) {
     }
 
     await sql`DELETE FROM categories WHERE id = ${id}`;
+    invalidateAllTransparencyCache();
     return NextResponse.json({ success: true, message: `Category "${category.name}" deleted successfully.` });
   } catch (error) {
     console.error("Categories DELETE error:", error);

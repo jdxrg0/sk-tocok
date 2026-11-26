@@ -3,15 +3,22 @@ import { NextResponse } from "next/server";
 import { sql, query } from "@/lib/db";
 import { getCurrentUser, isOfficialUser } from "@/lib/auth";
 import { uploadToCloudStorage } from "@/lib/googleDrive";
+import { parseExpenseLineItems } from "@/lib/expenseBreakdown";
+import { ensureExpenseLineItemsColumn } from "@/lib/expenseSchema";
 import {
   getCachedExpenses,
   setCachedExpenses,
   invalidateAllTransparencyCache,
 } from "@/lib/transparencyCache";
+import { validateUploadedFile } from "@/lib/fileValidation";
+import { logSecurityEvent } from "@/lib/securityLogger";
+import { isValidDateYMD, parseMoney, sanitizeText } from "@/lib/validation";
 
 export async function GET(request: Request) {
   const t0 = performance.now();
   try {
+    await ensureExpenseLineItemsColumn();
+
     const { searchParams } = new URL(request.url);
     const category = searchParams.get("category");
     const q = searchParams.get("q");
@@ -80,7 +87,7 @@ export async function GET(request: Request) {
       }
     }
 
-    const barangayBudget = parseFloat(settings.barangay_budget ?? "7000000");
+    const barangayBudget = parseFloat(settings.barangay_budget ?? "0");
     const annualBudget = barangayBudget * 0.10;
     const fiscalYear = settings.fiscal_year ?? "2026";
 
@@ -113,10 +120,14 @@ export async function GET(request: Request) {
       : [];
 
     const formattedExpenses = Array.isArray(raw.expenses)
-      ? (raw.expenses as Record<string, unknown>[]).map((e) => ({
-          ...e,
-          amount: Number(e.amount) || 0,
-        }))
+      ? (raw.expenses as Record<string, unknown>[]).map((e) => {
+          const parsedLineItems = parseExpenseLineItems(e.line_items);
+          return {
+            ...e,
+            amount: Number(e.amount) || 0,
+            line_items: parsedLineItems.length > 0 ? parsedLineItems : null,
+          };
+        })
       : [];
 
     const payload = {
@@ -152,40 +163,69 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const user = await getCurrentUser();
+    const user = await getCurrentUser(request);
     if (!user) return NextResponse.json({ error: "Unauthorized access. Please log in as an SK Official." }, { status: 401 });
     if (!isOfficialUser(user)) return NextResponse.json({ error: "Forbidden: SK Officials only." }, { status: 403 });
 
+    await ensureExpenseLineItemsColumn();
+
     const formData = await request.formData();
-    const title = formData.get("title") as string;
-    const description = (formData.get("description") as string) || "";
-    const category = formData.get("category") as string;
-    const amount = parseFloat((formData.get("amount") as string) || "0");
-    const date = formData.get("date") as string;
-    const voucher_no = (formData.get("voucher_no") as string) || "";
-    const payee = (formData.get("payee") as string) || "";
+    const title = sanitizeText(formData.get("title"), 200);
+    const description = sanitizeText(formData.get("description"), 1500);
+    const category = sanitizeText(formData.get("category"), 100);
+    const amount = parseMoney(formData.get("amount"));
+    const date = sanitizeText(formData.get("date"), 20);
+    const voucher_no = sanitizeText(formData.get("voucher_no"), 100);
+    const payee = sanitizeText(formData.get("payee"), 150);
+    const parsedLineItems = parseExpenseLineItems(formData.get("line_items"));
+    const lineItemsJson = parsedLineItems.length > 0 ? JSON.stringify(parsedLineItems) : null;
     const receiptFile = formData.get("receipt_file") as File | null;
 
-    if (!title || !category || !amount || !date) {
-      return NextResponse.json({ error: "Title, category, amount, and date are required." }, { status: 400 });
+    if (!title || !category || amount === null || !date) {
+      return NextResponse.json({ error: "Valid title, category, positive amount, and date are required." }, { status: 400 });
+    }
+
+    if (!isValidDateYMD(date)) {
+      return NextResponse.json({ error: "Invalid expense date format (expected YYYY-MM-DD)." }, { status: 400 });
     }
 
     let receipt_url: string | null = null;
     if (receiptFile && receiptFile.size > 0) {
+      const fileCheck = await validateUploadedFile(receiptFile, "financial_doc");
+      if (!fileCheck.ok) {
+        await logSecurityEvent({
+          eventType: "UPLOAD_REJECTED",
+          severity: "warning",
+          request,
+          userId: user.id,
+          details: { category: "expense_receipt", reason: fileCheck.reason },
+        });
+        return NextResponse.json({ error: fileCheck.error }, { status: 400 });
+      }
       const saved = await uploadToCloudStorage(receiptFile, "vouchers");
       receipt_url = saved.filePath;
     }
 
     await sql`
-      INSERT INTO expenses (title, description, category, amount, date, receipt_url, voucher_no, payee, created_by)
+      INSERT INTO expenses (title, description, category, amount, date, receipt_url, voucher_no, payee, line_items, created_by)
       VALUES (
-        ${title.trim()}, ${description.trim()}, ${category.trim()}, ${amount}, ${date},
-        ${receipt_url}, ${voucher_no.trim() || null}, ${payee.trim() || null},
+        ${title}, ${description}, ${category}, ${amount}, ${date},
+        ${receipt_url}, ${voucher_no || null}, ${payee || null},
+        ${lineItemsJson}::jsonb,
         ${`${user.name} (${user.role})`}
       )
     `;
 
     invalidateAllTransparencyCache();
+
+    await logSecurityEvent({
+      eventType: "EXPENSE_CREATED",
+      severity: "info",
+      request,
+      userId: user.id,
+      email: user.email,
+      details: { title, amount, category },
+    });
 
     return NextResponse.json({ success: true, message: "Expense record published to the transparency portal successfully." });
   } catch (error) {

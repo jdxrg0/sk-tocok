@@ -2,15 +2,17 @@ import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { getCurrentUser, isOfficialUser } from "@/lib/auth";
 import { ensureMessagesTable } from "@/lib/messages";
-import { getOrAssignDeviceIdentity } from "@/lib/deviceIdentity";
+import { getVerifiedDeviceId } from "@/lib/deviceIdentity";
+import { constantTimeEqual } from "@/lib/edgeCrypto";
+import { logSecurityEvent } from "@/lib/securityLogger";
 
 export const dynamic = "force-dynamic";
 
 /**
  * DELETE /api/messages/[id]
- * Allows deleting a post by:
+ * Strictly requires EITHER:
  * 1. Logged-in SK Official (admin)
- * 2. Anonymous author whose alias or tracking_code matches
+ * 2. Cryptographically signed HttpOnly device session cookie matching post ownership
  */
 export async function DELETE(
   request: Request,
@@ -21,40 +23,18 @@ export async function DELETE(
 
     const { id } = await params;
     const messageId = parseInt(id, 10);
-    if (isNaN(messageId)) {
+    if (isNaN(messageId) || messageId <= 0) {
       return NextResponse.json(
         { success: false, error: "Invalid post ID" },
         { status: 400 }
       );
     }
 
-    // Check if user is an authenticated SK official
-    const user = await getCurrentUser();
-    const isAdmin = user && isOfficialUser(user);
+    const user = await getCurrentUser(request);
+    const isAdmin = Boolean(user && isOfficialUser(user));
 
-    let alias: string | null = null;
-    let trackingCode: string | null = null;
-
-    try {
-      const body = await request.json().catch(() => ({}));
-      if (body.alias) alias = String(body.alias).trim();
-      if (body.tracking_code) trackingCode = String(body.tracking_code).trim();
-    } catch {
-      // ignore
-    }
-
-    // Also check search params as fallback
-    const { searchParams } = new URL(request.url);
-    if (!alias && searchParams.get("alias")) {
-      alias = searchParams.get("alias")!.trim();
-    }
-    if (!trackingCode && searchParams.get("tracking_code")) {
-      trackingCode = searchParams.get("tracking_code")!.trim();
-    }
-
-    // Find the message
     const existing = await sql`
-      SELECT id, alias, tracking_code FROM anonymous_messages WHERE id = ${messageId} LIMIT 1
+      SELECT id, alias, device_id FROM anonymous_messages WHERE id = ${messageId} LIMIT 1
     `;
 
     if (existing.length === 0) {
@@ -64,34 +44,47 @@ export async function DELETE(
       );
     }
 
-    const post = existing[0];
+    const post = existing[0] as {
+      id: number;
+      alias: string | null;
+      device_id?: string | null;
+    };
 
-    // Check device identity authorization
-    const deviceIdentity = await getOrAssignDeviceIdentity(request, alias);
-    const verifiedDeviceAlias = deviceIdentity.alias;
-
-    // Check authorization: must be admin OR matching alias OR matching tracking_code OR matching device alias
-    const isOwner =
-      Boolean(alias && post.alias && post.alias.toLowerCase() === alias.toLowerCase()) ||
-      Boolean(verifiedDeviceAlias && post.alias && post.alias.toLowerCase() === verifiedDeviceAlias.toLowerCase()) ||
-      Boolean(trackingCode && post.tracking_code === trackingCode);
+    let isOwner = false;
+    if (!isAdmin) {
+      const verifiedDeviceId = await getVerifiedDeviceId(request);
+      if (verifiedDeviceId) {
+        if (post.device_id) {
+          isOwner = constantTimeEqual(String(post.device_id), verifiedDeviceId);
+        } else if (post.alias) {
+          // Fallback for legacy pre-migration rows without device_id column populated
+          const devRows = await sql`
+            SELECT alias FROM anonymous_device_identities WHERE device_id = ${verifiedDeviceId} LIMIT 1
+          `;
+          const ownedAlias = (devRows[0] as { alias?: string } | undefined)?.alias;
+          if (ownedAlias && ownedAlias.toLowerCase() === post.alias.toLowerCase()) {
+            isOwner = true;
+          }
+        }
+      }
+    }
 
     if (!isAdmin && !isOwner) {
+      await logSecurityEvent({
+        eventType: "IDOR_MESSAGE_DELETE_BLOCKED",
+        severity: "high",
+        request,
+        userId: user?.id ?? null,
+        details: { messageId },
+      });
       return NextResponse.json(
         { success: false, error: "You can only delete your own posts." },
         { status: 403 }
       );
     }
 
-    // Delete replies first
-    await sql`
-      DELETE FROM anonymous_message_replies WHERE message_id = ${messageId}
-    `;
-
-    // Delete post
-    await sql`
-      DELETE FROM anonymous_messages WHERE id = ${messageId}
-    `;
+    await sql`DELETE FROM anonymous_message_replies WHERE message_id = ${messageId}`;
+    await sql`DELETE FROM anonymous_messages WHERE id = ${messageId}`;
 
     return NextResponse.json({
       success: true,

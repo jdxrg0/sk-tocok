@@ -1,15 +1,15 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
-import { COOKIE_NAME } from "@/lib/auth";
+import { COOKIE_NAME, getAuthCookieOptions } from "@/lib/auth";
 
-export async function POST() {
+export async function POST(request: Request) {
   const response = NextResponse.json({ success: true, message: "Logged out successfully" });
   response.cookies.set({
+    ...getAuthCookieOptions(request),
     name: COOKIE_NAME,
     value: "",
-    httpOnly: true,
+    maxAge: 0,
     expires: new Date(0),
-    path: "/",
   });
   return response;
 }

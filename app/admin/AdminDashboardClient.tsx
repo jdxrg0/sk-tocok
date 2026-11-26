@@ -8,15 +8,19 @@ import CloudDatabaseStatusCard, { type DbStatusData } from "@/components/CloudDa
 import GoogleDriveStatusCard, { type GoogleDriveStatusData } from "@/components/GoogleDriveStatusCard";
 import VercelBlobStatusCard, { type BlobStatusData } from "@/components/VercelBlobStatusCard";
 import AttendanceTracker from "@/components/AttendanceTracker";
-import AnonymousCouncilMessages from "@/components/AnonymousCouncilMessages";
 import CseAdminManager from "@/components/CseAdminManager";
+import SearchModal from "@/components/SearchModal";
 import { useAuth, isOfficialRole } from "@/components/AuthProvider";
+import { STANDARD_CSE_BATCHES } from "@/lib/cse";
+import { sanitizeSafeUrl } from "@/lib/clientUrlSafety";
+import {
+  getVerticalRailPillStyle,
+  useTabPanelDirection,
+} from "@/components/useTabPanelDirection";
 import { 
-  Award,
   Printer, 
   FileCheck, 
   ClipboardCheck,
-  MessageSquareQuote,
   Settings, 
   Users, 
   Lock, 
@@ -61,9 +65,11 @@ import {
   ArrowDown,
   ExternalLink,
   FileText,
-  Database
+  Database,
+  GraduationCap
 } from "lucide-react";
-import { getExpenseBreakdown } from "@/lib/expenseBreakdown";
+import { getExpenseBreakdown, parseExpenseLineItems, type ExpenseLineItem } from "@/lib/expenseBreakdown";
+import ExpenseBreakdownEditor from "@/components/ExpenseBreakdownEditor";
 
 interface User {
   id: number;
@@ -131,6 +137,7 @@ interface Expense {
   receipt_url: string | null;
   voucher_no: string | null;
   payee: string | null;
+  line_items?: ExpenseLineItem[] | null;
   created_by: string;
 }
 
@@ -316,6 +323,19 @@ function getPaginationItems(current: number, total: number): (number | "ellipsis
   return [1, "ellipsis", current, "ellipsis", total];
 }
 
+const ADMIN_TAB_ORDER = [
+  "queue",
+  "cse",
+  "ledgers",
+  "attendance",
+  "categories",
+  "settings",
+  "officials",
+  "accounts",
+] as const;
+
+type AdminTabId = (typeof ADMIN_TAB_ORDER)[number];
+
 export default function AdminDashboardClient() {
   const router = useRouter();
   const {
@@ -327,9 +347,9 @@ export default function AdminDashboardClient() {
   } = useAuth();
   const isOfficial = isOfficialRole(currentUser?.role);
 
-  // Active Admin Tab: "queue" | "ledgers" | "attendance" | "messages" | "cse" | "categories" | "settings" | "officials" | "accounts"
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<"queue" | "ledgers" | "attendance" | "messages" | "cse" | "categories" | "settings" | "officials" | "accounts">("queue");
+  const [activeTab, setActiveTab] = useState<AdminTabId>("queue");
+  const tabAnimClass = useTabPanelDirection(activeTab, ADMIN_TAB_ORDER);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -344,14 +364,9 @@ export default function AdminDashboardClient() {
 
   const tabs = [
     { id: 'queue', label: 'Print Queue', shortLabel: 'Queue', icon: Printer },
-    { id: 'ledgers', label: 'Audited Ledgers', shortLabel: 'Ledgers', icon: FileCheck },
-    { id: 'attendance', label: 'Attendance', shortLabel: 'Attendance', icon: ClipboardCheck },
-    { id: 'messages', label: 'Bumo-Boses', shortLabel: 'Bumo-Boses', icon: MessageSquareQuote },
-    { id: 'cse', label: 'CSE Subsidy (₱500)', shortLabel: 'CSE Subsidy', icon: Award },
-    { id: 'categories', label: 'Categories', shortLabel: 'Categories', icon: Layers },
-    { id: 'settings', label: 'Settings', shortLabel: 'Settings', icon: Settings },
-    { id: 'officials', label: 'Officials', shortLabel: 'Officials', icon: Users },
-    { id: 'accounts', label: 'All Accounts', shortLabel: 'Accounts', icon: Mail },
+    { id: 'cse', label: 'Exam Subsidies', shortLabel: 'Exam Grant', icon: GraduationCap },
+    { id: 'accounts', label: 'Student Accounts', shortLabel: 'Accounts', icon: KeyRound },
+    { id: 'settings', label: 'System Settings', shortLabel: 'Settings', icon: Settings },
   ] as const;
   const [activeLedger, setActiveLedger] = useState<"expenses" | "deposits">("expenses");
 
@@ -361,7 +376,6 @@ export default function AdminDashboardClient() {
   const [jobSearch, setJobSearch] = useState("");
   const [showQueueSearchModal, setShowQueueSearchModal] = useState(false);
   const [tempQueueSearch, setTempQueueSearch] = useState("");
-  const queueSearchInputRef = useRef<HTMLInputElement>(null);
   const [queueLoading, setQueueLoading] = useState(false);
   const [selectedJob, setSelectedJob] = useState<PrintJob | null>(null);
   const [adminNoteInput, setAdminNoteInput] = useState("");
@@ -428,7 +442,6 @@ export default function AdminDashboardClient() {
   const [selectedExpenseCategory, setSelectedExpenseCategory] = useState<string>("all");
   const [showExpenseSearchModal, setShowExpenseSearchModal] = useState(false);
   const [tempExpenseSearch, setTempExpenseSearch] = useState("");
-  const expenseSearchInputRef = useRef<HTMLInputElement>(null);
   const [expenseSort, setExpenseSort] = useState<{ field: "date" | "amount"; order: "asc" | "desc" }>({
     field: "date",
     order: "desc",
@@ -460,6 +473,7 @@ export default function AdminDashboardClient() {
     payee: "",
   });
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
+  const [addExpenseLineItems, setAddExpenseLineItems] = useState<ExpenseLineItem[]>([]);
   const [expenseSubmitting, setExpenseSubmitting] = useState(false);
 
   // Edit Expense State
@@ -474,6 +488,7 @@ export default function AdminDashboardClient() {
     voucher_no: "",
     payee: "",
   });
+  const [editExpenseLineItems, setEditExpenseLineItems] = useState<ExpenseLineItem[]>([]);
   const [editReceiptFile, setEditReceiptFile] = useState<File | null>(null);
   const [editExpenseSubmitting, setEditExpenseSubmitting] = useState(false);
 
@@ -484,7 +499,6 @@ export default function AdminDashboardClient() {
   const [depositSearch, setDepositSearch] = useState("");
   const [showDepositSearchModal, setShowDepositSearchModal] = useState(false);
   const [tempDepositSearch, setTempDepositSearch] = useState("");
-  const depositSearchInputRef = useRef<HTMLInputElement>(null);
   const [selectedDepositSlip, setSelectedDepositSlip] = useState<Deposit | null>(null);
   const [depositSort, setDepositSort] = useState<{ field: "date" | "amount"; order: "asc" | "desc" }>({
     field: "date",
@@ -559,7 +573,6 @@ export default function AdminDashboardClient() {
   const [studentSearch, setStudentSearch] = useState("");
   const [tempStudentSearch, setTempStudentSearch] = useState("");
   const [showStudentSearchModal, setShowStudentSearchModal] = useState(false);
-  const studentSearchInputRef = useRef<HTMLInputElement>(null);
 
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [savedSettings, setSavedSettings] = useState<Record<string, string>>({});
@@ -583,13 +596,20 @@ export default function AdminDashboardClient() {
   const [cleaningBlobs, setCleaningBlobs] = useState(false);
   const [cleanupMessage, setCleanupMessage] = useState<string | null>(null);
   const [showUnsavedSettingsModal, setShowUnsavedSettingsModal] = useState(false);
-  const [pendingTab, setPendingTab] = useState<"queue" | "ledgers" | "attendance" | "messages" | "cse" | "categories" | "settings" | "officials" | "accounts" | null>(null);
+  const [pendingTab, setPendingTab] = useState<AdminTabId | null>(null);
   const [pendingHref, setPendingHref] = useState<string | null>(null);
   const [pendingLogout, setPendingLogout] = useState(false);
 
   const hasUnsavedSettings = useMemo(() => {
     if (Object.keys(savedSettings).length === 0) return false;
-    const keys = ["barangay_budget", "printing_active"];
+    const keys = [
+      "barangay_budget",
+      "printing_active",
+      "cse_program_active",
+      "cse_slot_quota",
+      "cse_annual_budget",
+      "cse_target_exam_batch",
+    ];
     return keys.some((k) => (settings[k] ?? "") !== (savedSettings[k] ?? ""));
   }, [settings, savedSettings]);
 
@@ -777,47 +797,6 @@ export default function AdminDashboardClient() {
     }
   }, [isAnyModalOpen]);
 
-  // Auto-focus search input when search modals open on mobile/desktop without background scroll jumping
-  useEffect(() => {
-    if (showQueueSearchModal) {
-      queueSearchInputRef.current?.focus({ preventScroll: true });
-      const timer = setTimeout(() => {
-        queueSearchInputRef.current?.focus({ preventScroll: true });
-      }, 50);
-      return () => clearTimeout(timer);
-    }
-  }, [showQueueSearchModal]);
-
-  useEffect(() => {
-    if (showExpenseSearchModal) {
-      expenseSearchInputRef.current?.focus({ preventScroll: true });
-      const timer = setTimeout(() => {
-        expenseSearchInputRef.current?.focus({ preventScroll: true });
-      }, 50);
-      return () => clearTimeout(timer);
-    }
-  }, [showExpenseSearchModal]);
-
-  useEffect(() => {
-    if (showDepositSearchModal) {
-      depositSearchInputRef.current?.focus({ preventScroll: true });
-      const timer = setTimeout(() => {
-        depositSearchInputRef.current?.focus({ preventScroll: true });
-      }, 50);
-      return () => clearTimeout(timer);
-    }
-  }, [showDepositSearchModal]);
-
-  useEffect(() => {
-    if (showStudentSearchModal) {
-      studentSearchInputRef.current?.focus({ preventScroll: true });
-      const timer = setTimeout(() => {
-        studentSearchInputRef.current?.focus({ preventScroll: true });
-      }, 50);
-      return () => clearTimeout(timer);
-    }
-  }, [showStudentSearchModal]);
-
   useEffect(() => {
     setIsExpenseDescExpanded(false);
     setIsExpenseDescClamped(false);
@@ -886,6 +865,7 @@ export default function AdminDashboardClient() {
       setExpenseSubmitting(true);
       const formData = new FormData();
       Object.entries(expenseForm).forEach(([k, v]) => formData.append(k, v));
+      formData.append("line_items", JSON.stringify(parseExpenseLineItems(addExpenseLineItems)));
       if (receiptFile) formData.append("receipt_file", receiptFile);
 
       const res = await fetch("/api/expenses", {
@@ -904,6 +884,7 @@ export default function AdminDashboardClient() {
           voucher_no: "",
           payee: "",
         });
+        setAddExpenseLineItems([]);
         setReceiptFile(null);
         setExpensePage(1);
         loadExpenseData();
@@ -942,6 +923,7 @@ export default function AdminDashboardClient() {
       voucher_no: exp.voucher_no || "",
       payee: exp.payee || "",
     });
+    setEditExpenseLineItems(parseExpenseLineItems(exp.line_items));
     setEditReceiptFile(null);
     setShowEditExpenseModal(true);
   };
@@ -959,6 +941,7 @@ export default function AdminDashboardClient() {
       formData.append("date", editExpenseForm.date);
       formData.append("voucher_no", editExpenseForm.voucher_no);
       formData.append("payee", editExpenseForm.payee);
+      formData.append("line_items", JSON.stringify(parseExpenseLineItems(editExpenseLineItems)));
       if (editReceiptFile) {
         formData.append("receipt", editReceiptFile);
       }
@@ -1210,8 +1193,12 @@ export default function AdminDashboardClient() {
       if (res.ok) {
         const data = await res.json();
         const loaded: Record<string, string> = {
-          barangay_budget: "7000000",
+          barangay_budget: "0",
           printing_active: "true",
+          cse_program_active: "true",
+          cse_slot_quota: "20",
+          cse_annual_budget: "20000",
+          cse_target_exam_batch: "March 2027 CSE-PPT",
           ...(data.settings || {}),
         };
         setSettings(loaded);
@@ -1294,6 +1281,7 @@ export default function AdminDashboardClient() {
       if (res.ok) {
         setSavedSettings({ ...payload });
         setSettingsSuccess(true);
+        router.refresh();
         setTimeout(() => setSettingsSuccess(false), 2500);
       }
     } catch (err) {
@@ -1403,8 +1391,14 @@ export default function AdminDashboardClient() {
 
   const handleSaveUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!userForm.password || userForm.password.trim().length < 6) {
-      alert("Password is required and must be at least 6 characters.");
+    const trimmedPwd = userForm.password ? userForm.password.trim() : "";
+    if (
+      !trimmedPwd ||
+      trimmedPwd.length < 8 ||
+      !/[a-zA-Z]/.test(trimmedPwd) ||
+      !/[0-9!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?`~]/.test(trimmedPwd)
+    ) {
+      alert("Password is required and must be at least 8 characters with a letter plus a number or symbol.");
       return;
     }
     setUserSaving(true);
@@ -1520,7 +1514,7 @@ export default function AdminDashboardClient() {
     window.scrollTo({ top: 0, behavior: "instant" });
   };
 
-  const switchTab = (tabId: "queue" | "ledgers" | "attendance" | "messages" | "cse" | "categories" | "settings" | "officials" | "accounts") => {
+  const switchTab = (tabId: AdminTabId) => {
     if (activeTab === "settings" && tabId !== "settings" && hasUnsavedSettings) {
       setPendingTab(tabId);
       setPendingHref(null);
@@ -1565,7 +1559,7 @@ export default function AdminDashboardClient() {
                     <button
                       key={tab.id}
                       onClick={() => { switchTab(tab.id); setIsMenuOpen(false); }}
-                      className={`flex items-center gap-2 w-full p-2 rounded-md text-xs font-semibold transition-colors ${
+                      className={`flex items-center gap-2 w-full p-2 rounded-md text-xs font-semibold transition-colors cursor-pointer ${
                         isActive
                           ? 'bg-brand-600 text-white'
                           : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
@@ -1819,17 +1813,14 @@ export default function AdminDashboardClient() {
           className="hidden md:flex flex-col w-14 lg:w-16 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-1.5 shadow-xs shrink-0 sticky z-40 items-center gap-1.5"
           style={{ top: "132px" }}
         >
-          {(
-            [
-              { id: 'queue', label: 'Student Printing Queue', icon: Printer },
-              { id: 'ledgers', label: 'Audited Transparency Ledgers', icon: FileCheck },
-              { id: 'attendance', label: 'SK Officials Attendance', icon: ClipboardCheck },
-              { id: 'categories', label: 'Budget Categories', icon: Layers },
-              { id: 'settings', label: 'Program Settings', icon: Settings },
-              { id: 'officials', label: 'Official Accounts', icon: Users },
-              { id: 'accounts', label: 'All Registered Accounts', icon: Mail },
-            ] as const
-          ).map((tab) => {
+          <div
+            aria-hidden="true"
+            className="tab-sliding-pill absolute rounded-xl bg-brand-600 shadow-xs pointer-events-none"
+            style={getVerticalRailPillStyle(
+              Math.max(0, tabs.findIndex((t) => t.id === activeTab))
+            )}
+          />
+          {tabs.map((tab) => {
             const isActive = activeTab === tab.id;
             const Icon = tab.icon;
             return (
@@ -1838,10 +1829,10 @@ export default function AdminDashboardClient() {
                 onClick={() => switchTab(tab.id)}
                 title={tab.label}
                 aria-label={tab.label}
-                className={`relative w-11 h-11 flex items-center justify-center rounded-xl transition-all cursor-pointer ${
+                className={`relative z-10 w-11 h-11 flex items-center justify-center rounded-xl transition-colors duration-200 cursor-pointer ${
                   isActive
-                    ? 'bg-brand-600 text-white shadow-xs font-bold scale-102'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800'
+                    ? 'text-white font-bold scale-102'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100/70 dark:hover:bg-slate-800/70'
                 }`}
               >
                 <Icon className="w-5 h-5" />
@@ -1887,20 +1878,59 @@ export default function AdminDashboardClient() {
         </div>
       )}
 
-      {/* TAB: SK OFFICIALS ATTENDANCE */}
-      {activeTab === "attendance" && (
-        <AttendanceTracker mode="admin" />
+      {/* Relocation Card for Mirrored Modules */}
+      <div key={activeTab} className={`overflow-x-clip ${tabAnimClass}`}>
+      {(activeTab === "ledgers" || activeTab === "attendance" || activeTab === "categories" || activeTab === "officials") && (
+        <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-8 text-center max-w-xl mx-auto shadow-sm space-y-4 my-6">
+          <div className="w-14 h-14 rounded-2xl bg-brand-50 dark:bg-brand-950/60 text-brand-600 dark:text-brand-400 flex items-center justify-center mx-auto">
+            <Zap className="w-7 h-7" />
+          </div>
+          <div className="space-y-1.5">
+            <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">
+              In-Place Live Editing is Active
+            </h3>
+            <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+              {activeTab === "attendance"
+                ? "Attendance session logging and roll calls are managed directly on the live Attendance page with real-time editing and the floating action button."
+                : activeTab === "officials"
+                ? "SK Council hierarchy, profile details, and credentials are managed directly on the Home page Council Tree with inline badges and the floating add button."
+                : "Disbursements, bank remittances, receipts, and category allocations are managed directly on the Transparency page with inline edit/delete and the floating action button."}
+            </p>
+          </div>
+          <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-2.5">
+            <a
+              href={
+                activeTab === "attendance"
+                  ? "/attendance"
+                  : activeTab === "officials"
+                  ? "/#officials"
+                  : "/transparency"
+              }
+              className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs shadow-md transition-all inline-flex items-center justify-center gap-2"
+            >
+              <span>
+                {activeTab === "attendance"
+                  ? "Open Attendance Tracker"
+                  : activeTab === "officials"
+                  ? "Open Council Hierarchy"
+                  : "Open Transparency & Ledgers"}
+              </span>
+              <ExternalLink className="w-3.5 h-3.5" />
+            </a>
+            <button
+              type="button"
+              onClick={() => switchTab("queue")}
+              className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs transition-colors cursor-pointer"
+            >
+              Back to Print Queue
+            </button>
+          </div>
+        </div>
       )}
 
-      {/* TAB: FREEDOM WALL & ANONYMOUS INBOX */}
-      {activeTab === "messages" && (
-        <AnonymousCouncilMessages mode="admin" />
-      )}
 
-      {/* TAB: CIVIL SERVICE EXAM SUBSIDY */}
-      {activeTab === "cse" && (
-        <CseAdminManager />
-      )}
+      {/* TAB: EXAM SUBSIDIES CONTENT */}
+      {activeTab === "cse" && <CseAdminManager />}
 
       {/* TAB 1: PRINT QUEUE CONTENT */}
       {activeTab === "queue" && (() => {
@@ -1968,7 +1998,7 @@ export default function AdminDashboardClient() {
                         {/* Right: Actions */}
                         <div className="flex items-center gap-1.5 shrink-0">
                           <a
-                            href={job.file_path}
+                            href={sanitizeSafeUrl(job.file_path)}
                             target="_blank"
                             rel="noopener noreferrer"
                             download={job.file_path.startsWith("http") ? undefined : job.file_name}
@@ -2177,7 +2207,7 @@ export default function AdminDashboardClient() {
                                 {job.file_name}
                               </p>
                               <a
-                                href={job.file_path}
+                                href={sanitizeSafeUrl(job.file_path)}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 download={job.file_path.startsWith("http") ? undefined : job.file_name}
@@ -2756,7 +2786,7 @@ export default function AdminDashboardClient() {
                           const catColor = categories.find((c) => c.name === exp.category)?.color;
                           const badgeClass = getCategoryBadge(exp.category, catColor);
                           const rowStyle = getCategoryRowStyle(exp.category, catColor);
-                          const breakdownItems = getExpenseBreakdown(exp.voucher_no, exp.title, exp.amount, exp.description);
+                          const breakdownItems = getExpenseBreakdown(exp.voucher_no, exp.title, exp.amount, exp.description, exp.line_items);
                           return (
                             <tr
                               key={exp.id}
@@ -2785,7 +2815,7 @@ export default function AdminDashboardClient() {
                                   >
                                     {exp.category}
                                   </span>
-                                  {breakdownItems.length > 0 && (
+                                  {breakdownItems.length > 1 && (
                                     <span className="inline-flex items-center gap-1 text-[10.5px] font-medium text-slate-600 dark:text-slate-400 bg-white/90 dark:bg-slate-900/90 px-1.5 py-0.5 rounded-md border border-slate-200/80 dark:border-slate-800/90 shrink-0 whitespace-nowrap shadow-2xs leading-tight">
                                       <Layers className="w-2.5 h-2.5 text-slate-400 dark:text-slate-500" />
                                       <span>{breakdownItems.length} items</span>
@@ -3802,7 +3832,7 @@ export default function AdminDashboardClient() {
                   </span>
                   <input
                     type="number"
-                    value={settings.barangay_budget || "7000000"}
+                    value={settings.barangay_budget ?? ""}
                     onChange={(e) => {
                       const bb = e.target.value;
                       const num = parseFloat(bb);
@@ -3824,6 +3854,191 @@ export default function AdminDashboardClient() {
                     className="w-full pl-6 pr-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 text-xs font-mono font-bold text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-brand-600 bg-white dark:bg-slate-900"
                   />
                 </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Exam Fee Assistance Program Section */}
+          <div className="pt-2 px-1">
+            <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+              Exam Fee Assistance (CSE / Board / TESDA)
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* Exam Subsidy Portal Toggle Card */}
+            <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 px-3.5 py-2.5 shadow-xs flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                    Exam Subsidy Intake
+                  </span>
+                  <span
+                    className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9.5px] font-semibold border ${
+                      settings.cse_program_active === "true"
+                        ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border-emerald-200/80 dark:border-emerald-800/60"
+                        : "bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border-amber-200/80 dark:border-amber-800/60"
+                    }`}
+                  >
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full ${
+                        settings.cse_program_active === "true"
+                          ? "bg-emerald-500 animate-pulse"
+                          : "bg-amber-500"
+                      }`}
+                    />
+                    <span>{settings.cse_program_active === "true" ? "Active" : "Paused"}</span>
+                  </span>
+                </div>
+                <p className="text-[10.5px] text-slate-400 dark:text-slate-500 mt-0.5 truncate">
+                  {settings.cse_program_active === "true"
+                    ? "Accepting online exam fee assistance requests"
+                    : "Intake is temporarily paused for applicants"}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const nextVal = settings.cse_program_active === "true" ? "false" : "true";
+                  const updated = { ...settings, cse_program_active: nextVal };
+                  setSettings(updated);
+                  saveSettingsPayload(updated);
+                }}
+                className={`p-0.5 transition-colors cursor-pointer shrink-0 ${
+                  settings.cse_program_active === "true"
+                    ? "text-brand-700 dark:text-brand-400"
+                    : "text-slate-300 dark:text-slate-600 hover:text-slate-400"
+                }`}
+                title={settings.cse_program_active === "true" ? "Pause program" : "Activate program"}
+                aria-label={settings.cse_program_active === "true" ? "Pause exam subsidy intake" : "Activate exam subsidy intake"}
+              >
+                {settings.cse_program_active === "true" ? (
+                  <ToggleRight className="w-7 h-7" />
+                ) : (
+                  <ToggleLeft className="w-7 h-7" />
+                )}
+              </button>
+            </div>
+
+            {/* Annual Slot Quota Card */}
+            <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 px-3.5 py-2.5 shadow-xs flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <span className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate block">
+                  Annual Slot Quota
+                </span>
+                <p className="text-[10.5px] text-slate-400 dark:text-slate-500 mt-0.5 truncate">
+                  80% first-timers / 20% retake cap per year
+                </p>
+              </div>
+
+              <div className="relative w-28 shrink-0">
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={settings.cse_slot_quota ?? ""}
+                  onChange={(e) => {
+                    setSettings({ ...settings, cse_slot_quota: e.target.value });
+                  }}
+                  onBlur={() => {
+                    if ((settings.cse_slot_quota ?? "") !== (savedSettings.cse_slot_quota ?? "")) {
+                      saveSettingsPayload(settings);
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      saveSettingsPayload(settings);
+                      (e.target as HTMLInputElement).blur();
+                    }
+                  }}
+                  aria-label="Annual Slot Quota"
+                  className="w-full px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 text-xs font-mono font-bold text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-brand-600 bg-white dark:bg-slate-900"
+                />
+              </div>
+            </div>
+
+            {/* Annual Subsidy Budget Card */}
+            <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 px-3.5 py-2.5 shadow-xs flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <span className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate block">
+                  Annual Subsidy Budget (PHP)
+                </span>
+                <p className="text-[10.5px] text-slate-400 dark:text-slate-500 mt-0.5 truncate">
+                  Total ABYIP allocation for exam fee grants
+                </p>
+              </div>
+
+              <div className="relative w-36 shrink-0">
+                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 dark:text-slate-500 select-none">
+                  ₱
+                </span>
+                <input
+                  type="number"
+                  min={0}
+                  step={100}
+                  value={settings.cse_annual_budget ?? ""}
+                  onChange={(e) => {
+                    setSettings({ ...settings, cse_annual_budget: e.target.value });
+                  }}
+                  onBlur={() => {
+                    if ((settings.cse_annual_budget ?? "") !== (savedSettings.cse_annual_budget ?? "")) {
+                      saveSettingsPayload(settings);
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      saveSettingsPayload(settings);
+                      (e.target as HTMLInputElement).blur();
+                    }
+                  }}
+                  aria-label="Annual Subsidy Budget"
+                  className="w-full pl-6 pr-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 text-xs font-mono font-bold text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-brand-600 bg-white dark:bg-slate-900"
+                />
+              </div>
+            </div>
+
+            {/* Target Exam Batch Card */}
+            <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 px-3.5 py-2.5 shadow-xs flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <span className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate block">
+                  Default Exam Batch
+                </span>
+                <p className="text-[10.5px] text-slate-400 dark:text-slate-500 mt-0.5 truncate">
+                  Active cycle shown on the application form
+                </p>
+              </div>
+
+              <div className="w-44 shrink-0">
+                <input
+                  type="text"
+                  list="cse-target-exam-batches"
+                  value={settings.cse_target_exam_batch ?? ""}
+                  onChange={(e) => {
+                    setSettings({ ...settings, cse_target_exam_batch: e.target.value });
+                  }}
+                  onBlur={() => {
+                    if ((settings.cse_target_exam_batch ?? "") !== (savedSettings.cse_target_exam_batch ?? "")) {
+                      saveSettingsPayload(settings);
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      saveSettingsPayload(settings);
+                      (e.target as HTMLInputElement).blur();
+                    }
+                  }}
+                  aria-label="Default Exam Batch"
+                  className="w-full px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-brand-600 bg-white dark:bg-slate-900"
+                />
+                <datalist id="cse-target-exam-batches">
+                  {STANDARD_CSE_BATCHES.map((batch) => (
+                    <option key={batch} value={batch} />
+                  ))}
+                </datalist>
               </div>
             </div>
           </div>
@@ -4739,6 +4954,7 @@ export default function AdminDashboardClient() {
         </div>
       );
       })()}
+      </div>
         </main>
       </div>
       </div>
@@ -4919,7 +5135,7 @@ export default function AdminDashboardClient() {
                     </div>
 
                     <a
-                      href={selectedJob.file_path}
+                      href={sanitizeSafeUrl(selectedJob.file_path)}
                       target="_blank"
                       rel="noopener noreferrer"
                       download={selectedJob.file_path.startsWith("http") ? undefined : selectedJob.file_name}
@@ -5198,6 +5414,13 @@ export default function AdminDashboardClient() {
               ></textarea>
             </div>
 
+            <ExpenseBreakdownEditor
+              items={addExpenseLineItems}
+              onChange={setAddExpenseLineItems}
+              expenseAmount={expenseForm.amount}
+              onSyncAmount={(sum) => setExpenseForm((prev) => ({ ...prev, amount: sum }))}
+            />
+
             <div>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
                 Attach Official Receipt / Voucher Photo or PDF
@@ -5374,6 +5597,13 @@ export default function AdminDashboardClient() {
               ></textarea>
             </div>
 
+            <ExpenseBreakdownEditor
+              items={editExpenseLineItems}
+              onChange={setEditExpenseLineItems}
+              expenseAmount={editExpenseForm.amount}
+              onSyncAmount={(sum) => setEditExpenseForm((prev) => ({ ...prev, amount: sum }))}
+            />
+
             <div>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
                 Replace Receipt / Voucher Scan (Optional)
@@ -5382,7 +5612,7 @@ export default function AdminDashboardClient() {
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-1">
                   Current receipt:{" "}
                   <a
-                    href={editingExpense.receipt_url}
+                    href={sanitizeSafeUrl(editingExpense.receipt_url)}
                     target="_blank"
                     rel="noreferrer"
                     className="text-brand-600 dark:text-brand-400 underline font-semibold"
@@ -5574,10 +5804,12 @@ export default function AdminDashboardClient() {
                           <option value="Sports">Sports (Committee)</option>
                           <option value="GAD">GAD (Committee)</option>
                           <option value="Education">Education (Committee)</option>
+                          <option value="Environment">Environment (Committee)</option>
+                          <option value="Peace & Order">Peace & Order (Committee)</option>
                           <option value="SK Staff / Custodian">SK Staff / Custodian</option>
                           <option value="Student">Student</option>
                           <option value="Guest">Guest</option>
-                          {!["SK Chairperson", "SK Secretary", "SK Treasurer", "SK Kagawad", "Health", "Livelihood", "Sports", "GAD", "Education", "SK Staff / Custodian", "Student", "Guest"].includes(userForm.role) && (
+                          {!["SK Chairperson", "SK Secretary", "SK Treasurer", "SK Kagawad", "Health", "Livelihood", "Sports", "GAD", "Education", "Environment", "Peace & Order", "SK Staff / Custodian", "Student", "Guest"].includes(userForm.role) && (
                             <option value={userForm.role}>{userForm.role}</option>
                           )}
                         </select>
@@ -5628,7 +5860,7 @@ export default function AdminDashboardClient() {
                         <input
                           type={showUserFormPassword ? "text" : "password"}
                           required
-                          placeholder="Enter password (min 6 characters)"
+                          placeholder="Min. 8 chars (letter + number/symbol)"
                           value={userForm.password}
                           onChange={(e) => setUserForm({ ...userForm, password: e.target.value })}
                           className="w-full pl-8 pr-9 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-brand-600 bg-white dark:bg-slate-900"
@@ -5995,7 +6227,7 @@ export default function AdminDashboardClient() {
                 </label>
                 <input
                   type="file"
-                  accept="image/*,.pdf,.svg"
+                  accept="image/png,image/jpeg,image/webp,.pdf"
                   onChange={(e) => setDepositAttachmentFile(e.target.files?.[0] || null)}
                   className="w-full text-xs text-slate-500 dark:text-slate-400 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-indigo-50 dark:file:bg-indigo-950/60 file:text-indigo-700 dark:file:text-indigo-300 hover:file:bg-indigo-100 dark:hover:file:bg-indigo-900/70"
                 />
@@ -6138,7 +6370,7 @@ export default function AdminDashboardClient() {
                 </label>
                 <input
                   type="file"
-                  accept="image/*,.pdf,.svg"
+                  accept="image/png,image/jpeg,image/webp,.pdf"
                   onChange={(e) => setEditDepositAttachmentFile(e.target.files?.[0] || null)}
                   className="w-full text-xs text-slate-500 dark:text-slate-400 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-indigo-50 dark:file:bg-indigo-950/60 file:text-indigo-700 dark:file:text-indigo-300 hover:file:bg-indigo-100 dark:hover:file:bg-indigo-900/70"
                 />
@@ -6288,105 +6520,32 @@ export default function AdminDashboardClient() {
         </>
       )}
 
-      {/* Minimalist Deposit Search Modal (Matches Transparency Ledger Search Modal) */}
-      {showDepositSearchModal && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Search bank remittances"
-          className="fixed inset-0 z-[100] bg-slate-950/50 dark:bg-black/70 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overscroll-contain select-none touch-none"
-          style={{
-            paddingTop: "max(0.75rem, env(safe-area-inset-top, 0px))",
-            paddingBottom: "max(0.75rem, env(safe-area-inset-bottom, 0px))",
-            paddingLeft: "max(0.75rem, env(safe-area-inset-left, 0px))",
-            paddingRight: "max(0.75rem, env(safe-area-inset-right, 0px))",
-          }}
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setShowDepositSearchModal(false);
-          }}
-          onWheel={(e) => {
-            if (e.target === e.currentTarget) e.preventDefault();
-          }}
-          onTouchMove={(e) => {
-            if (e.target === e.currentTarget) e.preventDefault();
-          }}
-        >
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              setDepositSearch(tempDepositSearch.trim());
-              setDepositPage(1);
-              setShowDepositSearchModal(false);
-            }}
-            className="relative bg-white dark:bg-slate-900 rounded-2xl max-w-lg w-full shadow-2xl border border-slate-200/90 dark:border-slate-800 overflow-hidden overscroll-contain select-text font-sans touch-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Minimalist Search Input Row */}
-            <div className="flex items-center gap-3 px-4 py-3.5 border-b border-slate-100 dark:border-slate-800">
-              <Search className="w-4 h-4 text-slate-400 dark:text-slate-500 shrink-0" />
-              <input
-                ref={depositSearchInputRef}
-                type="text"
-                autoFocus
-                inputMode="search"
-                placeholder="Search reference no., remitting source, particulars..."
-                value={tempDepositSearch}
-                onChange={(e) => setTempDepositSearch(e.target.value)}
-                className="w-full bg-transparent text-sm [line-height:normal] py-0.5 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none"
-              />
-              {tempDepositSearch && (
-                <button
-                  type="button"
-                  onClick={() => setTempDepositSearch("")}
-                  className="p-1 rounded-lg text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer shrink-0"
-                  title="Clear input"
-                  aria-label="Clear input"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-
-            {/* Subtle Footer Bar */}
-            <div className="flex items-center justify-between gap-2 px-4 py-2.5 bg-slate-50/70 dark:bg-slate-800/60">
-              {depositSearch ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTempDepositSearch("");
-                    setDepositSearch("");
-                    setDepositPage(1);
-                    setShowDepositSearchModal(false);
-                  }}
-                  className="text-xs font-medium text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 transition cursor-pointer"
-                >
-                  Clear active search
-                </button>
-              ) : (
-                <span className="text-[11px] text-slate-400 dark:text-slate-500">
-                  Press Enter to search
-                </span>
-              )}
-
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setShowDepositSearchModal(false)}
-                  className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-700/60 transition cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition cursor-pointer shadow-sm"
-                >
-                  Search
-                </button>
-              </div>
-            </div>
-          </form>
-        </div>
-      )}
+      {/* Minimalist Deposit Search Modal (Shared) */}
+      <SearchModal
+        open={showDepositSearchModal}
+        onClose={() => setShowDepositSearchModal(false)}
+        title="Search Bank Remittances"
+        ariaLabel="Search bank remittances"
+        placeholder="Search reference no., remitting source, particulars..."
+        value={tempDepositSearch}
+        onChange={setTempDepositSearch}
+        onSubmit={() => {
+          setDepositSearch(tempDepositSearch.trim());
+          setDepositPage(1);
+          setShowDepositSearchModal(false);
+        }}
+        onClearActive={
+          depositSearch
+            ? () => {
+                setTempDepositSearch("");
+                setDepositSearch("");
+                setDepositPage(1);
+                setShowDepositSearchModal(false);
+              }
+            : undefined
+        }
+        accent="indigo"
+      />
 
       {/* Official Bank Deposit Slip Preview Modal (Matches Transparency Ledger Modal) */}
       {selectedDepositSlip && (
@@ -6423,7 +6582,7 @@ export default function AdminDashboardClient() {
                 <span className="text-[10px] sm:text-[10.5px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 block">
                   OFFICIAL REMITTANCE / DEPOSIT PARTICULARS:
                 </span>
-                <h3 className="font-serif font-black text-slate-900 dark:text-slate-100 text-base sm:text-lg lg:text-xl leading-snug tracking-tight">
+                <h3 className="font-sans font-black text-slate-900 dark:text-slate-100 text-base sm:text-lg lg:text-xl leading-snug tracking-tight">
                   {selectedDepositSlip.source} — {selectedDepositSlip.reference_no}
                 </h3>
               </div>
@@ -6521,7 +6680,7 @@ export default function AdminDashboardClient() {
                   </span>
                   {selectedDepositSlip.attachment_url && (
                     <a
-                      href={selectedDepositSlip.attachment_url}
+                      href={sanitizeSafeUrl(selectedDepositSlip.attachment_url)}
                       target="_blank"
                       rel="noreferrer"
                       className="text-[11px] text-indigo-700 dark:text-indigo-300 hover:text-indigo-900 dark:hover:text-indigo-200 inline-flex items-center gap-1 font-semibold hover:underline"
@@ -6563,7 +6722,7 @@ export default function AdminDashboardClient() {
               <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
                 {selectedDepositSlip.attachment_url && (
                   <a
-                    href={selectedDepositSlip.attachment_url}
+                    href={sanitizeSafeUrl(selectedDepositSlip.attachment_url)}
                     target="_blank"
                     rel="noreferrer"
                     className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 font-bold border border-slate-300 dark:border-slate-700 shadow-2xs transition-colors cursor-pointer"
@@ -6586,309 +6745,87 @@ export default function AdminDashboardClient() {
         </div>
       )}
 
-      {/* POPUP MODAL: DISBURSEMENT RECORDS SEARCH (MINIMALIST) */}
-      {showExpenseSearchModal && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Search disbursement records"
-          className="fixed inset-0 z-[100] bg-slate-950/50 dark:bg-black/70 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overscroll-contain select-none touch-none"
-          style={{
-            paddingTop: "max(0.75rem, env(safe-area-inset-top, 0px))",
-            paddingBottom: "max(0.75rem, env(safe-area-inset-bottom, 0px))",
-            paddingLeft: "max(0.75rem, env(safe-area-inset-left, 0px))",
-            paddingRight: "max(0.75rem, env(safe-area-inset-right, 0px))",
-          }}
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setShowExpenseSearchModal(false);
-          }}
-          onWheel={(e) => {
-            if (e.target === e.currentTarget) e.preventDefault();
-          }}
-          onTouchMove={(e) => {
-            if (e.target === e.currentTarget) e.preventDefault();
-          }}
-        >
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              setExpenseSearch(tempExpenseSearch.trim());
-              setExpensePage(1);
-              setShowExpenseSearchModal(false);
-            }}
-            className="relative bg-white dark:bg-slate-900 rounded-2xl max-w-lg w-full shadow-2xl border border-slate-200/90 dark:border-slate-800 overflow-hidden overscroll-contain select-text font-sans touch-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Minimalist Search Input Row */}
-            <div className="flex items-center gap-3 px-4 py-3.5 border-b border-slate-100 dark:border-slate-800">
-              <Search className="w-4 h-4 text-slate-400 dark:text-slate-500 shrink-0" />
-              <input
-                ref={expenseSearchInputRef}
-                type="text"
-                autoFocus
-                inputMode="search"
-                placeholder="Search project, voucher no., payee, or particulars..."
-                value={tempExpenseSearch}
-                onChange={(e) => setTempExpenseSearch(e.target.value)}
-                className="w-full bg-transparent text-sm [line-height:normal] py-0.5 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none"
-              />
-              {tempExpenseSearch && (
-                <button
-                  type="button"
-                  onClick={() => setTempExpenseSearch("")}
-                  className="p-1 rounded-lg text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer shrink-0"
-                  title="Clear input"
-                  aria-label="Clear input"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
+      {/* POPUP MODAL: DISBURSEMENT RECORDS SEARCH (SHARED) */}
+      <SearchModal
+        open={showExpenseSearchModal}
+        onClose={() => setShowExpenseSearchModal(false)}
+        title="Search Disbursement Records"
+        ariaLabel="Search disbursement records"
+        placeholder="Search project, voucher no., payee, or particulars..."
+        value={tempExpenseSearch}
+        onChange={setTempExpenseSearch}
+        onSubmit={() => {
+          setExpenseSearch(tempExpenseSearch.trim());
+          setExpensePage(1);
+          setShowExpenseSearchModal(false);
+        }}
+        onClearActive={
+          expenseSearch
+            ? () => {
+                setTempExpenseSearch("");
+                setExpenseSearch("");
+                setExpensePage(1);
+                setShowExpenseSearchModal(false);
+              }
+            : undefined
+        }
+      />
 
-            {/* Subtle Footer Bar */}
-            <div className="flex items-center justify-between gap-2 px-4 py-2.5 bg-slate-50/70 dark:bg-slate-800/60">
-              {expenseSearch ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTempExpenseSearch("");
-                    setExpenseSearch("");
-                    setExpensePage(1);
-                    setShowExpenseSearchModal(false);
-                  }}
-                  className="text-xs font-medium text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 transition cursor-pointer"
-                >
-                  Clear active search
-                </button>
-              ) : (
-                <span className="text-[11px] text-slate-400 dark:text-slate-500">
-                  Press Enter to search
-                </span>
-              )}
+      {/* POPUP MODAL: PRINT QUEUE SEARCH (SHARED) */}
+      <SearchModal
+        open={showQueueSearchModal}
+        onClose={() => setShowQueueSearchModal(false)}
+        title="Search Print Queue"
+        ariaLabel="Search print queue requests"
+        placeholder="Search student, tracking code, school, or file..."
+        value={tempQueueSearch}
+        onChange={setTempQueueSearch}
+        onSubmit={() => {
+          setJobSearch(tempQueueSearch.trim());
+          setQueuePage(1);
+          setMobileQueuePage(1);
+          setShowQueueSearchModal(false);
+        }}
+        onClearActive={
+          jobSearch
+            ? () => {
+                setTempQueueSearch("");
+                setJobSearch("");
+                setQueuePage(1);
+                setMobileQueuePage(1);
+                setShowQueueSearchModal(false);
+              }
+            : undefined
+        }
+      />
 
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setShowExpenseSearchModal(false)}
-                  className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-700/60 transition cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-3.5 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold transition cursor-pointer shadow-sm"
-                >
-                  Search
-                </button>
-              </div>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* POPUP MODAL: PRINT QUEUE SEARCH (MINIMALIST) */}
-      {showQueueSearchModal && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Search print queue requests"
-          className="fixed inset-0 z-[100] bg-slate-950/50 dark:bg-black/70 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overscroll-contain select-none touch-none"
-          style={{
-            paddingTop: "max(0.75rem, env(safe-area-inset-top, 0px))",
-            paddingBottom: "max(0.75rem, env(safe-area-inset-bottom, 0px))",
-            paddingLeft: "max(0.75rem, env(safe-area-inset-left, 0px))",
-            paddingRight: "max(0.75rem, env(safe-area-inset-right, 0px))",
-          }}
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setShowQueueSearchModal(false);
-          }}
-          onWheel={(e) => {
-            if (e.target === e.currentTarget) e.preventDefault();
-          }}
-          onTouchMove={(e) => {
-            if (e.target === e.currentTarget) e.preventDefault();
-          }}
-        >
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              setJobSearch(tempQueueSearch.trim());
-              setQueuePage(1);
-              setMobileQueuePage(1);
-              setShowQueueSearchModal(false);
-            }}
-            className="relative bg-white dark:bg-slate-900 rounded-2xl max-w-lg w-full shadow-2xl border border-slate-200/90 dark:border-slate-800 overflow-hidden overscroll-contain select-text font-sans touch-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Minimalist Search Input Row */}
-            <div className="flex items-center gap-3 px-4 py-3.5 border-b border-slate-100 dark:border-slate-800">
-              <Search className="w-4 h-4 text-slate-400 dark:text-slate-500 shrink-0" />
-              <input
-                ref={queueSearchInputRef}
-                type="text"
-                autoFocus
-                inputMode="search"
-                placeholder="Search student, tracking code, school, or file..."
-                value={tempQueueSearch}
-                onChange={(e) => setTempQueueSearch(e.target.value)}
-                className="w-full bg-transparent text-sm [line-height:normal] py-0.5 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none"
-              />
-              {tempQueueSearch && (
-                <button
-                  type="button"
-                  onClick={() => setTempQueueSearch("")}
-                  className="p-1 rounded-lg text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer shrink-0"
-                  title="Clear input"
-                  aria-label="Clear input"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-
-            {/* Subtle Footer Bar */}
-            <div className="flex items-center justify-between gap-2 px-4 py-2.5 bg-slate-50/70 dark:bg-slate-800/60">
-              {jobSearch ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTempQueueSearch("");
-                    setJobSearch("");
-                    setQueuePage(1);
-                    setMobileQueuePage(1);
-                    setShowQueueSearchModal(false);
-                  }}
-                  className="text-xs font-medium text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 transition cursor-pointer"
-                >
-                  Clear active search
-                </button>
-              ) : (
-                <span className="text-[11px] text-slate-400 dark:text-slate-500">
-                  Press Enter to search
-                </span>
-              )}
-
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setShowQueueSearchModal(false)}
-                  className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-700/60 transition cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-3.5 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold transition cursor-pointer shadow-sm"
-                >
-                  Search
-                </button>
-              </div>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* MODAL: SEARCH STUDENT / GUEST ACCOUNTS */}
-      {showStudentSearchModal && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Search student and guest accounts"
-          className="fixed inset-0 z-[100] bg-slate-950/50 dark:bg-black/70 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overscroll-contain select-none touch-none"
-          style={{
-            paddingTop: "max(0.75rem, env(safe-area-inset-top, 0px))",
-            paddingBottom: "max(0.75rem, env(safe-area-inset-bottom, 0px))",
-            paddingLeft: "max(0.75rem, env(safe-area-inset-left, 0px))",
-            paddingRight: "max(0.75rem, env(safe-area-inset-right, 0px))",
-          }}
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setShowStudentSearchModal(false);
-          }}
-          onWheel={(e) => {
-            if (e.target === e.currentTarget) e.preventDefault();
-          }}
-          onTouchMove={(e) => {
-            if (e.target === e.currentTarget) e.preventDefault();
-          }}
-        >
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              setStudentSearch(tempStudentSearch.trim());
-              setStudentPage(1);
-              setMobileStudentPage(1);
-              setShowStudentSearchModal(false);
-            }}
-            className="relative bg-white dark:bg-slate-900 rounded-2xl max-w-lg w-full shadow-2xl border border-slate-200/90 dark:border-slate-800 overflow-hidden overscroll-contain select-text font-sans touch-auto animate-in zoom-in-95 duration-150"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Minimalist Search Input Row */}
-            <div className="flex items-center gap-3 px-4 py-3.5 border-b border-slate-100 dark:border-slate-800">
-              <Search className="w-4 h-4 text-slate-400 dark:text-slate-500 shrink-0" />
-              <input
-                ref={studentSearchInputRef}
-                type="text"
-                autoFocus
-                inputMode="search"
-                placeholder="Search student by name, email, role, or contact..."
-                value={tempStudentSearch}
-                onChange={(e) => setTempStudentSearch(e.target.value)}
-                className="w-full bg-transparent text-sm [line-height:normal] py-0.5 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none"
-              />
-              {tempStudentSearch && (
-                <button
-                  type="button"
-                  onClick={() => setTempStudentSearch("")}
-                  className="p-1 rounded-lg text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer shrink-0"
-                  title="Clear input"
-                  aria-label="Clear input"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-
-            {/* Subtle Footer Bar */}
-            <div className="flex items-center justify-between gap-2 px-4 py-2.5 bg-slate-50/70 dark:bg-slate-800/60">
-              {studentSearch ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTempStudentSearch("");
-                    setStudentSearch("");
-                    setStudentPage(1);
-                    setMobileStudentPage(1);
-                    setShowStudentSearchModal(false);
-                  }}
-                  className="text-xs font-medium text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 transition cursor-pointer"
-                >
-                  Clear active search
-                </button>
-              ) : (
-                <span className="text-[11px] text-slate-400 dark:text-slate-500">
-                  Press Enter to search
-                </span>
-              )}
-
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setShowStudentSearchModal(false)}
-                  className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-700/60 transition cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-3.5 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold transition cursor-pointer shadow-sm"
-                >
-                  Search
-                </button>
-              </div>
-            </div>
-          </form>
-        </div>
-      )}
+      {/* MODAL: SEARCH STUDENT / GUEST ACCOUNTS (SHARED) */}
+      <SearchModal
+        open={showStudentSearchModal}
+        onClose={() => setShowStudentSearchModal(false)}
+        title="Search Student & Guest Accounts"
+        ariaLabel="Search student and guest accounts"
+        placeholder="Search student by name, email, role, or contact..."
+        value={tempStudentSearch}
+        onChange={setTempStudentSearch}
+        onSubmit={() => {
+          setStudentSearch(tempStudentSearch.trim());
+          setStudentPage(1);
+          setMobileStudentPage(1);
+          setShowStudentSearchModal(false);
+        }}
+        onClearActive={
+          studentSearch
+            ? () => {
+                setTempStudentSearch("");
+                setStudentSearch("");
+                setStudentPage(1);
+                setMobileStudentPage(1);
+                setShowStudentSearchModal(false);
+              }
+            : undefined
+        }
+      />
 
       {/* MODAL: OFFICIAL DISBURSEMENT VOUCHER & ITEMIZATION SCHEDULE */}
       {selectedExpenseReceipt && (
@@ -6921,7 +6858,7 @@ export default function AdminDashboardClient() {
           >
             {/* Modal Header */}
             <div className="p-4 sm:px-6 sm:py-4 border-b border-slate-200/80 dark:border-slate-800/90 bg-white dark:bg-slate-900 shrink-0">
-              <h3 className="font-serif font-black text-slate-900 dark:text-slate-100 text-base sm:text-lg lg:text-xl leading-snug tracking-tight break-words">
+              <h3 className="font-sans font-black text-slate-900 dark:text-slate-100 text-base sm:text-lg lg:text-xl leading-snug tracking-tight break-words">
                 {selectedExpenseReceipt.title}
               </h3>
             </div>
@@ -6994,7 +6931,7 @@ export default function AdminDashboardClient() {
 
                   {selectedExpenseReceipt.receipt_url && (
                     <a
-                      href={selectedExpenseReceipt.receipt_url}
+                      href={sanitizeSafeUrl(selectedExpenseReceipt.receipt_url)}
                       target="_blank"
                       rel="noreferrer"
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-brand-700 dark:text-brand-400 text-xs font-semibold border border-slate-300 dark:border-slate-700 shadow-2xs transition-colors shrink-0 self-start sm:self-center cursor-pointer active:scale-95 ml-auto sm:ml-0"
@@ -7013,7 +6950,8 @@ export default function AdminDashboardClient() {
                   selectedExpenseReceipt.voucher_no,
                   selectedExpenseReceipt.title,
                   selectedExpenseReceipt.amount,
-                  selectedExpenseReceipt.description
+                  selectedExpenseReceipt.description,
+                  selectedExpenseReceipt.line_items
                 );
                 return (
                   <div className="space-y-2">

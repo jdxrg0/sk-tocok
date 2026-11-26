@@ -47,6 +47,126 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+function readBrowserCookie(name: string): string | null {
+  if (typeof document === "undefined") return null;
+  const cookies = document.cookie ? document.cookie.split("; ") : [];
+  for (const entry of cookies) {
+    const eq = entry.indexOf("=");
+    if (eq === -1) continue;
+    if (entry.slice(0, eq) === name) {
+      try {
+        return decodeURIComponent(entry.slice(eq + 1));
+      } catch {
+        return entry.slice(eq + 1);
+      }
+    }
+  }
+  return null;
+}
+
+function installGlobalCsrfInterceptor() {
+  if (typeof window === "undefined") return;
+  const win = window as unknown as {
+    __skCsrfInstalled?: boolean;
+    fetch: typeof window.fetch;
+    XMLHttpRequest: typeof window.XMLHttpRequest;
+  };
+  if (win.__skCsrfInstalled) return;
+  win.__skCsrfInstalled = true;
+
+  const originalFetch = window.fetch.bind(window);
+  window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const rawMethod =
+      init?.method || (input instanceof Request ? input.method : "GET");
+    const method = rawMethod.toUpperCase();
+
+    if (MUTATING_METHODS.has(method)) {
+      let targetUrl: URL | null = null;
+      try {
+        const rawUrl =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+            ? input.toString()
+            : input.url;
+        targetUrl = new URL(rawUrl, window.location.origin);
+      } catch {
+        targetUrl = null;
+      }
+
+      if (
+        targetUrl &&
+        targetUrl.origin === window.location.origin &&
+        targetUrl.pathname.startsWith("/api/")
+      ) {
+        const csrfToken = readBrowserCookie("sk_csrf_token");
+        if (csrfToken) {
+          if (input instanceof Request && !init?.headers) {
+            const headers = new Headers(input.headers);
+            if (!headers.has("x-csrf-token")) {
+              headers.set("x-csrf-token", csrfToken);
+            }
+            return originalFetch(new Request(input, { headers }), init);
+          }
+          const headers = new Headers(
+            init?.headers || (input instanceof Request ? input.headers : undefined)
+          );
+          if (!headers.has("x-csrf-token")) {
+            headers.set("x-csrf-token", csrfToken);
+          }
+          return originalFetch(input, { ...init, headers });
+        }
+      }
+    }
+
+    return originalFetch(input, init);
+  };
+
+  const XHRProto = window.XMLHttpRequest?.prototype as
+    | (XMLHttpRequest & { __skMethod?: string; __skUrl?: string })
+    | undefined;
+  if (XHRProto) {
+    const origOpen = XHRProto.open;
+    const origSend = XHRProto.send;
+    XHRProto.open = function (
+      this: XMLHttpRequest & { __skMethod?: string; __skUrl?: string },
+      method: string,
+      url: string | URL,
+      async?: boolean,
+      username?: string | null,
+      password?: string | null
+    ) {
+      this.__skMethod = String(method || "GET").toUpperCase();
+      this.__skUrl = String(url || "");
+      return origOpen.call(this, method, url, async ?? true, username, password);
+    };
+    XHRProto.send = function (
+      this: XMLHttpRequest & { __skMethod?: string; __skUrl?: string },
+      body?: Document | XMLHttpRequestBodyInit | null
+    ) {
+      if (this.__skMethod && MUTATING_METHODS.has(this.__skMethod) && this.__skUrl) {
+        try {
+          const parsed = new URL(this.__skUrl, window.location.origin);
+          if (
+            parsed.origin === window.location.origin &&
+            parsed.pathname.startsWith("/api/")
+          ) {
+            const csrfToken = readBrowserCookie("sk_csrf_token");
+            if (csrfToken) {
+              this.setRequestHeader("x-csrf-token", csrfToken);
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+      return origSend.call(this, body);
+    };
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUserState] = useState<AuthUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -90,6 +210,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    installGlobalCsrfInterceptor();
     refreshUser();
   }, [refreshUser]);
 

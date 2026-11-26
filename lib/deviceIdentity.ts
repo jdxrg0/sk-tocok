@@ -1,7 +1,13 @@
 import crypto from "crypto";
 import { sql } from "@/lib/db";
 import { generateRandomAlias } from "@/lib/messages";
+import { getJwtSecret } from "@/lib/env";
+import { isRequestSecure } from "@/lib/auth";
+import { signHmacToken, verifyHmacToken } from "@/lib/edgeCrypto";
+import { extractClientIp } from "@/lib/securityLogger";
 import { NextResponse } from "next/server";
+
+export const DEVICE_SESSION_COOKIE = "sk_device_session";
 
 export interface DeviceIdentity {
   deviceId: string;
@@ -10,68 +16,55 @@ export interface DeviceIdentity {
 }
 
 /**
- * Extract client IP address from proxy headers (Vercel, Cloudflare, standard proxy)
+ * Extract cryptographically verified device_id ONLY from the signed HttpOnly cookie.
  */
-export function getClientIp(request: Request): string {
-  const forwarded = request.headers.get("x-forwarded-for");
-  if (forwarded) {
-    const first = forwarded.split(",")[0]?.trim();
-    if (first) return first;
-  }
-  const realIp = request.headers.get("x-real-ip");
-  if (realIp) return realIp.trim();
-  return "127.0.0.1";
-}
-
-/**
- * Extract device_id from cookie or header
- */
-export function getClientDeviceId(request: Request): string | null {
-  const headerDeviceId = request.headers.get("x-device-id");
-  if (headerDeviceId && headerDeviceId.trim()) {
-    return headerDeviceId.trim();
-  }
-
-  // Parse Cookie header
+export async function getVerifiedDeviceId(request: Request): Promise<string | null> {
   const cookieHeader = request.headers.get("cookie") || "";
-  const match = cookieHeader.match(/sk_device_id=([^;]+)/);
-  if (match && match[1]) {
-    return decodeURIComponent(match[1].trim());
-  }
+  const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${DEVICE_SESSION_COOKIE}=([^;]+)`));
+  if (!match || !match[1]) return null;
 
-  return null;
+  try {
+    const rawCookie = decodeURIComponent(match[1].trim());
+    const verified = await verifyHmacToken(rawCookie, getJwtSecret());
+    if (!verified || !/^[a-zA-Z0-9-]{8,100}$/.test(verified)) {
+      return null;
+    }
+    return verified;
+  } catch {
+    return null;
+  }
 }
 
 /**
- * Resolve or assign a permanent, spoof-resistant alias tied to the device, IP, and browser
+ * Resolve or assign a permanent, spoof-resistant alias tied to a cryptographically signed HttpOnly cookie.
+ * Never trusts unsigned client headers or mutable IP+UA fingerprints to hijack existing identities.
  */
 export async function getOrAssignDeviceIdentity(
-  request: Request,
-  preferredAlias?: string | null
+  request: Request
 ): Promise<DeviceIdentity> {
-  const clientIp = getClientIp(request);
+  const clientIp = extractClientIp(request);
   const userAgent = request.headers.get("user-agent") || "unknown";
+  const secret = getJwtSecret();
 
   const ipHash = crypto
-    .createHash("sha256")
-    .update(clientIp + "::sk_tocok_salt")
+    .createHmac("sha256", secret)
+    .update(clientIp)
     .digest("hex")
     .slice(0, 32);
 
   const deviceFingerprint = crypto
-    .createHash("sha256")
-    .update(clientIp + "::" + userAgent)
+    .createHmac("sha256", secret)
+    .update(`${clientIp}::${userAgent}`)
     .digest("hex")
     .slice(0, 32);
 
-  const providedDeviceId = getClientDeviceId(request);
+  const verifiedDeviceId = await getVerifiedDeviceId(request);
 
-  // 1. Try to find existing device record by device_id
-  if (providedDeviceId) {
+  if (verifiedDeviceId) {
     const rows = await sql`
       SELECT id, device_id, alias
       FROM anonymous_device_identities
-      WHERE device_id = ${providedDeviceId}
+      WHERE device_id = ${verifiedDeviceId}
       LIMIT 1
     `;
     if (rows.length > 0) {
@@ -80,7 +73,7 @@ export async function getOrAssignDeviceIdentity(
         SET last_seen_at = NOW(),
             ip_hash = ${ipHash},
             device_fingerprint = ${deviceFingerprint}
-        WHERE device_id = ${providedDeviceId}
+        WHERE device_id = ${verifiedDeviceId}
       `;
       return {
         deviceId: rows[0].device_id as string,
@@ -90,54 +83,15 @@ export async function getOrAssignDeviceIdentity(
     }
   }
 
-  // 2. Try to find existing device record by device_fingerprint (same device + IP, e.g. Incognito or cleared cookies)
-  const fpRows = await sql`
-    SELECT id, device_id, alias
-    FROM anonymous_device_identities
-    WHERE device_fingerprint = ${deviceFingerprint}
-    ORDER BY last_seen_at DESC
-    LIMIT 1
-  `;
-  if (fpRows.length > 0) {
-    const existingAlias = fpRows[0].alias as string;
-    const finalDeviceId = providedDeviceId || (fpRows[0].device_id as string);
-    await sql`
-      UPDATE anonymous_device_identities
-      SET last_seen_at = NOW(),
-          device_id = ${finalDeviceId}
-      WHERE id = ${fpRows[0].id}
-    `;
-    return {
-      deviceId: finalDeviceId,
-      alias: existingAlias,
-      isNew: false,
-    };
-  }
-
-  // 3. If user previously had an alias in localStorage before this system was introduced:
   let candidateAlias = "";
-  const cleanPreferred = (preferredAlias || "").trim().replace(/^u\//i, "");
-
-  if (cleanPreferred && cleanPreferred.length >= 3 && cleanPreferred.length <= 50) {
-    const aliasCheck = await sql`
-      SELECT id FROM anonymous_device_identities WHERE alias = ${cleanPreferred} LIMIT 1
+  for (let attempts = 0; attempts < 10; attempts++) {
+    const generated = generateRandomAlias();
+    const exists = await sql`
+      SELECT id FROM anonymous_device_identities WHERE alias = ${generated} LIMIT 1
     `;
-    if (aliasCheck.length === 0) {
-      candidateAlias = cleanPreferred;
-    }
-  }
-
-  // 4. Generate a unique new alias if none claimed
-  if (!candidateAlias) {
-    for (let attempts = 0; attempts < 10; attempts++) {
-      const generated = generateRandomAlias();
-      const exists = await sql`
-        SELECT id FROM anonymous_device_identities WHERE alias = ${generated} LIMIT 1
-      `;
-      if (exists.length === 0) {
-        candidateAlias = generated;
-        break;
-      }
+    if (exists.length === 0) {
+      candidateAlias = generated;
+      break;
     }
   }
 
@@ -145,9 +99,8 @@ export async function getOrAssignDeviceIdentity(
     candidateAlias = generateRandomAlias();
   }
 
-  const newDeviceId = providedDeviceId || crypto.randomUUID();
+  const newDeviceId = crypto.randomUUID();
 
-  // 5. Insert new identity
   await sql`
     INSERT INTO anonymous_device_identities (
       device_id,
@@ -180,18 +133,20 @@ export async function getOrAssignDeviceIdentity(
 }
 
 /**
- * Attach long-lived device cookie to response
+ * Attach signed HttpOnly device session cookie to response.
  */
-export function attachDeviceCookie(
+export async function attachDeviceCookie(
   response: NextResponse,
-  deviceId: string
-): NextResponse {
-  response.cookies.set("sk_device_id", deviceId, {
+  deviceId: string,
+  request?: Request
+): Promise<NextResponse> {
+  const signed = await signHmacToken(deviceId, getJwtSecret());
+  response.cookies.set(DEVICE_SESSION_COOKIE, signed, {
     path: "/",
-    maxAge: 60 * 60 * 24 * 365 * 5, // 5 years
-    httpOnly: false, // accessible to client for fast hydration
+    maxAge: 60 * 60 * 24 * 365 * 5,
+    httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: isRequestSecure(request),
   });
   return response;
 }

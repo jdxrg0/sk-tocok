@@ -9,6 +9,7 @@ import {
   Folder,
 } from "lucide-react";
 import type { GoogleDriveStatusData, DriveFolderStat } from "@/lib/googleDrive";
+import { sanitizeSafeUrl } from "@/lib/clientUrlSafety";
 
 export type { GoogleDriveStatusData, DriveFolderStat };
 
@@ -261,7 +262,7 @@ export default function GoogleDriveStatusCard({
 
                   {data.rootFolder?.webViewLink && (
                     <a
-                      href={data.rootFolder.webViewLink}
+                      href={sanitizeSafeUrl(data.rootFolder.webViewLink)}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-1 text-[11px] font-semibold text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 hover:underline"
@@ -278,7 +279,7 @@ export default function GoogleDriveStatusCard({
                     {data.folders.map((folder, idx) => (
                       <a
                         key={folder.key}
-                        href={folder.webViewLink || "#"}
+                        href={sanitizeSafeUrl(folder.webViewLink)}
                         target={folder.webViewLink ? "_blank" : undefined}
                         rel={folder.webViewLink ? "noopener noreferrer" : undefined}
                         style={{

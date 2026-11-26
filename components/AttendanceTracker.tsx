@@ -27,6 +27,8 @@ import {
   Settings2,
 } from "lucide-react";
 import { useAuth, isOfficialRole } from "@/components/AuthProvider";
+import SearchModal from "@/components/SearchModal";
+import { sanitizeSafeUrl } from "@/lib/clientUrlSafety";
 import {
   ACTIVITY_TYPES,
   getActivityStanding,
@@ -305,7 +307,6 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
   const [showSearchModal, setShowSearchModal] = useState(false);
   const [officialSearch, setOfficialSearch] = useState("");
   const [tempOfficialSearch, setTempOfficialSearch] = useState("");
-  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Modals
   const [showFormModal, setShowFormModal] = useState(false);
@@ -572,14 +573,6 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
       document.documentElement.style.overflow = prevHtmlOverflow;
     };
   }, [anyModalOpen]);
-
-  useEffect(() => {
-    if (showSearchModal) {
-      searchInputRef.current?.focus({ preventScroll: true });
-      const timer = setTimeout(() => searchInputRef.current?.focus({ preventScroll: true }), 50);
-      return () => clearTimeout(timer);
-    }
-  }, [showSearchModal]);
 
   const fetchAttendance = useCallback(
     async (silent = false) => {
@@ -1157,7 +1150,7 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
   const availableYears = data?.availableYears || ["2026"];
 
   return (
-    <div className={mode === "public" ? "max-w-6xl mx-auto px-3 sm:px-6 pt-3 pb-24 md:pb-12 space-y-4" : "space-y-4"}>
+    <div className={mode === "public" ? "max-w-6xl mx-auto px-3 sm:px-6 pt-3 pb-[calc(9.5rem+env(safe-area-inset-bottom,0px))] md:pb-24 space-y-4" : "space-y-4"}>
       {/* Toast Notification */}
       {toast && (
         <div
@@ -1607,7 +1600,7 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
       {/* =========================================================================
           FLOATING ACTION BUTTONS (SEARCH & RECORD SESSION)
          ========================================================================= */}
-      <div data-page-fab className="fixed bottom-20 md:bottom-8 right-4 md:right-8 z-40 flex items-center gap-2.5 sm:gap-3 pointer-events-auto">
+      <div data-page-fab className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom,0px))] md:bottom-8 right-4 md:right-8 z-40 flex items-center gap-2.5 sm:gap-3 pointer-events-auto">
         {/* Floating Search Button */}
         <button
           type="button"
@@ -1657,102 +1650,30 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
       </div>
 
       {/* =========================================================================
-          SEARCH OFFICIALS MODAL
+          SEARCH OFFICIALS MODAL (SHARED)
          ========================================================================= */}
-      {mounted && showSearchModal && createPortal(
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Search SK Officials"
-          className="fixed inset-0 z-[100] bg-slate-950/70 backdrop-blur-xs flex items-center justify-center overscroll-contain select-none touch-none"
-          style={{
-            paddingTop: "max(0.75rem, env(safe-area-inset-top, 0px))",
-            paddingBottom: "max(0.75rem, env(safe-area-inset-bottom, 0px))",
-            paddingLeft: "max(0.75rem, env(safe-area-inset-left, 0px))",
-            paddingRight: "max(0.75rem, env(safe-area-inset-right, 0px))",
-          }}
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setShowSearchModal(false);
-          }}
-        >
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              setOfficialSearch(tempOfficialSearch.trim());
-              setShowSearchModal(false);
-            }}
-            className="relative bg-white dark:bg-slate-900 rounded-2xl max-w-lg w-full shadow-2xl border border-slate-200/90 dark:border-slate-800 overflow-hidden overscroll-contain select-text font-sans touch-auto flex flex-col animate-in zoom-in-95 duration-150"
-            style={{
-              maxHeight: "calc(100dvh - 1.5rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))",
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Search Input Row */}
-            <div className="flex items-center gap-3 px-4 py-3.5 border-b border-slate-100 dark:border-slate-800 shrink-0">
-              <Search className="w-4 h-4 text-slate-400 dark:text-slate-500 shrink-0" />
-              <input
-                ref={searchInputRef}
-                type="text"
-                autoFocus
-                inputMode="search"
-                placeholder="Search official by name or role..."
-                value={tempOfficialSearch}
-                onChange={(e) => setTempOfficialSearch(e.target.value)}
-                className="w-full bg-transparent text-sm [line-height:normal] py-0.5 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none"
-              />
-              {tempOfficialSearch && (
-                <button
-                  type="button"
-                  onClick={() => setTempOfficialSearch("")}
-                  className="p-1 rounded-lg text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-90 active:bg-slate-200 dark:active:bg-slate-700 transition-all cursor-pointer shrink-0 select-none"
-                  title="Clear input"
-                  aria-label="Clear input"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-
-            {/* Footer Bar */}
-            <div className="flex items-center justify-between gap-2 px-4 py-2.5 bg-slate-50/70 dark:bg-slate-800/60 shrink-0">
-              {officialSearch ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTempOfficialSearch("");
-                    setOfficialSearch("");
-                    setShowSearchModal(false);
-                  }}
-                  className="text-xs font-medium text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 active:scale-95 transition-all cursor-pointer select-none"
-                >
-                  Clear active search
-                </button>
-              ) : (
-                <span className="text-[11px] text-slate-400 dark:text-slate-500">
-                  Press Enter to search
-                </span>
-              )}
-
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setShowSearchModal(false)}
-                  className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-700/60 active:scale-95 transition-all cursor-pointer select-none"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-3.5 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 active:scale-95 active:brightness-95 text-white text-xs font-semibold transition-all cursor-pointer shadow-sm select-none"
-                >
-                  Search
-                </button>
-              </div>
-            </div>
-          </form>
-        </div>,
-        document.body
-      )}
+      <SearchModal
+        open={showSearchModal}
+        onClose={() => setShowSearchModal(false)}
+        title="Search SK Officials"
+        ariaLabel="Search SK Officials"
+        placeholder="Search official by name or role..."
+        value={tempOfficialSearch}
+        onChange={setTempOfficialSearch}
+        onSubmit={() => {
+          setOfficialSearch(tempOfficialSearch.trim());
+          setShowSearchModal(false);
+        }}
+        onClearActive={
+          officialSearch
+            ? () => {
+                setTempOfficialSearch("");
+                setOfficialSearch("");
+                setShowSearchModal(false);
+              }
+            : undefined
+        }
+      />
 
       {/* =========================================================================
           MODAL 1: RECORD / EDIT SESSION CHECKLIST
@@ -2980,7 +2901,7 @@ export default function AttendanceTracker({ mode = "public" }: AttendanceTracker
             </div>
             <div className="flex items-center gap-2">
               <a
-                href={lightboxPhoto.url}
+                href={sanitizeSafeUrl(lightboxPhoto.url)}
                 target="_blank"
                 rel="noopener noreferrer"
                 download

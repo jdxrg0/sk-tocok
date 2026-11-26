@@ -346,7 +346,7 @@ const useIsomorphicLayoutEffect =
  * Custom FLIP (First, Last, Invert, Play) hook for ultra-smooth list reordering.
  * Automatically animates position changes when sorting or filtering updates without page blinks.
  */
-function useFlipList(dependency: any) {
+function useFlipList(dependency: unknown) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const prevPositionsRef = useRef<Map<string, number>>(new Map());
   const rafRef = useRef<number | null>(null);
@@ -1797,17 +1797,8 @@ export default function AnonymousCouncilMessages({
     handleCloseDeletePostModal(true);
 
     try {
-      const storedDeviceId = typeof window !== "undefined" ? localStorage.getItem("sk_tocok_device_id") || "" : "";
       const res = await fetch(`/api/messages/${postId}`, {
         method: "DELETE",
-        headers: {
-          "Content-Type": "application/json",
-          ...(storedDeviceId ? { "x-device-id": storedDeviceId } : {}),
-        },
-        body: JSON.stringify({
-          alias: formAlias,
-          tracking_code: postToDelete.tracking_code,
-        }),
       });
       const data = await res.json();
       if (data.success) {
@@ -1854,14 +1845,8 @@ export default function AnonymousCouncilMessages({
     handleCloseDeleteReplyModal(true);
 
     try {
-      const storedDeviceId = typeof window !== "undefined" ? localStorage.getItem("sk_tocok_device_id") || "" : "";
       const res = await fetch(`/api/messages/replies/${replyId}`, {
         method: "DELETE",
-        headers: {
-          "Content-Type": "application/json",
-          ...(storedDeviceId ? { "x-device-id": storedDeviceId } : {}),
-        },
-        body: JSON.stringify({ alias: formAlias }),
       });
       const data = await res.json();
       if (data.success) {

@@ -1,3 +1,5 @@
+import crypto from "crypto";
+
 export const MESSAGE_CATEGORIES = [
   "Suggestion",
   "Concern / Grievance",
@@ -89,13 +91,13 @@ export interface TrackedMessageResult {
 }
 
 /**
- * Generate a friendly, secure tracking code: SKM-XXXXXX
+ * Generate a friendly, cryptographically random tracking code: SKM-XXXXXXXX
  */
 export function generateTrackingCode(): string {
   const chars = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
   let code = "SKM-";
-  for (let i = 0; i < 6; i++) {
-    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  for (let i = 0; i < 8; i++) {
+    code += chars.charAt(crypto.randomInt(0, chars.length));
   }
   return code;
 }

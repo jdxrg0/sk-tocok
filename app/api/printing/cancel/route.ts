@@ -1,7 +1,8 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { sql, query } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, isOfficialUser } from "@/lib/auth";
+import { logSecurityEvent } from "@/lib/securityLogger";
 
 export async function POST(request: Request) {
   try {
@@ -13,8 +14,8 @@ export async function POST(request: Request) {
       );
     }
 
-    const body = await request.json();
-    const trackingCode = String(body.tracking_code || body.code || "").trim();
+    const body = await request.json().catch(() => ({}));
+    const trackingCode = String(body?.tracking_code || body?.code || "").trim().slice(0, 50);
 
     if (!trackingCode) {
       return NextResponse.json({ error: "Ticket number is required." }, { status: 400 });
@@ -57,15 +58,24 @@ export async function POST(request: Request) {
 
     const job = jobs[0];
 
-    // Check ownership
-    const isOfficial = currentUser.role && currentUser.role !== "Student";
-    const isOwner = !!(
-      (job.user_id && job.user_id === currentUser.id) ||
-      (job.user_email && String(job.user_email).toLowerCase() === currentUser.email.toLowerCase()) ||
-      (job.student_name && String(job.student_name).toLowerCase().trim() === currentUser.name.toLowerCase().trim())
+    // Check ownership strictly via authenticated user ID (or legacy unlinked matching email)
+    const isOfficial = isOfficialUser(currentUser);
+    const isOwner = Boolean(
+      (job.user_id && Number(job.user_id) === currentUser.id) ||
+        (!job.user_id &&
+          job.user_email &&
+          String(job.user_email).toLowerCase() === currentUser.email.toLowerCase())
     );
 
     if (!isOwner && !isOfficial) {
+      await logSecurityEvent({
+        eventType: "IDOR_PRINT_CANCEL_BLOCKED",
+        severity: "high",
+        request,
+        userId: currentUser.id,
+        email: currentUser.email,
+        details: { trackingCode: job.tracking_code },
+      });
       return NextResponse.json(
         { error: "You are not authorized to cancel this request. Only the student who submitted it can cancel." },
         { status: 403 }

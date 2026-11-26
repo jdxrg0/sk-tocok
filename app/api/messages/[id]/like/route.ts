@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { ensureMessagesTable } from "@/lib/messages";
+import { checkRateLimit, rateLimitExceededResponse } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
 
@@ -13,11 +14,22 @@ export async function POST(
 
     const { id } = await params;
     const messageId = parseInt(id, 10);
-    if (isNaN(messageId)) {
+    if (isNaN(messageId) || messageId <= 0) {
       return NextResponse.json(
         { success: false, error: "Invalid message ID" },
         { status: 400 }
       );
+    }
+
+    const limit = await checkRateLimit({
+      request,
+      bucket: "message_like",
+      identifier: String(messageId),
+      max: 10,
+      windowMs: 15 * 60 * 1000,
+    });
+    if (!limit.allowed) {
+      return rateLimitExceededResponse(limit.retryAfterSeconds);
     }
 
     const { searchParams } = new URL(request.url);

@@ -1,24 +1,39 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, isOfficialUser } from "@/lib/auth";
 import {
   ensureCseTable,
   generateCseTrackingCode,
   DEFAULT_ANNUAL_SLOTS,
   DEFAULT_ANNUAL_BUDGET,
   DEFAULT_REIMBURSEMENT_AMOUNT,
+  MAX_EXAM_SUBSIDY_CAP,
+  RETAKER_SLOT_RATIO,
+  resolveExamFeeAndSubsidy,
+  EXAM_CATEGORY_OPTIONS,
   maskName,
+  type ExamCategory,
   type ExamLevel,
   type PayoutPreference,
 } from "@/lib/cse";
 import { saveUploadedFile } from "@/lib/storage";
+import { validateUploadedFile } from "@/lib/fileValidation";
+import { checkRateLimit, rateLimitExceededResponse } from "@/lib/rateLimit";
+import { logSecurityEvent } from "@/lib/securityLogger";
+import { isValidDateYMD, isValidEmail, isValidPhoneNumber, sanitizeText } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
+
+function maskTrackingCode(code: string): string {
+  const clean = String(code || "").trim();
+  if (clean.length <= 6) return "******";
+  return `${clean.slice(0, 7)}****${clean.slice(-2)}`;
+}
 
 /**
  * Public GET: Fetch statistics, public transparency overview, and Hall of Fame passers
  */
-export async function GET() {
+export async function GET(request: Request) {
   try {
     await ensureCseTable();
 
@@ -34,27 +49,43 @@ export async function GET() {
           COUNT(CASE WHEN reimbursement_status = 'Reimbursed' THEN 1 END)::int as reimbursed_count,
           COALESCE(SUM(CASE WHEN reimbursement_status = 'Reimbursed' THEN reimbursement_amount ELSE 0 END), 0)::numeric as total_reimbursed_amount,
           COUNT(CASE WHEN attendance_status = 'Verified Attended' THEN 1 END)::int as verified_attended,
-          COUNT(CASE WHEN exam_result_status = 'Passed' THEN 1 END)::int as total_passers
+          COUNT(CASE WHEN exam_result_status = 'Passed' AND result_verified_at IS NOT NULL THEN 1 END)::int as total_passers,
+          COUNT(CASE WHEN is_first_time = FALSE AND reimbursement_status != 'Disapproved' THEN 1 END)::int as retaker_slots_used
         FROM cse_applications
       `,
       sql`
         SELECT purok, COUNT(*)::int as count
         FROM cse_applications
-        WHERE reimbursement_status != 'Disapproved'
+        WHERE exam_result_status = 'Passed'
+          AND result_verified_at IS NOT NULL
         GROUP BY purok
       `,
       sql`
         SELECT 
-          id, 
-          full_name, 
-          purok, 
-          exam_level, 
-          exam_date, 
-          rating, 
-          result_verified_at
-        FROM cse_applications
-        WHERE exam_result_status = 'Passed' AND is_featured_in_hall_of_fame = TRUE
-        ORDER BY result_verified_at DESC NULLS LAST, id DESC
+          c.id, 
+          c.full_name, 
+          c.purok, 
+          c.exam_category,
+          c.exam_level, 
+          c.exam_date, 
+          c.rating, 
+          c.result_verified_at,
+          COALESCE(
+            c.passer_avatar_url,
+            (
+              SELECT u.avatar_url
+              FROM users u
+              WHERE (c.user_id IS NOT NULL AND u.id = c.user_id)
+                 OR (c.user_email IS NOT NULL AND LOWER(u.email) = LOWER(c.user_email))
+              ORDER BY CASE WHEN c.user_id IS NOT NULL AND u.id = c.user_id THEN 0 ELSE 1 END
+              LIMIT 1
+            )
+          ) AS avatar_url
+        FROM cse_applications c
+        WHERE c.exam_result_status = 'Passed'
+          AND c.result_verified_at IS NOT NULL
+          AND c.is_featured_in_hall_of_fame = TRUE
+        ORDER BY c.result_verified_at DESC NULLS LAST, c.id DESC
       `,
       sql`
         SELECT 
@@ -62,6 +93,7 @@ export async function GET() {
           tracking_code, 
           full_name, 
           purok, 
+          exam_category,
           exam_level, 
           exam_date,
           reimbursement_status, 
@@ -91,6 +123,7 @@ export async function GET() {
       total_reimbursed_amount?: number;
       verified_attended?: number;
       total_passers?: number;
+      retaker_slots_used?: number;
     };
 
     const approvedOrReimbursed = stats.approved_or_reimbursed || 0;
@@ -98,13 +131,15 @@ export async function GET() {
     const totalReimbursedAmount = Number(stats.total_reimbursed_amount || 0);
     const remainingSlots = Math.max(0, quotaSlots - approvedOrReimbursed);
     const remainingBudget = Math.max(0, totalBudget - totalReimbursedAmount);
+    const retakerSlotCap = Math.max(1, Math.floor(quotaSlots * RETAKER_SLOT_RATIO));
+    const retakerSlotsUsed = Number(stats.retaker_slots_used || 0);
 
     const purokBreakdown: Record<string, number> = {};
     for (const r of purokRows as { purok: string; count: number }[]) {
       purokBreakdown[r.purok] = Number(r.count || 0);
     }
 
-    // Mask applicant names for public transparency feed
+    // Mask applicant names and tracking codes for public transparency feed
     const sanitizedRecent = (recentAppsRows as Array<{
       id: number;
       tracking_code: string;
@@ -118,11 +153,12 @@ export async function GET() {
       created_at: string;
     }>).map((app) => ({
       ...app,
+      tracking_code: maskTrackingCode(app.tracking_code),
       full_name: maskName(app.full_name),
     }));
 
-    const user = await getCurrentUser();
-    let myApplications: any[] = [];
+    const user = await getCurrentUser(request);
+    let myApplications: Record<string, unknown>[] = [];
     if (user) {
       myApplications = (await sql`
         SELECT 
@@ -136,9 +172,13 @@ export async function GET() {
           birthdate,
           age,
           school_or_employment,
+          exam_category,
           exam_level,
           exam_date,
+          exam_fee_paid,
           is_first_time,
+          prior_sitting_proof_url,
+          peer_review_attended,
           payout_preference,
           gcash_number,
           gcash_account_name,
@@ -160,6 +200,7 @@ export async function GET() {
           exam_result_status,
           rating,
           result_proof_url,
+          passer_avatar_url,
           is_featured_in_hall_of_fame,
           result_verified_at,
           user_id,
@@ -169,7 +210,7 @@ export async function GET() {
         FROM cse_applications 
         WHERE user_id = ${user.id} OR (email IS NOT NULL AND LOWER(email) = LOWER(${user.email}))
         ORDER BY created_at DESC
-      `) as any[];
+      `) as Record<string, unknown>[];
     }
 
     return NextResponse.json({
@@ -180,6 +221,7 @@ export async function GET() {
         totalBudget,
         targetExamBatch,
         reimbursementAmount: DEFAULT_REIMBURSEMENT_AMOUNT,
+        maxSubsidyCap: MAX_EXAM_SUBSIDY_CAP,
       },
       stats: {
         quotaSlots,
@@ -192,6 +234,8 @@ export async function GET() {
         remainingBudget,
         verifiedAttendedCount: stats.verified_attended || 0,
         totalPassers: stats.total_passers || 0,
+        retakerSlotCap,
+        retakerSlotsUsed,
         purokBreakdown,
       },
       recentApplications: sanitizedRecent,
@@ -212,80 +256,136 @@ export async function GET() {
  */
 export async function POST(request: Request) {
   try {
+    const limit = await checkRateLimit({
+      request,
+      bucket: "cse_submit",
+      max: 8,
+      windowMs: 60 * 60 * 1000,
+      persistToDb: true,
+    });
+    if (!limit.allowed) {
+      return rateLimitExceededResponse(limit.retryAfterSeconds);
+    }
+
     await ensureCseTable();
 
     const currentUser = await getCurrentUser(request);
     if (!currentUser) {
       return NextResponse.json(
-        { error: "Authentication required. Please sign in or create an account first before applying for the CSE subsidy." },
+        { error: "Authentication required. Please sign in or create an account first before applying for the exam fee subsidy." },
         { status: 401 }
+      );
+    }
+
+    // Conflict-of-interest exclusion: Incumbent SK Officials cannot claim during their term
+    if (isOfficialUser(currentUser)) {
+      return NextResponse.json(
+        {
+          error:
+            "Conflict-of-interest exclusion: Incumbent Sangguniang Kabataan officials are disqualified from availing of exam fee subsidies during their term.",
+        },
+        { status: 403 }
       );
     }
 
     const formData = await request.formData();
 
-    const fullName = String(formData.get("fullName") || "").trim();
-    const contactNumber = String(formData.get("contactNumber") || "").trim();
-    const email = String(formData.get("email") || "").trim() || null;
-    const facebookName = String(formData.get("facebookName") || "").trim() || null;
-    const purok = String(formData.get("purok") || "").trim();
-    const birthdate = String(formData.get("birthdate") || "").trim();
-    const schoolOrEmployment = String(formData.get("schoolOrEmployment") || "").trim() || null;
+    const fullName = sanitizeText(formData.get("fullName"), 120);
+    const contactNumber = sanitizeText(formData.get("contactNumber"), 30);
+    const email = sanitizeText(formData.get("email"), 254).toLowerCase() || null;
+    const facebookName = sanitizeText(formData.get("facebookName"), 100) || null;
+    const purok = sanitizeText(formData.get("purok"), 60);
+    const birthdate = sanitizeText(formData.get("birthdate"), 20);
+    const schoolOrEmployment = sanitizeText(formData.get("schoolOrEmployment"), 150) || null;
 
-    const examLevel = String(formData.get("examLevel") || "Professional").trim() as ExamLevel;
-    const examDate = String(formData.get("examDate") || "").trim();
+    const rawCategory = sanitizeText(formData.get("examCategory") || "Civil Service Exam (CSE)", 80);
+    const matchedCategory = EXAM_CATEGORY_OPTIONS.find((c) => c.id === rawCategory);
+    const examCategory: ExamCategory = matchedCategory ? matchedCategory.id : "Civil Service Exam (CSE)";
+
+    const rawExamLevel = sanitizeText(formData.get("examLevel") || "Professional", 100);
+    const examLevel = (rawExamLevel || "Professional") as ExamLevel;
+    const examDate = sanitizeText(formData.get("examDate"), 60);
+    const rawFeeValue = formData.get("examFeePaid") || matchedCategory?.defaultFee || DEFAULT_REIMBURSEMENT_AMOUNT;
+    if (!matchedCategory?.isFixedFee) {
+      const numericFee = Number(rawFeeValue);
+      if (!Number.isFinite(numericFee) || numericFee <= 0 || numericFee > 50000) {
+        return NextResponse.json({ error: "Please enter a valid examination fee amount." }, { status: 400 });
+      }
+    }
+    const { examFeePaid, subsidyAmount } = resolveExamFeeAndSubsidy(
+      examCategory,
+      rawFeeValue as string
+    );
+
     const isFirstTime = String(formData.get("isFirstTime") || "true").toLowerCase() === "true";
 
-    const payoutPreference = (String(
-      formData.get("payoutPreference") || "Barangay Hall Cash Pickup"
-    ).trim()) as PayoutPreference;
-    const gcashNumber = String(formData.get("gcashNumber") || "").trim() || null;
-    const gcashAccountName = String(formData.get("gcashAccountName") || "").trim() || null;
+    const rawPref = sanitizeText(formData.get("payoutPreference") || "Barangay Hall Cash Pickup", 60);
+    const payoutPreference = (rawPref === "GCash" ? "GCash" : "Barangay Hall Cash Pickup") as PayoutPreference;
+    const gcashNumber = sanitizeText(formData.get("gcashNumber"), 30) || null;
+    const gcashAccountName = sanitizeText(formData.get("gcashAccountName"), 100) || null;
 
-    const cscReceiptNo = String(formData.get("cscReceiptNo") || "").trim() || null;
+    const cscReceiptNo = sanitizeText(formData.get("cscReceiptNo"), 64) || null;
 
     // Required files
     const validIdFile = formData.get("validId") as File | null;
     const cscReceiptFile = formData.get("cscReceipt") as File | null;
     const examScheduleFile = formData.get("examSchedule") as File | null;
+    const priorSittingProofFile = formData.get("priorSittingProof") as File | null;
 
     // Validation
-    if (!fullName || !contactNumber || !purok || !birthdate || !examDate) {
+    if (!fullName || fullName.length < 2 || !contactNumber || !purok || !birthdate || !examDate) {
       return NextResponse.json(
         { error: "Please fill in all required personal and exam fields." },
         { status: 400 }
       );
     }
+    if (!isValidPhoneNumber(contactNumber)) {
+      return NextResponse.json({ error: "Please enter a valid contact number." }, { status: 400 });
+    }
+    if (email && !isValidEmail(email)) {
+      return NextResponse.json({ error: "Please enter a valid email address." }, { status: 400 });
+    }
+    if (!isValidDateYMD(birthdate)) {
+      return NextResponse.json({ error: "Invalid birthdate format (expected YYYY-MM-DD)." }, { status: 400 });
+    }
 
-    if (!validIdFile || validIdFile.size === 0) {
+    const validIdCheck = await validateUploadedFile(validIdFile, "cse_doc");
+    if (!validIdCheck.ok) {
+      await logSecurityEvent({ eventType: "UPLOAD_REJECTED", severity: "warning", request, userId: currentUser.id, details: { category: "cse_valid_id", reason: validIdCheck.reason } });
+      return NextResponse.json({ error: `Valid ID: ${validIdCheck.error}` }, { status: 400 });
+    }
+    const receiptCheck = await validateUploadedFile(cscReceiptFile, "cse_doc");
+    if (!receiptCheck.ok) {
+      await logSecurityEvent({ eventType: "UPLOAD_REJECTED", severity: "warning", request, userId: currentUser.id, details: { category: "cse_receipt", reason: receiptCheck.reason } });
+      return NextResponse.json({ error: `CSC Receipt: ${receiptCheck.error}` }, { status: 400 });
+    }
+    const scheduleCheck = await validateUploadedFile(examScheduleFile, "cse_doc");
+    if (!scheduleCheck.ok) {
+      await logSecurityEvent({ eventType: "UPLOAD_REJECTED", severity: "warning", request, userId: currentUser.id, details: { category: "cse_schedule", reason: scheduleCheck.reason } });
+      return NextResponse.json({ error: `Exam Schedule Slip: ${scheduleCheck.error}` }, { status: 400 });
+    }
+
+    if (!isFirstTime) {
+      const priorCheck = await validateUploadedFile(priorSittingProofFile, "cse_doc");
+      if (!priorCheck.ok) {
+        await logSecurityEvent({ eventType: "UPLOAD_REJECTED", severity: "warning", request, userId: currentUser.id, details: { category: "cse_prior_sitting", reason: priorCheck.reason } });
+        return NextResponse.json(
+          {
+            error: `Prior Exam Sitting Proof (Stamped NOA / Result): ${priorCheck.error}`,
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    if (payoutPreference === "GCash" && (!gcashNumber || !isValidPhoneNumber(gcashNumber))) {
       return NextResponse.json(
-        { error: "Valid ID / Proof of Residency is required." },
+        { error: "Please provide a valid GCash mobile number." },
         { status: 400 }
       );
     }
 
-    if (!cscReceiptFile || cscReceiptFile.size === 0) {
-      return NextResponse.json(
-        { error: "CSC Official Receipt (₱500) proof of payment is required." },
-        { status: 400 }
-      );
-    }
-
-    if (!examScheduleFile || examScheduleFile.size === 0) {
-      return NextResponse.json(
-        { error: "CSC Examination Slip / ONSA confirmation is required." },
-        { status: 400 }
-      );
-    }
-
-    if (payoutPreference === "GCash" && !gcashNumber) {
-      return NextResponse.json(
-        { error: "Please provide your GCash mobile number." },
-        { status: 400 }
-      );
-    }
-
-    // Validate Age (18 to 30 for Katipunan ng Kabataan eligibility for CSE)
+    // Validate Age (15 to 30 Katipunan ng Kabataan; 18+ for CSE & PRC Board Exams)
     const birth = new Date(birthdate);
     if (isNaN(birth.getTime())) {
       return NextResponse.json({ error: "Invalid birthdate." }, { status: 400 });
@@ -297,16 +397,22 @@ export async function POST(request: Request) {
       age--;
     }
 
-    if (age < 18) {
+    const minAgeForExam = matchedCategory?.minAge ?? 15;
+    if (age < minAgeForExam) {
       return NextResponse.json(
-        { error: "Examinees must be at least 18 years old to take the Civil Service Exam." },
+        {
+          error:
+            minAgeForExam >= 18
+              ? `Examinees must be at least 18 years old for ${examCategory}.`
+              : "Examinees must be at least 15 years old to qualify as a Katipunan ng Kabataan member.",
+        },
         { status: 400 }
       );
     }
 
     if (age > 30) {
       return NextResponse.json(
-        { error: "This SK subsidy is specifically funded for Katipunan ng Kabataan members (aged 18-30)." },
+        { error: "This SK subsidy is specifically funded for Katipunan ng Kabataan members aged 15–30 on exam day." },
         { status: 400 }
       );
     }
@@ -329,21 +435,91 @@ export async function POST(request: Request) {
 
     const quotaSlots = parseInt(settingsMap.get("cse_slot_quota") || String(DEFAULT_ANNUAL_SLOTS), 10);
 
-    // Prevent duplicate application from same logged-in user for the same exam batch
-    const existingUserApp = await sql`
-      SELECT id, tracking_code, reimbursement_status FROM cse_applications 
-      WHERE (user_id = ${currentUser.id} OR (email IS NOT NULL AND LOWER(email) = LOWER(${currentUser.email})))
-        AND reimbursement_status NOT IN ('Disapproved')
-        AND exam_date = ${examDate}
-      LIMIT 1
-    `;
-    if (existingUserApp.length > 0) {
+    // Enforce 3-year SK term cap: 1st-time attempt + hard limit of 1 retake (max 2 active slots per person)
+    const priorPersonApps = (await sql`
+      SELECT id, tracking_code, exam_date, attendance_status, exam_result_status
+      FROM cse_applications
+      WHERE reimbursement_status != 'Disapproved'
+        AND (
+          user_id = ${currentUser.id}
+          OR (email IS NOT NULL AND LOWER(email) = LOWER(${currentUser.email}))
+          OR (LOWER(TRIM(full_name)) = LOWER(TRIM(${fullName})) AND birthdate = ${birthdate})
+        )
+      ORDER BY created_at DESC
+    `) as Array<{
+      id: number;
+      tracking_code: string;
+      exam_date: string;
+      attendance_status: string;
+      exam_result_status: string;
+    }>;
+
+    const sameBatch = priorPersonApps.find((a) => a.exam_date === examDate);
+    if (sameBatch) {
       return NextResponse.json(
         {
-          error: `You already have an existing CSE subsidy application (${existingUserApp[0].tracking_code}) submitted for ${examDate}. Please track your application status instead.`,
+          error: `You already have an existing CSE subsidy application (${sameBatch.tracking_code}) submitted for ${examDate}. Please track your application status instead.`,
         },
         { status: 400 }
       );
+    }
+
+    if (priorPersonApps.some((a) => a.exam_result_status === "Passed")) {
+      return NextResponse.json(
+        {
+          error:
+            "You already have a verified passing CSE record under this program and are no longer eligible for additional exam fee subsidies.",
+        },
+        { status: 400 }
+      );
+    }
+
+    if (priorPersonApps.some((a) => a.attendance_status === "Did Not Attend")) {
+      return NextResponse.json(
+        {
+          error:
+            "Applicants who no-showed on a prior subsidized exam are ineligible for another slot under CBYDP rules.",
+        },
+        { status: 400 }
+      );
+    }
+
+    if (priorPersonApps.length >= 2) {
+      return NextResponse.json(
+        {
+          error:
+            "Term limit reached: Assistance is strictly capped at 1 first-time attempt plus a hard limit of 1 retake (max 2 slots) per person across the 3-year SK term.",
+        },
+        { status: 400 }
+      );
+    }
+
+    if (isFirstTime && priorPersonApps.length >= 1) {
+      return NextResponse.json(
+        {
+          error:
+            "You already have a prior exam subsidy record. Please select 'Retaker' and attach your stamped Notice of Admission / prior test result proving you sat for your first exam.",
+        },
+        { status: 400 }
+      );
+    }
+
+    // 80/20 Slot Split: 80% reserved for first-timers, max 20% for qualified retakers
+    if (!isFirstTime) {
+      const retakeCap = Math.max(1, Math.floor(quotaSlots * RETAKER_SLOT_RATIO));
+      const retakerCountRows = await sql`
+        SELECT COUNT(*)::int as count FROM cse_applications
+        WHERE is_first_time = FALSE AND reimbursement_status != 'Disapproved'
+      `;
+      const retakerCount = Number((retakerCountRows[0] as { count: number })?.count || 0);
+      if (retakerCount >= retakeCap) {
+        return NextResponse.json(
+          {
+            error: `Retake slot cap reached (${retakerCount} of ${retakeCap} slots / 20% max). Remaining annual slots are reserved for first-time examinees.`,
+          },
+          { status: 400 }
+        );
+      }
     }
 
     const existingCountRows = await sql`
@@ -353,10 +529,13 @@ export async function POST(request: Request) {
     const approvedCount = Number((existingCountRows[0] as { count: number })?.count || 0);
 
     // Save uploaded files to Neon Postgres storage
-    const [validIdSaved, cscReceiptSaved, examScheduleSaved] = await Promise.all([
-      saveUploadedFile(validIdFile, "cse"),
-      saveUploadedFile(cscReceiptFile, "cse"),
-      saveUploadedFile(examScheduleFile, "cse"),
+    const [validIdSaved, cscReceiptSaved, examScheduleSaved, priorSittingSaved] = await Promise.all([
+      saveUploadedFile(validIdFile!, "cse"),
+      saveUploadedFile(cscReceiptFile!, "cse"),
+      saveUploadedFile(examScheduleFile!, "cse"),
+      !isFirstTime && priorSittingProofFile
+        ? saveUploadedFile(priorSittingProofFile, "cse")
+        : Promise.resolve(null),
     ]);
 
     // Generate unique tracking code
@@ -387,9 +566,13 @@ export async function POST(request: Request) {
         birthdate,
         age,
         school_or_employment,
+        exam_category,
         exam_level,
         exam_date,
+        exam_fee_paid,
         is_first_time,
+        prior_sitting_proof_url,
+        peer_review_attended,
         payout_preference,
         gcash_number,
         gcash_account_name,
@@ -412,9 +595,13 @@ export async function POST(request: Request) {
         ${birthdate},
         ${age},
         ${schoolOrEmployment},
+        ${examCategory},
         ${examLevel},
         ${examDate},
+        ${examFeePaid},
         ${isFirstTime},
+        ${priorSittingSaved ? priorSittingSaved.filePath : null},
+        ${false},
         ${payoutPreference},
         ${gcashNumber},
         ${gcashAccountName},
@@ -423,7 +610,7 @@ export async function POST(request: Request) {
         ${cscReceiptNo},
         ${examScheduleSaved.filePath},
         ${initialStatus},
-        ${DEFAULT_REIMBURSEMENT_AMOUNT},
+        ${subsidyAmount},
         ${initialNote},
         ${currentUser.id},
         ${currentUser.email}
@@ -434,8 +621,8 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       trackingCode: inserted[0].tracking_code,
-      message:
-        "Application submitted successfully! Please save your tracking code to monitor your ₱500 reimbursement and upload your exam day & result proofs.",
+      subsidyAmount,
+      message: `Application submitted! Save your tracking code to monitor your ₱${subsidyAmount.toLocaleString()} post-exam subsidy and upload your test-day & result proofs.`,
     });
   } catch (error) {
     console.error("Error submitting CSE application:", error);

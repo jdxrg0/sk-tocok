@@ -59,7 +59,6 @@ export default function OthersPage() {
               <Link
                 key={page.href}
                 href={page.href}
-                scroll={false}
                 className="group bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 hover:border-brand-300 dark:hover:border-brand-700 p-5 shadow-xs hover:shadow-sm transition-all flex flex-col justify-between gap-4"
               >
                 <div className="space-y-3">

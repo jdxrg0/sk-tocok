@@ -3,6 +3,8 @@ import { Readable } from "stream";
 import fs from "fs";
 import path from "path";
 import { saveUploadedFile, inferMimeType } from "./storage";
+import { getAppsScriptWebhookSecret } from "./env";
+import { sanitizeFileName } from "./fileValidation";
 
 export type CloudUploadCategory = "prints" | "vouchers" | "deposits" | "officials" | "attendance";
 
@@ -296,7 +298,7 @@ export async function uploadToCloudStorage(
   category: CloudUploadCategory
 ): Promise<UploadResult> {
   const cfg = CATEGORY_CONFIG[category];
-  const originalName = file.name || "document.pdf";
+  const originalName = sanitizeFileName(file.name || "document.pdf");
   const mimeType = inferMimeType(originalName, file.type);
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const driveFileName = `${cfg.prefix} ${timestamp} - ${originalName}`;
@@ -309,6 +311,7 @@ export async function uploadToCloudStorage(
 
   // 1. First priority: Google Apps Script Webhook (Personal Google Drive — 15 GB free)
   const appsScriptUrl = process.env.GOOGLE_APPS_SCRIPT_URL;
+  const webhookSecret = getAppsScriptWebhookSecret();
   if (appsScriptUrl) {
     try {
       const base64 = buffer.toString("base64");
@@ -319,6 +322,7 @@ export async function uploadToCloudStorage(
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            ...(webhookSecret ? { webhookSecret } : {}),
             fileName: driveFileName,
             mimeType,
             base64,

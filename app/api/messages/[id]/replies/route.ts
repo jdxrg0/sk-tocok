@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
-import { ensureMessagesTable, generateRandomAlias } from "@/lib/messages";
+import { ensureMessagesTable } from "@/lib/messages";
 import {
   getOrAssignDeviceIdentity,
   attachDeviceCookie,
 } from "@/lib/deviceIdentity";
+import { checkRateLimit, rateLimitExceededResponse } from "@/lib/rateLimit";
+import { sanitizeText } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +23,7 @@ export async function GET(
 
     const { id } = await params;
     const messageId = parseInt(id, 10);
-    if (isNaN(messageId)) {
+    if (isNaN(messageId) || messageId <= 0) {
       return NextResponse.json(
         { success: false, error: "Invalid post ID" },
         { status: 400 }
@@ -29,7 +31,7 @@ export async function GET(
     }
 
     const rows = await sql`
-      SELECT 
+      SELECT
         id,
         message_id,
         parent_id,
@@ -57,18 +59,29 @@ export async function GET(
 
 /**
  * POST /api/messages/[id]/replies
- * Add an anonymous reply/comment to a post (no approval required!)
+ * Add an anonymous reply/comment to a post
  */
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const limit = await checkRateLimit({
+      request,
+      bucket: "message_reply_post",
+      max: 20,
+      windowMs: 15 * 60 * 1000,
+      persistToDb: true,
+    });
+    if (!limit.allowed) {
+      return rateLimitExceededResponse(limit.retryAfterSeconds);
+    }
+
     await ensureMessagesTable();
 
     const { id } = await params;
     const messageId = parseInt(id, 10);
-    if (isNaN(messageId)) {
+    if (isNaN(messageId) || messageId <= 0) {
       return NextResponse.json(
         { success: false, error: "Invalid post ID" },
         { status: 400 }
@@ -76,9 +89,9 @@ export async function POST(
     }
 
     const body = await request.json().catch(() => ({}));
-    const { alias, reply, parent_id } = body;
+    const { reply, parent_id } = body;
 
-    const cleanReply = String(reply || "").trim();
+    const cleanReply = sanitizeText(reply, 2000);
     if (!cleanReply || cleanReply.length < 1 || cleanReply.length > 2000) {
       return NextResponse.json(
         {
@@ -89,8 +102,8 @@ export async function POST(
       );
     }
 
-    // Resolve and lock permanent alias tied to device/IP
-    const deviceIdentity = await getOrAssignDeviceIdentity(request, alias);
+    // Resolve and lock permanent alias tied strictly to verified device cookie
+    const deviceIdentity = await getOrAssignDeviceIdentity(request);
     const cleanAlias = deviceIdentity.alias;
 
     // Verify post exists and is public
@@ -109,8 +122,8 @@ export async function POST(
       const pId = parseInt(String(parent_id), 10);
       if (!isNaN(pId) && pId > 0) {
         const parentCheck = await sql`
-          SELECT id FROM anonymous_message_replies 
-          WHERE id = ${pId} AND message_id = ${messageId} 
+          SELECT id FROM anonymous_message_replies
+          WHERE id = ${pId} AND message_id = ${messageId}
           LIMIT 1
         `;
         if (parentCheck.length > 0) {
@@ -124,11 +137,13 @@ export async function POST(
         message_id,
         parent_id,
         alias,
+        device_id,
         reply
       ) VALUES (
         ${messageId},
         ${validParentId},
         ${cleanAlias.slice(0, 50)},
+        ${deviceIdentity.deviceId},
         ${cleanReply}
       )
       RETURNING id, message_id, parent_id, alias, reply, likes_count, created_at
@@ -140,7 +155,7 @@ export async function POST(
       device_id: deviceIdentity.deviceId,
     });
 
-    return attachDeviceCookie(res, deviceIdentity.deviceId);
+    return await attachDeviceCookie(res, deviceIdentity.deviceId, request);
   } catch (err: unknown) {
     console.error("POST /api/messages/[id]/replies error:", err);
     return NextResponse.json(

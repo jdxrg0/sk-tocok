@@ -8,6 +8,9 @@ import {
   setCachedDeposits,
   invalidateAllTransparencyCache,
 } from "@/lib/transparencyCache";
+import { validateUploadedFile } from "@/lib/fileValidation";
+import { logSecurityEvent } from "@/lib/securityLogger";
+import { isValidDateYMD, parseMoney, sanitizeText } from "@/lib/validation";
 
 export async function GET(request: Request) {
   try {
@@ -68,29 +71,39 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const user = await getCurrentUser();
+    const user = await getCurrentUser(request);
     if (!user) return NextResponse.json({ error: "Unauthorized. Please log in as an SK Official." }, { status: 401 });
     if (!isOfficialUser(user)) return NextResponse.json({ error: "Forbidden: SK Officials only." }, { status: 403 });
 
     const formData = await request.formData();
-    const reference_no = formData.get("reference_no") as string;
-    const source = formData.get("source") as string;
-    const amountStr = formData.get("amount") as string;
-    const date = formData.get("date") as string;
-    const description = (formData.get("description") as string) || "";
+    const reference_no = sanitizeText(formData.get("reference_no"), 100);
+    const source = sanitizeText(formData.get("source"), 150);
+    const amount = parseMoney(formData.get("amount"));
+    const date = sanitizeText(formData.get("date"), 20);
+    const description = sanitizeText(formData.get("description"), 1000);
     const file = formData.get("attachment_file") as File | null;
 
-    if (!reference_no || !source || !amountStr || !date) {
-      return NextResponse.json({ error: "Please fill out reference no, source, amount, and deposit date." }, { status: 400 });
+    if (!reference_no || !source || amount === null || !date) {
+      return NextResponse.json({ error: "Please fill out reference no, source, valid amount, and deposit date." }, { status: 400 });
     }
 
-    const amount = parseFloat(amountStr);
-    if (isNaN(amount) || amount <= 0) {
-      return NextResponse.json({ error: "Please enter a valid deposit amount." }, { status: 400 });
+    if (!isValidDateYMD(date)) {
+      return NextResponse.json({ error: "Invalid deposit date (expected YYYY-MM-DD)." }, { status: 400 });
     }
 
     let attachment_url: string | null = null;
     if (file && file.size > 0) {
+      const fileCheck = await validateUploadedFile(file, "financial_doc");
+      if (!fileCheck.ok) {
+        await logSecurityEvent({
+          eventType: "UPLOAD_REJECTED",
+          severity: "warning",
+          request,
+          userId: user.id,
+          details: { category: "deposit_attachment", reason: fileCheck.reason },
+        });
+        return NextResponse.json({ error: fileCheck.error }, { status: 400 });
+      }
       const saved = await uploadToCloudStorage(file, "deposits");
       attachment_url = saved.filePath;
     }
@@ -98,13 +111,22 @@ export async function POST(request: Request) {
     const result = await sql`
       INSERT INTO deposits (reference_no, source, amount, date, description, attachment_url, recorded_by)
       VALUES (
-        ${reference_no.trim()}, ${source.trim()}, ${amount}, ${date.trim()},
-        ${description.trim()}, ${attachment_url}, ${`${user.name} (${user.role})`}
+        ${reference_no}, ${source}, ${amount}, ${date},
+        ${description}, ${attachment_url}, ${`${user.name} (${user.role})`}
       )
       RETURNING id
     `;
 
     invalidateAllTransparencyCache();
+
+    await logSecurityEvent({
+      eventType: "DEPOSIT_CREATED",
+      severity: "info",
+      request,
+      userId: user.id,
+      email: user.email,
+      details: { reference_no, amount },
+    });
 
     return NextResponse.json({
       success: true,

@@ -1,7 +1,12 @@
+import crypto from "crypto";
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { savePrintDocument } from "@/lib/googleDrive";
 import { getCurrentUser } from "@/lib/auth";
+import { validateUploadedFile } from "@/lib/fileValidation";
+import { checkRateLimit, rateLimitExceededResponse } from "@/lib/rateLimit";
+import { logSecurityEvent } from "@/lib/securityLogger";
+import { PAPER_SIZES, PRINT_TYPES, sanitizeText } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
 
@@ -18,16 +23,14 @@ async function generateTrackingCode(): Promise<string> {
     console.warn("Failed to load existing tracking codes, using fallback:", err);
   }
 
-  // Generate random 3-digit code in SK[100-999] format (e.g. SK104, SK528)
   for (let i = 0; i < 1000; i++) {
-    const num = Math.floor(100 + Math.random() * 900);
+    const num = crypto.randomInt(100, 1000);
     const candidate = `SK${num}`;
     if (!existingCodes.has(candidate)) {
       return candidate;
     }
   }
 
-  // Fallback to padded 000-099 if 100-999 are completely filled
   for (let i = 0; i < 100; i++) {
     const candidate = `SK${String(i).padStart(3, "0")}`;
     if (!existingCodes.has(candidate)) {
@@ -35,13 +38,22 @@ async function generateTrackingCode(): Promise<string> {
     }
   }
 
-  // Expansion fallback if all 1,000 three-digit codes are occupied
-  return `SK${Math.floor(1000 + Math.random() * 9000)}`;
+  return `SK${crypto.randomInt(1000, 10000)}`;
 }
 
 export async function POST(request: Request) {
   try {
-    // Require user authentication before submitting
+    const limit = await checkRateLimit({
+      request,
+      bucket: "printing_submit",
+      max: 12,
+      windowMs: 60 * 60 * 1000,
+      persistToDb: true,
+    });
+    if (!limit.allowed) {
+      return rateLimitExceededResponse(limit.retryAfterSeconds);
+    }
+
     const currentUser = await getCurrentUser(request);
     if (!currentUser) {
       return NextResponse.json(
@@ -50,7 +62,6 @@ export async function POST(request: Request) {
       );
     }
 
-    // Check if printing program is currently active
     const activeSettingRows = await sql`SELECT value FROM settings WHERE key = 'printing_active'`;
     const activeSetting = activeSettingRows[0] as { value: string } | undefined;
     if (activeSetting && activeSetting.value === "false") {
@@ -62,51 +73,55 @@ export async function POST(request: Request) {
 
     const formData = await request.formData();
 
-    const student_name = formData.get("student_name") as string;
-    const contact_number = (formData.get("contact_number") as string) || "";
-    const facebook_name = (formData.get("facebook_name") as string) || "";
-    const purok = formData.get("purok") as string;
-    const school = formData.get("school") as string;
-    const grade_level = formData.get("grade_level") as string;
-    const print_type = (formData.get("print_type") as string) || "";
-    const paper_size = (formData.get("paper_size") as string) || "";
-    const copies = parseInt((formData.get("copies") as string) || "1", 10);
-    const page_range = (formData.get("page_range") as string) || "All pages";
-    const notes = (formData.get("notes") as string) || "";
-    const pickup_station = (formData.get("pickup_station") as string) || "";
+    const student_name = sanitizeText(formData.get("student_name"), 120);
+    const contact_number = sanitizeText(formData.get("contact_number"), 30);
+    const facebook_name = sanitizeText(formData.get("facebook_name"), 100);
+    const purok = sanitizeText(formData.get("purok"), 60);
+    const school = sanitizeText(formData.get("school"), 150);
+    const grade_level = sanitizeText(formData.get("grade_level"), 60);
+    const print_type = sanitizeText(formData.get("print_type"), 40);
+    const paper_size = sanitizeText(formData.get("paper_size"), 40);
+    const rawCopies = parseInt(String(formData.get("copies") || "1"), 10);
+    const page_range = sanitizeText(formData.get("page_range") || "All pages", 60) || "All pages";
+    const notes = sanitizeText(formData.get("notes"), 1000);
+    const pickup_station = sanitizeText(formData.get("pickup_station"), 120);
     const is_urgent = formData.get("is_urgent") === "true" || formData.get("is_urgent") === "1" ? 1 : 0;
     const file = formData.get("file") as File | null;
 
-    if (!student_name || !purok || !school || !grade_level) {
+    if (!student_name || !purok || !grade_level) {
       return NextResponse.json({ error: "Please fill out all required student information fields." }, { status: 400 });
     }
 
-    if (!print_type) {
-      return NextResponse.json({ error: "Please select your preferred print color (Black & White or Colored)." }, { status: 400 });
+    if (!PRINT_TYPES.includes(print_type as (typeof PRINT_TYPES)[number])) {
+      return NextResponse.json({ error: "Please select a valid print color (Black & White or Colored)." }, { status: 400 });
     }
 
-    if (!paper_size) {
-      return NextResponse.json({ error: "Please select your preferred bond paper size (A4, Letter, or Legal)." }, { status: 400 });
+    if (!PAPER_SIZES.includes(paper_size as (typeof PAPER_SIZES)[number])) {
+      return NextResponse.json({ error: "Please select a valid bond paper size (A4, Letter (Short), or Legal (Long))." }, { status: 400 });
+    }
+
+    if (!Number.isInteger(rawCopies) || rawCopies < 1 || rawCopies > 500) {
+      return NextResponse.json({ error: "Number of copies must be between 1 and 500." }, { status: 400 });
     }
 
     if (!pickup_station) {
       return NextResponse.json({ error: "Please select your preferred claiming station." }, { status: 400 });
     }
 
-    if (!file) {
-      return NextResponse.json({ error: "Please upload your document file to be printed." }, { status: 400 });
+    const fileValidation = await validateUploadedFile(file, "print_doc");
+    if (!fileValidation.ok) {
+      await logSecurityEvent({
+        eventType: "UPLOAD_REJECTED",
+        severity: "warning",
+        request,
+        userId: currentUser.id,
+        details: { category: "print_doc", reason: fileValidation.reason },
+      });
+      return NextResponse.json({ error: fileValidation.error }, { status: 400 });
     }
 
-    // Maximum file size: 100 MB
-    const MAX_SIZE = 100 * 1024 * 1024;
-    if (file.size > MAX_SIZE) {
-      return NextResponse.json({ error: "File exceeds maximum size limit of 100MB." }, { status: 400 });
-    }
+    const { filePath, fileName, fileSize } = await savePrintDocument(file!);
 
-    // Save file (uploads to Google Drive if configured, otherwise local disk)
-    const { filePath, fileName, fileSize } = await savePrintDocument(file);
-
-    // Generate unique random ticket code in SK[random three digit number] format (e.g. SK104)
     let trackingCode = await generateTrackingCode();
     let codeExists = await sql`SELECT id FROM print_requests WHERE UPPER(tracking_code) = ${trackingCode.toUpperCase()}`;
     while (codeExists.length > 0) {
@@ -122,21 +137,21 @@ export async function POST(request: Request) {
         user_id, user_email
       ) VALUES (
         ${trackingCode},
-        ${student_name.trim()},
-        ${contact_number.trim()},
-        ${facebook_name.trim()},
-        ${purok.trim()},
-        ${school.trim()},
-        ${grade_level.trim()},
+        ${student_name},
+        ${contact_number},
+        ${facebook_name},
+        ${purok},
+        ${school},
+        ${grade_level},
         ${fileName},
         ${filePath},
         ${fileSize},
         ${print_type},
         ${paper_size},
-        ${copies > 0 ? copies : 1},
-        ${page_range.trim()},
-        ${notes.trim()},
-        ${pickup_station.trim()},
+        ${rawCopies},
+        ${page_range},
+        ${notes},
+        ${pickup_station},
         ${is_urgent},
         'Pending Review',
         ${currentUser.id},

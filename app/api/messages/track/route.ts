@@ -1,15 +1,26 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { ensureMessagesTable } from "@/lib/messages";
+import { checkRateLimit, rateLimitExceededResponse } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   try {
+    const limit = await checkRateLimit({
+      request,
+      bucket: "messages_track",
+      max: 30,
+      windowMs: 15 * 60 * 1000,
+    });
+    if (!limit.allowed) {
+      return rateLimitExceededResponse(limit.retryAfterSeconds);
+    }
+
     await ensureMessagesTable();
 
     const { searchParams } = new URL(request.url);
-    const code = (searchParams.get("code") || "").trim().toUpperCase();
+    const code = (searchParams.get("code") || "").trim().toUpperCase().slice(0, 40);
 
     if (!code) {
       return NextResponse.json(
@@ -19,7 +30,7 @@ export async function GET(request: Request) {
     }
 
     const rows = await sql`
-      SELECT 
+      SELECT
         tracking_code,
         alias,
         category,
@@ -47,11 +58,9 @@ export async function GET(request: Request) {
       );
     }
 
-    const message = rows[0];
-
     return NextResponse.json({
       success: true,
-      message,
+      message: rows[0],
     });
   } catch (err: unknown) {
     console.error("GET /api/messages/track error:", err);

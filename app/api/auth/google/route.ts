@@ -7,6 +7,8 @@ import {
   upsertGoogleStudentUser,
   attachAuthCookie,
 } from "@/lib/googleAuth";
+import { checkRateLimit, rateLimitExceededResponse } from "@/lib/rateLimit";
+import { logSecurityEvent } from "@/lib/securityLogger";
 
 export async function GET() {
   const { configured, clientId, mode } = getGoogleOAuthConfig();
@@ -19,6 +21,16 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const limit = await checkRateLimit({
+      request,
+      bucket: "google_auth_token",
+      max: 20,
+      windowMs: 15 * 60 * 1000,
+    });
+    if (!limit.allowed) {
+      return rateLimitExceededResponse(limit.retryAfterSeconds);
+    }
+
     const { clientId } = getGoogleOAuthConfig();
     if (!clientId) {
       return NextResponse.json(
@@ -49,6 +61,14 @@ export async function POST(request: Request) {
 
     const { user, token } = await upsertGoogleStudentUser(profile);
 
+    await logSecurityEvent({
+      eventType: "GOOGLE_LOGIN_SUCCESS",
+      severity: "info",
+      request,
+      userId: user.id,
+      email: user.email,
+    });
+
     const response = NextResponse.json({
       success: true,
       user: {
@@ -66,10 +86,15 @@ export async function POST(request: Request) {
     return response;
   } catch (error: unknown) {
     console.error("Google auth error:", error);
+    await logSecurityEvent({
+      eventType: "GOOGLE_OAUTH_FAILED",
+      severity: "warning",
+      request,
+    });
     const err = error as Error & { status?: number };
     const status = typeof err?.status === "number" ? err.status : 401;
     const message =
-      err instanceof Error && err.message
+      status >= 400 && status < 500 && err instanceof Error && err.message
         ? err.message
         : "An unexpected error occurred during Google sign-in.";
     return NextResponse.json({ error: message }, { status });

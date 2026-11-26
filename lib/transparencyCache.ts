@@ -1,3 +1,5 @@
+import { revalidatePath, revalidateTag } from "next/cache";
+
 /**
  * In-memory cache for transparency portal financial datasets.
  * Reduces database round-trips to Neon Postgres while guaranteeing instant
@@ -54,4 +56,10 @@ export function invalidateDepositsCache(): void {
 export function invalidateAllTransparencyCache(): void {
   expensesCache = null;
   depositsCache = null;
+  try {
+    revalidateTag("home-data");
+    revalidatePath("/");
+  } catch {
+    // Ignore when called outside a Next.js request context (e.g. standalone scripts)
+  }
 }

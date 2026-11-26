@@ -1,21 +1,31 @@
 import { NextResponse } from "next/server";
-import { sql, query } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
+import { query } from "@/lib/db";
+import { getCurrentUser, isOfficialUser } from "@/lib/auth";
+import { checkRateLimit, rateLimitExceededResponse } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ code: string }> }
 ) {
   try {
+    const limit = await checkRateLimit({
+      request,
+      bucket: "print_lookup",
+      max: 40,
+      windowMs: 15 * 60 * 1000,
+    });
+    if (!limit.allowed) {
+      return rateLimitExceededResponse(limit.retryAfterSeconds);
+    }
+
     const { code } = await params;
     if (!code) {
       return NextResponse.json({ error: "Tracking code is required" }, { status: 400 });
     }
 
-    const rawCode = decodeURIComponent(code).trim();
-    // Normalize: strip leading # or "ticket", "no.", "PRN-"
+    const rawCode = decodeURIComponent(code).trim().slice(0, 60);
     const cleanNumber = rawCode.replace(/^[#\s]+/, "").replace(/^(ticket|no\.?)\s*/i, "").trim();
     const withoutHyphen = cleanNumber.replace(/[\s-]+/g, "");
     const skPrefixed = `SK${cleanNumber}`;
@@ -25,14 +35,14 @@ export async function GET(
     let jobs: Record<string, unknown>[];
     if (isNum) {
       jobs = await query<Record<string, unknown>>(
-        `SELECT 
+        `SELECT
           id, tracking_code, student_name, school, grade_level, purok,
           file_name, print_type, paper_size, copies, page_range, notes,
           pickup_station, is_urgent,
           status, admin_notes, picked_up_at, created_at, updated_at,
           user_id, user_email
-        FROM print_requests 
-        WHERE LOWER(tracking_code) = LOWER($1) 
+        FROM print_requests
+        WHERE LOWER(tracking_code) = LOWER($1)
            OR LOWER(tracking_code) = LOWER($2)
            OR id = $3
            OR tracking_code = $4
@@ -43,14 +53,14 @@ export async function GET(
       );
     } else {
       jobs = await query<Record<string, unknown>>(
-        `SELECT 
+        `SELECT
           id, tracking_code, student_name, school, grade_level, purok,
           file_name, print_type, paper_size, copies, page_range, notes,
           pickup_station, is_urgent,
           status, admin_notes, picked_up_at, created_at, updated_at,
           user_id, user_email
-        FROM print_requests 
-        WHERE LOWER(tracking_code) = LOWER($1) 
+        FROM print_requests
+        WHERE LOWER(tracking_code) = LOWER($1)
            OR LOWER(tracking_code) = LOWER($2)
            OR LOWER(tracking_code) = LOWER($3)
         ORDER BY id ASC
@@ -65,17 +75,17 @@ export async function GET(
 
     const job = jobs[0];
 
-    // Check if the current viewer owns this request
-    const currentUser = await getCurrentUser();
-    const isOwner = !!(
-      currentUser && (
-        (job.user_id && job.user_id === currentUser.id) ||
-        (job.user_email && String(job.user_email).toLowerCase() === currentUser.email.toLowerCase()) ||
-        (job.student_name && String(job.student_name).toLowerCase().trim() === currentUser.name.toLowerCase().trim())
-      )
+    // Check if the current viewer owns this request or is an SK Official
+    const currentUser = await getCurrentUser(request);
+    const isOwner = Boolean(
+      currentUser &&
+        (isOfficialUser(currentUser) ||
+          (job.user_id && Number(job.user_id) === currentUser.id) ||
+          (!job.user_id &&
+            job.user_email &&
+            String(job.user_email).toLowerCase() === currentUser.email.toLowerCase()))
     );
 
-    // If the ticket is not ours, don't show any personal or document details (progress only)
     if (!isOwner) {
       const progressOnlyJob = {
         id: job.id,
@@ -99,7 +109,7 @@ export async function GET(
       },
     });
   } catch (error) {
-    console.error("Tracking lookup error:", error);
-    return NextResponse.json({ error: "Error looking up tracking code" }, { status: 500 });
+    console.error("Track print job error:", error);
+    return NextResponse.json({ error: "Failed to track print request." }, { status: 500 });
   }
 }

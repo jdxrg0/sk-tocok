@@ -14,9 +14,9 @@ import {
   upsertGoogleStudentUser,
   attachAuthCookie,
 } from "@/lib/googleAuth";
-
-const JWT_SECRET =
-  process.env.JWT_SECRET || "sk-tocok-transparency-secret-key-2026";
+import { getJwtSecret } from "@/lib/env";
+import { checkRateLimit, rateLimitExceededResponse } from "@/lib/rateLimit";
+import { logSecurityEvent } from "@/lib/securityLogger";
 
 function redirectWithError(
   origin: string,
@@ -31,6 +31,17 @@ function redirectWithError(
 }
 
 export async function GET(request: Request) {
+  const limit = await checkRateLimit({
+    request,
+    bucket: "google_oauth_callback",
+    max: 30,
+    windowMs: 15 * 60 * 1000,
+  });
+  if (!limit.allowed) {
+    return rateLimitExceededResponse(limit.retryAfterSeconds);
+  }
+
+  const jwtSecret = getJwtSecret();
   const url = new URL(request.url);
   const origin = getRequestOrigin(request);
   const cookieStore = await cookies();
@@ -41,7 +52,9 @@ export async function GET(request: Request) {
 
   if (stateCookie) {
     try {
-      const decoded = jwt.verify(stateCookie, JWT_SECRET) as {
+      const decoded = jwt.verify(stateCookie, jwtSecret, {
+        algorithms: ["HS256"],
+      }) as {
         state?: string;
         returnTo?: string;
       };
@@ -127,7 +140,15 @@ export async function GET(request: Request) {
       ? await verifyGoogleIdToken(tokenData.id_token, clientId)
       : await verifyGoogleAccessToken(tokenData.access_token, clientId);
 
-    const { token } = await upsertGoogleStudentUser(profile);
+    const { token, user } = await upsertGoogleStudentUser(profile);
+
+    await logSecurityEvent({
+      eventType: "GOOGLE_LOGIN_SUCCESS",
+      severity: "info",
+      request,
+      userId: user.id,
+      email: user.email,
+    });
 
     const response = NextResponse.redirect(new URL(returnTo, origin));
     response.cookies.delete(GOOGLE_OAUTH_STATE_COOKIE);
@@ -135,10 +156,15 @@ export async function GET(request: Request) {
     return response;
   } catch (error: unknown) {
     console.error("Google OAuth callback error:", error);
-    const message =
-      error instanceof Error && error.message
-        ? error.message
-        : "An unexpected error occurred during Google sign-in.";
-    return redirectWithError(origin, returnTo, message);
+    await logSecurityEvent({
+      eventType: "GOOGLE_OAUTH_FAILED",
+      severity: "warning",
+      request,
+    });
+    return redirectWithError(
+      origin,
+      returnTo,
+      "An unexpected error occurred during Google sign-in. Please try again."
+    );
   }
 }

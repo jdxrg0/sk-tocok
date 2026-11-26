@@ -5,18 +5,26 @@ import { getCurrentUser, isOfficialUser } from "@/lib/auth";
 import { deleteStoredFileByUrl } from "@/lib/storage";
 import { uploadToCloudStorage } from "@/lib/googleDrive";
 import { invalidateAllTransparencyCache } from "@/lib/transparencyCache";
+import { validateUploadedFile } from "@/lib/fileValidation";
+import { logSecurityEvent } from "@/lib/securityLogger";
+import { isValidDateYMD, parseMoney, sanitizeText } from "@/lib/validation";
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const user = await getCurrentUser();
+    const user = await getCurrentUser(request);
     if (!user) return NextResponse.json({ error: "Unauthorized access" }, { status: 401 });
     if (!isOfficialUser(user)) return NextResponse.json({ error: "Forbidden: SK Officials only" }, { status: 403 });
 
     const { id } = await params;
-    const result = await sql`DELETE FROM deposits WHERE id = ${id} RETURNING id, attachment_url`;
+    const depositId = parseInt(id, 10);
+    if (!Number.isInteger(depositId) || depositId <= 0) {
+      return NextResponse.json({ error: "Invalid deposit ID" }, { status: 400 });
+    }
+
+    const result = await sql`DELETE FROM deposits WHERE id = ${depositId} RETURNING id, attachment_url`;
 
     if (result.length === 0) {
       return NextResponse.json({ error: "Deposit record not found" }, { status: 404 });
@@ -26,6 +34,14 @@ export async function DELETE(
       await deleteStoredFileByUrl(deletedUrl);
     }
     invalidateAllTransparencyCache();
+    await logSecurityEvent({
+      eventType: "DEPOSIT_DELETED",
+      severity: "warning",
+      request,
+      userId: user.id,
+      email: user.email,
+      details: { depositId },
+    });
     return NextResponse.json({ success: true, message: "Deposit record deleted successfully" });
   } catch (error) {
     console.error("Delete deposit error:", error);
@@ -38,38 +54,57 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const user = await getCurrentUser();
+    const user = await getCurrentUser(request);
     if (!user) return NextResponse.json({ error: "Unauthorized access" }, { status: 401 });
     if (!isOfficialUser(user)) return NextResponse.json({ error: "Forbidden: SK Officials only" }, { status: 403 });
 
     const { id } = await params;
+    const depositId = parseInt(id, 10);
+    if (!Number.isInteger(depositId) || depositId <= 0) {
+      return NextResponse.json({ error: "Invalid deposit ID" }, { status: 400 });
+    }
+
     const formData = await request.formData();
-    const reference_no = formData.get("reference_no") as string;
-    const source = formData.get("source") as string;
-    const amountStr = formData.get("amount") as string;
-    const date = formData.get("date") as string;
-    const description = (formData.get("description") as string) || "";
+    const reference_no = sanitizeText(formData.get("reference_no"), 100);
+    const source = sanitizeText(formData.get("source"), 150);
+    const amount = parseMoney(formData.get("amount"));
+    const date = sanitizeText(formData.get("date"), 20);
+    const description = sanitizeText(formData.get("description"), 1000);
     const file = formData.get("attachment_file") as File | null;
 
-    if (!reference_no || !source || !amountStr || !date) {
+    if (!reference_no || !source || !date) {
       return NextResponse.json({ error: "Please fill out all required fields." }, { status: 400 });
     }
 
-    const amount = parseFloat(amountStr);
-    if (isNaN(amount) || amount <= 0) {
+    if (amount === null) {
       return NextResponse.json({ error: "Please enter a valid deposit amount." }, { status: 400 });
     }
 
+    if (!isValidDateYMD(date)) {
+      return NextResponse.json({ error: "Invalid deposit date (expected YYYY-MM-DD)." }, { status: 400 });
+    }
+
     if (file && file.size > 0) {
-      const existingRows = await sql`SELECT attachment_url FROM deposits WHERE id = ${id}`;
+      const fileCheck = await validateUploadedFile(file, "financial_doc");
+      if (!fileCheck.ok) {
+        await logSecurityEvent({
+          eventType: "UPLOAD_REJECTED",
+          severity: "warning",
+          request,
+          userId: user.id,
+          details: { category: "deposit_update", reason: fileCheck.reason },
+        });
+        return NextResponse.json({ error: fileCheck.error }, { status: 400 });
+      }
+      const existingRows = await sql`SELECT attachment_url FROM deposits WHERE id = ${depositId}`;
       const oldAttachmentUrl = (existingRows[0] as { attachment_url?: string | null } | undefined)?.attachment_url;
       const saved = await uploadToCloudStorage(file, "deposits");
       await sql`
         UPDATE deposits
-        SET reference_no = ${reference_no.trim()}, source = ${source.trim()},
-            amount = ${amount}, date = ${date.trim()},
-            description = ${description.trim()}, attachment_url = ${saved.filePath}
-        WHERE id = ${id}
+        SET reference_no = ${reference_no}, source = ${source},
+            amount = ${amount}, date = ${date},
+            description = ${description}, attachment_url = ${saved.filePath}
+        WHERE id = ${depositId}
       `;
       if (oldAttachmentUrl) {
         await deleteStoredFileByUrl(oldAttachmentUrl);
@@ -77,9 +112,9 @@ export async function PUT(
     } else {
       await sql`
         UPDATE deposits
-        SET reference_no = ${reference_no.trim()}, source = ${source.trim()},
-            amount = ${amount}, date = ${date.trim()}, description = ${description.trim()}
-        WHERE id = ${id}
+        SET reference_no = ${reference_no}, source = ${source},
+            amount = ${amount}, date = ${date}, description = ${description}
+        WHERE id = ${depositId}
       `;
     }
 

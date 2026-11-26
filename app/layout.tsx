@@ -48,7 +48,7 @@ export default function RootLayout({
         <meta name="theme-color" content="#ffffff" />
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>
-      <body className="flex flex-col min-h-screen antialiased bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
+      <body className="flex flex-col min-h-screen antialiased font-sans bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
         <AuthProvider>
           <ThemeProvider>
             <PreventZoom />

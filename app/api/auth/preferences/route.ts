@@ -6,7 +6,7 @@ import { isValidThemePreference, isValidAccentId } from "@/lib/themes";
 
 export async function PATCH(request: Request) {
   try {
-    const user = await getCurrentUser();
+    const user = await getCurrentUser(request);
     if (!user) {
       return NextResponse.json({ error: "Authentication required" }, { status: 401 });
     }

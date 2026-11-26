@@ -8,12 +8,11 @@ export const dynamic = "force-dynamic";
 
 /**
  * GET /api/messages/alias
- * Resolve or register the permanent alias locked to this device / IP / browser.
+ * Resolve or register the permanent alias locked to this device's HMAC-signed HttpOnly cookie.
  */
 export async function GET(request: Request) {
   try {
-    const storedAlias = request.headers.get("x-stored-alias");
-    const identity = await getOrAssignDeviceIdentity(request, storedAlias);
+    const identity = await getOrAssignDeviceIdentity(request);
 
     const res = NextResponse.json({
       success: true,
@@ -22,7 +21,7 @@ export async function GET(request: Request) {
       is_new: identity.isNew,
     });
 
-    return attachDeviceCookie(res, identity.deviceId);
+    return await attachDeviceCookie(res, identity.deviceId, request);
   } catch (err: unknown) {
     console.error("GET /api/messages/alias error:", err);
     return NextResponse.json(

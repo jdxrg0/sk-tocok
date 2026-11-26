@@ -3,12 +3,23 @@ import bcrypt from "bcryptjs";
 import { sql } from "@/lib/db";
 import { getCurrentUser, isOfficialUser } from "@/lib/auth";
 import { deleteStoredFileByUrl } from "@/lib/storage";
+import {
+  isValidEmail,
+  OFFICIAL_ROLES,
+  sanitizeText,
+  validatePasswordStrength,
+} from "@/lib/validation";
+import { sanitizeSafeUrl } from "@/lib/urlSafety";
+import { extractClientIp, logSecurityEvent } from "@/lib/securityLogger";
+import { createPasswordResetToken, RESET_TOKEN_TTL_MINUTES } from "@/lib/passwordReset";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+const ALLOWED_ROLE_SET = new Set<string>(OFFICIAL_ROLES);
+
+export async function GET(request: Request) {
   try {
-    const user = await getCurrentUser();
+    const user = await getCurrentUser(request);
     if (!user) {
       return NextResponse.json({ error: "Unauthorized access" }, { status: 401 });
     }
@@ -17,7 +28,8 @@ export async function GET() {
     }
 
     const users = await sql`
-      SELECT id, name, email, role, contact_number, avatar_url, created_at, auth_provider
+      SELECT id, name, email, role, contact_number, avatar_url, created_at, auth_provider,
+             COALESCE(must_change_password, FALSE) AS must_change_password
       FROM users
       ORDER BY id ASC
     `;
@@ -30,7 +42,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const currentUser = await getCurrentUser();
+    const currentUser = await getCurrentUser(request);
     if (!currentUser) {
       return NextResponse.json({ error: "Unauthorized access" }, { status: 401 });
     }
@@ -38,31 +50,61 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Forbidden: SK Officials only" }, { status: 403 });
     }
 
-    const { name, email, password, role, contact_number, avatar_url } = await request.json();
-    if (!name || !email || !password || !role) {
+    const body = await request.json().catch(() => ({}));
+    const cleanName = sanitizeText(body?.name, 100);
+    const cleanEmail = sanitizeText(body?.email, 254).toLowerCase();
+    const password = typeof body?.password === "string" ? body.password : "";
+    const cleanRole = sanitizeText(body?.role, 80);
+    const cleanContact = sanitizeText(body?.contact_number, 40);
+    const rawAvatar = typeof body?.avatar_url === "string" ? body.avatar_url.trim() : "";
+
+    if (!cleanName || !cleanEmail || !password || !cleanRole) {
       return NextResponse.json({ error: "All fields are required" }, { status: 400 });
     }
-    if (password.trim().length < 6) {
-      return NextResponse.json({ error: "Password must be at least 6 characters" }, { status: 400 });
+    if (!isValidEmail(cleanEmail)) {
+      return NextResponse.json({ error: "Invalid email address format" }, { status: 400 });
+    }
+    if (!ALLOWED_ROLE_SET.has(cleanRole)) {
+      return NextResponse.json({ error: "Invalid official role specified" }, { status: 400 });
+    }
+    const pwdErr = validatePasswordStrength(password);
+    if (pwdErr) {
+      return NextResponse.json({ error: pwdErr }, { status: 400 });
+    }
+    const safeAvatarUrl = rawAvatar ? sanitizeSafeUrl(rawAvatar, { allowRelative: true }) : null;
+    if (rawAvatar && !safeAvatarUrl) {
+      return NextResponse.json({ error: "Invalid avatar URL format" }, { status: 400 });
     }
 
-    const existing = await sql`SELECT id FROM users WHERE LOWER(email) = LOWER(${email.trim()})`;
+    const existing = await sql`SELECT id FROM users WHERE LOWER(email) = LOWER(${cleanEmail}) LIMIT 1`;
     if (existing.length > 0) {
       return NextResponse.json({ error: "An account with this email already exists" }, { status: 400 });
     }
 
-    const hash = bcrypt.hashSync(password.trim(), 10);
-    await sql`
-      INSERT INTO users (name, email, password_hash, role, contact_number, avatar_url)
+    const hash = bcrypt.hashSync(password, 12);
+    const inserted = await sql`
+      INSERT INTO users (name, email, password_hash, role, contact_number, avatar_url, token_version, must_change_password)
       VALUES (
-        ${name.trim()},
-        ${email.trim()},
+        ${cleanName},
+        ${cleanEmail},
         ${hash},
-        ${role.trim()},
-        ${(contact_number || "").trim()},
-        ${(avatar_url || "").trim() || null}
+        ${cleanRole},
+        ${cleanContact},
+        ${safeAvatarUrl},
+        1,
+        FALSE
       )
+      RETURNING id
     `;
+
+    await logSecurityEvent({
+      eventType: "ADMIN_USER_CREATED",
+      severity: "info",
+      request,
+      userId: currentUser.id,
+      email: currentUser.email,
+      details: { targetId: inserted[0]?.id, targetRole: cleanRole },
+    });
 
     return NextResponse.json({ success: true, message: "New SK Official account registered successfully." });
   } catch (error) {
@@ -73,7 +115,7 @@ export async function POST(request: Request) {
 
 export async function PUT(request: Request) {
   try {
-    const currentUser = await getCurrentUser();
+    const currentUser = await getCurrentUser(request);
     if (!currentUser) {
       return NextResponse.json({ error: "Unauthorized access" }, { status: 401 });
     }
@@ -81,42 +123,88 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: "Forbidden: SK Officials only" }, { status: 403 });
     }
 
-    const { id, name, email, role, contact_number, avatar_url, password } = await request.json();
-    if (!id || !name || !email || !role) {
+    const body = await request.json().catch(() => ({}));
+    const id = Number(body?.id);
+    const cleanName = sanitizeText(body?.name, 100);
+    const cleanEmail = sanitizeText(body?.email, 254).toLowerCase();
+    const cleanRole = sanitizeText(body?.role, 80);
+    const cleanContact = sanitizeText(body?.contact_number, 40);
+    const rawAvatar = typeof body?.avatar_url === "string" ? body.avatar_url.trim() : "";
+    const password = typeof body?.password === "string" ? body.password : "";
+
+    if (!Number.isInteger(id) || id <= 0 || !cleanName || !cleanEmail || !cleanRole) {
       return NextResponse.json({ error: "ID, name, email, and role are required" }, { status: 400 });
     }
+    if (!isValidEmail(cleanEmail)) {
+      return NextResponse.json({ error: "Invalid email address format" }, { status: 400 });
+    }
 
-    const existing = await sql`SELECT id, avatar_url FROM users WHERE id = ${id}`;
+    const existing = await sql`SELECT id, avatar_url, role FROM users WHERE id = ${id} LIMIT 1`;
     if (existing.length === 0) {
       return NextResponse.json({ error: "Official account not found" }, { status: 404 });
     }
-    const oldAvatarUrl = (existing[0] as { avatar_url?: string | null }).avatar_url;
+    const existingRow = existing[0] as { avatar_url?: string | null; role: string };
+    const oldAvatarUrl = existingRow.avatar_url;
 
-    const conflict = await sql`SELECT id FROM users WHERE LOWER(email) = LOWER(${email.trim()}) AND id != ${id}`;
+    const validRole =
+      ALLOWED_ROLE_SET.has(cleanRole) ||
+      (cleanRole === "Student" && existingRow.role === "Student");
+    if (!validRole) {
+      return NextResponse.json({ error: "Invalid user role specified" }, { status: 400 });
+    }
+
+    const nextAvatarUrl = rawAvatar ? sanitizeSafeUrl(rawAvatar, { allowRelative: true }) : null;
+    if (rawAvatar && !nextAvatarUrl) {
+      return NextResponse.json({ error: "Invalid avatar URL format" }, { status: 400 });
+    }
+
+    const conflict = await sql`SELECT id FROM users WHERE LOWER(email) = LOWER(${cleanEmail}) AND id != ${id} LIMIT 1`;
     if (conflict.length > 0) {
       return NextResponse.json({ error: "Another account already uses this email address" }, { status: 400 });
     }
 
-    if (!password || password.trim().length === 0) {
-      return NextResponse.json({ error: "Password is required to save changes" }, { status: 400 });
+    if (password.length > 0) {
+      const pwdErr = validatePasswordStrength(password);
+      if (pwdErr) {
+        return NextResponse.json({ error: pwdErr }, { status: 400 });
+      }
+      const hash = bcrypt.hashSync(password, 12);
+      await sql`
+        UPDATE users
+        SET name = ${cleanName},
+            email = ${cleanEmail},
+            password_hash = ${hash},
+            role = ${cleanRole},
+            contact_number = ${cleanContact},
+            avatar_url = ${nextAvatarUrl},
+            must_change_password = FALSE,
+            token_version = COALESCE(token_version, 1) + 1
+        WHERE id = ${id}
+      `;
+    } else {
+      await sql`
+        UPDATE users
+        SET name = ${cleanName},
+            email = ${cleanEmail},
+            role = ${cleanRole},
+            contact_number = ${cleanContact},
+            avatar_url = ${nextAvatarUrl}
+        WHERE id = ${id}
+      `;
     }
-    if (password.trim().length < 6) {
-      return NextResponse.json({ error: "Password must be at least 6 characters" }, { status: 400 });
-    }
-
-    const hash = bcrypt.hashSync(password.trim(), 10);
-    const nextAvatarUrl = (avatar_url || "").trim() || null;
-    await sql`
-      UPDATE users
-      SET name = ${name.trim()}, email = ${email.trim()}, password_hash = ${hash},
-          role = ${role.trim()}, contact_number = ${(contact_number || "").trim()},
-          avatar_url = ${nextAvatarUrl}
-      WHERE id = ${id}
-    `;
 
     if (oldAvatarUrl && oldAvatarUrl !== nextAvatarUrl) {
       await deleteStoredFileByUrl(oldAvatarUrl);
     }
+
+    await logSecurityEvent({
+      eventType: "ADMIN_USER_UPDATED",
+      severity: "info",
+      request,
+      userId: currentUser.id,
+      email: currentUser.email,
+      details: { targetId: id, passwordChanged: password.length > 0, targetRole: cleanRole },
+    });
 
     return NextResponse.json({ success: true, message: "Official account updated successfully." });
   } catch (error) {
@@ -125,9 +213,9 @@ export async function PUT(request: Request) {
   }
 }
 
-export async function DELETE(request: Request) {
+export async function PATCH(request: Request) {
   try {
-    const currentUser = await getCurrentUser();
+    const currentUser = await getCurrentUser(request);
     if (!currentUser) {
       return NextResponse.json({ error: "Unauthorized access" }, { status: 401 });
     }
@@ -135,24 +223,88 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: "Forbidden: SK Officials only" }, { status: 403 });
     }
 
-    const { id } = await request.json();
-    if (!id) {
+    const body = await request.json().catch(() => ({}));
+    const id = Number(body?.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      return NextResponse.json({ error: "Valid user ID is required" }, { status: 400 });
+    }
+
+    const rows = await sql`SELECT id, email, name FROM users WHERE id = ${id} LIMIT 1`;
+    if (rows.length === 0) {
+      return NextResponse.json({ error: "User account not found" }, { status: 404 });
+    }
+    const target = rows[0] as { id: number; email: string; name: string };
+    const { rawToken, expiresAt } = await createPasswordResetToken(
+      target.id,
+      extractClientIp(request),
+      RESET_TOKEN_TTL_MINUTES
+    );
+
+    const origin =
+      process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
+      new URL(request.url).origin;
+    const resetUrl = `${origin}/reset-password?token=${encodeURIComponent(rawToken)}`;
+
+    await logSecurityEvent({
+      eventType: "ADMIN_ISSUED_PASSWORD_RESET",
+      severity: "info",
+      request,
+      userId: currentUser.id,
+      email: currentUser.email,
+      details: { targetUserId: target.id, expiresAt },
+    });
+
+    return NextResponse.json({
+      success: true,
+      resetUrl,
+      expiresAt,
+      expiresInMinutes: RESET_TOKEN_TTL_MINUTES,
+    });
+  } catch (error) {
+    console.error("Generate reset link error:", error);
+    return NextResponse.json({ error: "Failed to generate reset link" }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const currentUser = await getCurrentUser(request);
+    if (!currentUser) {
+      return NextResponse.json({ error: "Unauthorized access" }, { status: 401 });
+    }
+    if (!isOfficialUser(currentUser)) {
+      return NextResponse.json({ error: "Forbidden: SK Officials only" }, { status: 403 });
+    }
+
+    const body = await request.json().catch(() => ({}));
+    const id = Number(body?.id);
+    if (!Number.isInteger(id) || id <= 0) {
       return NextResponse.json({ error: "Official ID is required" }, { status: 400 });
     }
     if (currentUser.id === id) {
       return NextResponse.json({ error: "You cannot delete your own logged-in account" }, { status: 400 });
     }
 
-    const existing = await sql`SELECT id, avatar_url FROM users WHERE id = ${id}`;
+    const existing = await sql`SELECT id, email, avatar_url FROM users WHERE id = ${id} LIMIT 1`;
     if (existing.length === 0) {
       return NextResponse.json({ error: "Official account not found" }, { status: 404 });
     }
-    const oldAvatarUrl = (existing[0] as { avatar_url?: string | null }).avatar_url;
+    const existingRow = existing[0] as { email: string; avatar_url?: string | null };
 
     await sql`DELETE FROM users WHERE id = ${id}`;
-    if (oldAvatarUrl) {
-      await deleteStoredFileByUrl(oldAvatarUrl);
+    if (existingRow.avatar_url) {
+      await deleteStoredFileByUrl(existingRow.avatar_url);
     }
+
+    await logSecurityEvent({
+      eventType: "ADMIN_USER_DELETED",
+      severity: "warning",
+      request,
+      userId: currentUser.id,
+      email: currentUser.email,
+      details: { targetId: id, targetEmail: existingRow.email },
+    });
+
     return NextResponse.json({ success: true, message: "Official account deleted successfully." });
   } catch (error) {
     console.error("Delete user error:", error);

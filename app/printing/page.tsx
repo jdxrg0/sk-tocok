@@ -6,7 +6,11 @@ import { useSearchParams } from "next/navigation";
 import PrintStatusBadge from "@/components/PrintStatusBadge";
 import SearchModal from "@/components/SearchModal";
 import PushNotificationManager from "@/components/PushNotificationManager";
-import { useAuth } from "@/components/AuthProvider";
+import { useAuth, type AuthUser } from "@/components/AuthProvider";
+import {
+  getHorizontalPillStyle,
+  useTabPanelDirection,
+} from "@/components/useTabPanelDirection";
 import { 
   Printer, 
   Upload, 
@@ -14,8 +18,6 @@ import {
   AlertCircle, 
   Copy, 
   Check, 
-  ArrowRight, 
-  School, 
   Search,
   MapPin,
   ShieldAlert,
@@ -26,13 +28,20 @@ import {
   Info,
   X,
   Lock,
-  Mail,
-  User,
   Trash2,
   XCircle,
   Loader2,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Palette,
+  Minus,
+  Plus,
+  Zap,
+  Eye,
+  EyeOff,
+  Pencil,
+  Sparkles,
+  FileUp
 } from "lucide-react";
 
 interface PrintJobDetails {
@@ -68,6 +77,16 @@ const PUROK_OPTIONS = [
   "Purok 7 (Sitio Torres)",
 ];
 
+const PUROK_CARDS = [
+  { value: PUROK_OPTIONS[0], shortLabel: "Purok 1", subLabel: "Bio, Sagur, Baybay" },
+  { value: PUROK_OPTIONS[1], shortLabel: "Purok 2", subLabel: "Centro" },
+  { value: PUROK_OPTIONS[2], shortLabel: "Purok 3", subLabel: "Sitio Boquig" },
+  { value: PUROK_OPTIONS[3], shortLabel: "Purok 4", subLabel: "Sitio Buatan" },
+  { value: PUROK_OPTIONS[4], shortLabel: "Purok 5", subLabel: "Sitio Sapdaan" },
+  { value: PUROK_OPTIONS[5], shortLabel: "Purok 6", subLabel: "Cabanlig, Biek" },
+  { value: PUROK_OPTIONS[6], shortLabel: "Purok 7", subLabel: "Sitio Torres" },
+];
+
 const CLAIMING_STATIONS = [
   {
     id: "purok5",
@@ -81,32 +100,76 @@ const CLAIMING_STATIONS = [
   },
 ];
 
-const SCHOOL_OPTIONS = [
-  "SFNHS",
-  "MNHS",
-  "DMMMSU",
-  "PCLU",
-  "UDD",
-  "UPANG",
-  "UL",
-  "OTHERS",
-];
-
 const GRADE_LEVEL_OPTIONS = [
   "Junior Highschool",
   "Senior Highschool",
   "College",
 ];
 
+const GRADE_LEVEL_CARDS = [
+  { value: "Junior Highschool", shortLabel: "Junior HS", subLabel: "Grades 7–10" },
+  { value: "Senior Highschool", shortLabel: "Senior HS", subLabel: "Grades 11–12" },
+  { value: "College", shortLabel: "College", subLabel: "Tertiary" },
+];
+
+const PAPER_SIZE_CARDS = [
+  { value: "A4", label: "A4", dims: "210 × 297 mm" },
+  { value: "Letter (Short)", label: "Short", dims: "8.5 × 11 in" },
+  { value: "Legal (Long)", label: "Long", dims: "8.5 × 13 in" },
+];
+
+const STATION_CARDS = [
+  {
+    id: "purok5",
+    value: CLAIMING_STATIONS[0].label,
+    title: "Purok 5 Station",
+    sitio: "Sitio Sapdaan",
+    official: "SK Treasurer",
+    hint: "For Purok 5 & nearby puroks",
+    matchPrefix: "Purok 5",
+  },
+  {
+    id: "purok1",
+    value: CLAIMING_STATIONS[1].label,
+    title: "Purok 1 Station",
+    sitio: "Bio, Sagur & Baybay",
+    official: "SK Chairperson",
+    hint: "For Purok 1 sitios",
+    matchPrefix: "Purok 1",
+  },
+];
+
+function formatStationShort(station?: string | null): string {
+  if (!station) return "SK Printing Station";
+  if (station.includes("Purok 5")) return "Purok 5 · Sitio Sapdaan";
+  if (station.includes("Purok 1")) return "Purok 1 · Bio, Sagur & Baybay";
+  return station;
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024 * 1024) {
+    return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function getFileBadge(fileName: string): string {
+  const ext = fileName.split(".").pop()?.toLowerCase() || "";
+  if (ext === "pdf") return "PDF";
+  if (ext === "doc" || ext === "docx") return "DOC";
+  if (ext === "ppt" || ext === "pptx") return "PPT";
+  if (ext === "jpg" || ext === "jpeg" || ext === "png") return "IMG";
+  return "FILE";
+}
+
 const DRAFT_STORAGE_KEY = "sk_tocok_print_form_draft";
+const PROFILE_STORAGE_KEY = "sk_tocok_print_profile";
 
 const DEFAULT_FORM_DATA = {
   student_name: "",
   contact_number: "",
   facebook_name: "",
   purok: "",
-  school: "",
-  custom_school: "",
   grade_level: "",
   print_type: "",
   paper_size: "",
@@ -361,6 +424,7 @@ function JobDetailsView({
   onClose,
   onCancel,
   cancelling = false,
+  refreshing = false,
 }: {
   job: PrintJobDetails;
   onRefresh: () => void;
@@ -369,6 +433,7 @@ function JobDetailsView({
   onClose?: () => void;
   onCancel?: (job: PrintJobDetails) => void;
   cancelling?: boolean;
+  refreshing?: boolean;
 }) {
   const isMyTicket = isOwner || job.is_owner === true;
   const isPending = job.status === "Pending Review";
@@ -417,10 +482,12 @@ function JobDetailsView({
           <button
             type="button"
             onClick={onRefresh}
+            disabled={refreshing}
             title="Refresh status"
-            className="p-1.5 rounded-lg text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+            aria-label="Refresh status"
+            className="p-1.5 rounded-lg text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer active:scale-95 disabled:opacity-60"
           >
-            <RotateCw className="w-4 h-4" />
+            <RotateCw className={`w-4 h-4 ${refreshing ? "animate-spin text-brand-600 dark:text-brand-400" : ""}`} />
           </button>
           {onClose && (
             <button
@@ -502,10 +569,10 @@ function JobDetailsView({
 
         {/* Clean Key-Value Details */}
         <div className="rounded-2xl border border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/60 p-3.5 text-xs divide-y divide-slate-200/60 dark:divide-slate-800/80">
-          <div className="pb-2.5 grid grid-cols-[90px_1fr] sm:grid-cols-[105px_1fr] gap-3 items-start">
+          <div className="pb-2.5 grid grid-cols-[84px_1fr] sm:grid-cols-[105px_1fr] gap-2.5 sm:gap-3 items-start">
             <span className="text-slate-400 dark:text-slate-500 shrink-0">Document</span>
             {job.file_name ? (
-              <span className="font-bold text-slate-900 dark:text-slate-100 text-left truncate" title={job.file_name}>
+              <span className="font-bold text-slate-900 dark:text-slate-100 text-left break-words min-w-0" title={job.file_name}>
                 {job.file_name}
               </span>
             ) : (
@@ -515,18 +582,18 @@ function JobDetailsView({
             )}
           </div>
           {specs ? (
-            <div className="py-2.5 grid grid-cols-[90px_1fr] sm:grid-cols-[105px_1fr] gap-3 items-start">
+            <div className="py-2.5 grid grid-cols-[84px_1fr] sm:grid-cols-[105px_1fr] gap-2.5 sm:gap-3 items-start">
               <span className="text-slate-400 dark:text-slate-500 shrink-0">Specifications</span>
-              <span className="text-slate-700 dark:text-slate-300 text-left font-medium">
+              <span className="text-slate-700 dark:text-slate-300 text-left font-medium break-words min-w-0">
                 {specs}
               </span>
             </div>
           ) : null}
-          <div className="py-2.5 grid grid-cols-[90px_1fr] sm:grid-cols-[105px_1fr] gap-3 items-start">
+          <div className="py-2.5 grid grid-cols-[84px_1fr] sm:grid-cols-[105px_1fr] gap-2.5 sm:gap-3 items-start">
             <span className="text-slate-400 dark:text-slate-500 shrink-0">Student</span>
             {isMyTicket && job.student_name ? (
-              <div className="text-left text-slate-700 dark:text-slate-300 font-medium space-y-0.5">
-                <p className="font-bold text-slate-900 dark:text-slate-100">{job.student_name}</p>
+              <div className="text-left text-slate-700 dark:text-slate-300 font-medium space-y-0.5 min-w-0">
+                <p className="font-bold text-slate-900 dark:text-slate-100 break-words">{job.student_name}</p>
                 {(job.school || job.grade_level) && (
                   <p className="text-[11px] text-slate-500 dark:text-slate-400">
                     {[job.school, job.grade_level].filter(Boolean).join(" • ")}
@@ -542,9 +609,9 @@ function JobDetailsView({
               </span>
             )}
           </div>
-          <div className="pt-2.5 grid grid-cols-[90px_1fr] sm:grid-cols-[105px_1fr] gap-3 items-start">
+          <div className="pt-2.5 grid grid-cols-[84px_1fr] sm:grid-cols-[105px_1fr] gap-2.5 sm:gap-3 items-start">
             <span className="text-slate-400 dark:text-slate-500 shrink-0">Station</span>
-            <span className="text-slate-800 dark:text-slate-200 font-semibold text-left">
+            <span className="text-slate-800 dark:text-slate-200 font-semibold text-left break-words min-w-0">
               {job.pickup_station || "SK Printing Station"}
             </span>
           </div>
@@ -552,13 +619,13 @@ function JobDetailsView({
       </div>
 
       {/* Footer: Simple actions (Pinned shrink-0) */}
-      <div className="p-3 sm:p-4 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center justify-between gap-2.5 shrink-0">
+      <div className="p-3.5 sm:p-4 pb-[max(0.875rem,env(safe-area-inset-bottom))] sm:pb-4 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center justify-between gap-2.5 shrink-0">
         {isMyTicket && isPending && onCancel ? (
           <button
             type="button"
             onClick={() => onCancel(job)}
             disabled={cancelling}
-            className="px-3.5 py-2 rounded-xl border border-rose-200 dark:border-rose-800/70 bg-white dark:bg-slate-900 hover:bg-rose-50 dark:hover:bg-rose-950/60 text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 text-xs font-bold transition cursor-pointer shadow-2xs"
+            className="min-h-[44px] px-4 py-2 rounded-xl border border-rose-200 dark:border-rose-800/70 bg-white dark:bg-slate-900 hover:bg-rose-50 dark:hover:bg-rose-950/60 text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 text-xs font-bold transition cursor-pointer shadow-2xs active:scale-[0.98]"
           >
             Cancel Request
           </button>
@@ -567,7 +634,7 @@ function JobDetailsView({
         <button
           type="button"
           onClick={onClose}
-          className="px-4 py-2 rounded-xl bg-slate-900 dark:bg-slate-100 hover:bg-slate-800 dark:hover:bg-white text-white dark:text-slate-900 font-bold text-xs sm:text-sm transition cursor-pointer shadow-xs"
+          className="min-h-[44px] px-5 py-2 rounded-xl bg-slate-900 dark:bg-slate-100 hover:bg-slate-800 dark:hover:bg-white text-white dark:text-slate-900 font-bold text-xs sm:text-sm transition cursor-pointer shadow-xs active:scale-[0.98]"
         >
           Close
         </button>
@@ -581,6 +648,8 @@ let cachedPrintingActive = true;
 let cachedMyJobs: PrintJobDetails[] = [];
 let cachedMyJobsLoaded = false;
 
+const PRINTING_TAB_ORDER = ["submit", "track"] as const;
+
 function UnifiedPrintingContent() {
   const searchParams = useSearchParams();
   const initialTabParam = searchParams?.get("tab");
@@ -590,9 +659,17 @@ function UnifiedPrintingContent() {
   const [activeTab, setActiveTab] = useState<"submit" | "track">(
     initialTabParam === "track" || initialCodeParam ? "track" : "submit"
   );
+  const tabAnimClass = useTabPanelDirection(activeTab, PRINTING_TAB_ORDER);
 
   // Form State (Submit)
   const [formData, setFormData] = useState(DEFAULT_FORM_DATA);
+  const [formStep, setFormStep] = useState<1 | 2 | 3>(1);
+  const [pageRangeMode, setPageRangeMode] = useState<"all" | "custom">("all");
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
+  const [profilePrefilled, setProfilePrefilled] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const formCardRef = useRef<HTMLFormElement | null>(null);
+  const customPageRangeInputRef = useRef<HTMLInputElement | null>(null);
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [agreed, setAgreed] = useState(false);
@@ -617,6 +694,7 @@ function UnifiedPrintingContent() {
   const [authPassword, setAuthPassword] = useState("");
   const [authConfirmPassword, setAuthConfirmPassword] = useState("");
   const [authName, setAuthName] = useState("");
+  const [showAuthPassword, setShowAuthPassword] = useState(false);
   const [authSubmitting, setAuthSubmitting] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
@@ -638,19 +716,46 @@ function UnifiedPrintingContent() {
   const [myJobs, setMyJobs] = useState<PrintJobDetails[]>(cachedMyJobs);
   const [myJobsLoading, setMyJobsLoading] = useState(false);
   const [myJobsPage, setMyJobsPage] = useState(1);
+  const [trackFilter, setTrackFilter] = useState<"all" | "active" | "done">("all");
   const myJobsListRef = useRef<HTMLDivElement | null>(null);
-  const JOBS_PER_PAGE = 2;
+  const JOBS_PER_PAGE = 3;
 
-  const totalJobsPages = Math.max(1, Math.ceil(myJobs.length / JOBS_PER_PAGE));
+  const isActivePrintStatus = (status: string) => {
+    const normalized = (status || "").trim().toLowerCase();
+    if (!normalized) return false;
+    return (
+      normalized !== "completed" &&
+      normalized !== "picked up" &&
+      normalized !== "declined" &&
+      normalized !== "cancelled"
+    );
+  };
+
+  const activeJobsCount = myJobs.filter((j) => isActivePrintStatus(j.status)).length;
+  const historyJobsCount = myJobs.length - activeJobsCount;
+  const filteredJobs =
+    trackFilter === "active"
+      ? myJobs.filter((j) => isActivePrintStatus(j.status))
+      : trackFilter === "done"
+      ? myJobs.filter((j) => !isActivePrintStatus(j.status))
+      : myJobs;
+  const totalJobsPages = Math.max(1, Math.ceil(filteredJobs.length / JOBS_PER_PAGE));
   const currentJobsPage = Math.min(Math.max(1, myJobsPage), totalJobsPages);
   const startJobIndex = (currentJobsPage - 1) * JOBS_PER_PAGE;
-  const visibleJobs = myJobs.slice(startJobIndex, startJobIndex + JOBS_PER_PAGE);
+  const visibleJobs = filteredJobs.slice(startJobIndex, startJobIndex + JOBS_PER_PAGE);
 
   useEffect(() => {
     if (myJobsListRef.current) {
       myJobsListRef.current.scrollTop = 0;
     }
-  }, [currentJobsPage]);
+  }, [currentJobsPage, trackFilter]);
+
+  // Auto-dismiss floating form error toast after 4.5s
+  useEffect(() => {
+    if (!submitError) return;
+    const timer = setTimeout(() => setSubmitError(null), 4500);
+    return () => clearTimeout(timer);
+  }, [submitError]);
 
   // Background scroll lock state tracking
   const scrollPosRef = useRef<number | null>(null);
@@ -663,12 +768,6 @@ function UnifiedPrintingContent() {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed && typeof parsed === "object") {
-          let schoolVal = parsed.school || "";
-          let customSchoolVal = parsed.custom_school || "";
-          if (parsed.school === "Others" || (parsed.school && !SCHOOL_OPTIONS.includes(parsed.school))) {
-            schoolVal = "OTHERS";
-            customSchoolVal = parsed.school === "Others" ? "" : parsed.school;
-          }
           let gradeVal = parsed.grade_level || "";
           if (parsed.grade_level && !GRADE_LEVEL_OPTIONS.includes(parsed.grade_level)) {
             gradeVal = "";
@@ -680,12 +779,13 @@ function UnifiedPrintingContent() {
           const printTypeVal = parsed.print_type || "";
           const paperSizeVal = parsed.paper_size || "";
           const pickupStationVal = parsed.pickup_station || "";
+          const rawPageRange = typeof parsed.page_range === "string" ? parsed.page_range : "All pages";
+          const isCustomPages = rawPageRange.trim() !== "" && rawPageRange.trim().toLowerCase() !== "all pages";
+          setPageRangeMode(isCustomPages ? "custom" : "all");
 
           setFormData((prev) => ({
             ...prev,
             ...parsed,
-            school: schoolVal,
-            custom_school: customSchoolVal,
             grade_level: gradeVal,
             purok: purokVal,
             print_type: printTypeVal,
@@ -704,13 +804,15 @@ function UnifiedPrintingContent() {
     if (!mounted || submittedCode) return;
     try {
       localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(formData));
-    } catch (e) {}
+    } catch {}
   }, [formData, mounted, submittedCode]);
 
   // Tracker State (Track)
   const [trackingCode, setTrackingCode] = useState(initialCodeParam);
   const [trackingLoading, setTrackingLoading] = useState(false);
+  const [refreshingJob, setRefreshingJob] = useState(false);
   const [job, setJob] = useState<PrintJobDetails | null>(null);
+  const [jobModalClosing, setJobModalClosing] = useState(false);
   const [trackError, setTrackError] = useState<string | null>(null);
   const [showManualSearch, setShowManualSearch] = useState(false);
 
@@ -718,6 +820,18 @@ function UnifiedPrintingContent() {
   const [jobToCancel, setJobToCancel] = useState<PrintJobDetails | null>(null);
   const [cancelSubmitting, setCancelSubmitting] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
+
+  const handleCloseJobModal = useCallback(() => {
+    if (jobModalClosing) return;
+    setJobModalClosing(true);
+    setTimeout(() => {
+      setJob(null);
+      setJobModalClosing(false);
+      setRefreshingJob(false);
+      setTrackingCode("");
+      setTrackError(null);
+    }, 200);
+  }, [jobModalClosing]);
 
   // Fetch settings on mount
   useEffect(() => {
@@ -761,9 +875,7 @@ function UnifiedPrintingContent() {
         setShowManualSearch(false);
         if (!cancelSubmitting) setJobToCancel(null);
         if (job) {
-          setJob(null);
-          setTrackingCode("");
-          setTrackError(null);
+          handleCloseJobModal();
         }
       }
     };
@@ -780,6 +892,7 @@ function UnifiedPrintingContent() {
     };
 
     if (isAnyModalOpen) {
+      document.documentElement.dataset.modalOpen = "true";
       if (scrollPosRef.current === null) {
         const scrollY = window.scrollY || window.pageYOffset || document.documentElement.scrollTop || 0;
         scrollPosRef.current = scrollY;
@@ -796,6 +909,7 @@ function UnifiedPrintingContent() {
       window.addEventListener("keydown", handleKeyDown);
       window.addEventListener("touchmove", preventBackgroundTouch, { passive: false });
     } else {
+      delete document.documentElement.dataset.modalOpen;
       if (scrollPosRef.current !== null) {
         scrollPosRef.current = null;
 
@@ -811,11 +925,12 @@ function UnifiedPrintingContent() {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("touchmove", preventBackgroundTouch);
     };
-  }, [isAnyModalOpen, submitting, cancelSubmitting, job]);
+  }, [isAnyModalOpen, submitting, cancelSubmitting, job, handleCloseJobModal]);
 
   // Clean up body scroll lock if component unmounts while a modal is open
   useEffect(() => {
     return () => {
+      delete document.documentElement.dataset.modalOpen;
       if (scrollPosRef.current !== null) {
         scrollPosRef.current = null;
         document.documentElement.style.overflow = "";
@@ -880,9 +995,9 @@ function UnifiedPrintingContent() {
     };
   }, [submittedCode]);
 
-  const loadMyRequests = async (autoSelect = false) => {
+  const loadMyRequests = async (autoSelect = false, showSpinner = !cachedMyJobsLoaded) => {
     try {
-      if (!cachedMyJobsLoaded) {
+      if (showSpinner) {
         setMyJobsLoading(true);
       }
       const res = await fetch("/api/printing/my-requests");
@@ -896,7 +1011,7 @@ function UnifiedPrintingContent() {
           setJob((prev) => {
             if (prev) {
               const matched = list.find((item) => item.tracking_code === prev.tracking_code);
-              if (matched) return matched;
+              return matched ? { ...matched, is_owner: true } : prev;
             }
             if (autoSelect) {
               setTrackingCode(list[0].tracking_code);
@@ -917,16 +1032,55 @@ function UnifiedPrintingContent() {
   useEffect(() => {
     if (authChecking) return;
     if (currentUser) {
-      setFormData((prev) => ({
-        ...prev,
-        student_name: prev.student_name ? prev.student_name : (currentUser.name || ""),
-      }));
+      let savedProfile: Partial<typeof DEFAULT_FORM_DATA> & { userId?: number | string } | null = null;
+      try {
+        const raw = localStorage.getItem(PROFILE_STORAGE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && parsed.userId === currentUser.id) {
+            savedProfile = parsed;
+          }
+        }
+      } catch {}
+
+      let appliedProfile = false;
+      setFormData((prev) => {
+        const next = { ...prev };
+        if (savedProfile) {
+          if (!next.student_name && savedProfile.student_name) {
+            next.student_name = savedProfile.student_name;
+            appliedProfile = true;
+          }
+          if (!next.facebook_name && savedProfile.facebook_name) {
+            next.facebook_name = savedProfile.facebook_name;
+          }
+          if (!next.grade_level && savedProfile.grade_level && GRADE_LEVEL_OPTIONS.includes(savedProfile.grade_level)) {
+            next.grade_level = savedProfile.grade_level;
+            appliedProfile = true;
+          }
+          if (!next.purok && savedProfile.purok && PUROK_OPTIONS.includes(savedProfile.purok)) {
+            next.purok = savedProfile.purok;
+            appliedProfile = true;
+          }
+          if (!next.pickup_station && savedProfile.pickup_station) {
+            next.pickup_station = savedProfile.pickup_station;
+          }
+        }
+        if (!next.student_name && currentUser.name) {
+          next.student_name = currentUser.name;
+        }
+        return next;
+      });
+      if (appliedProfile) {
+        setProfilePrefilled(true);
+      }
       loadMyRequests(false);
     } else {
       setMyJobs([]);
       cachedMyJobs = [];
       cachedMyJobsLoaded = false;
       setJob(null);
+      setProfilePrefilled(false);
     }
   }, [currentUser?.id, authChecking]);
 
@@ -945,19 +1099,20 @@ function UnifiedPrintingContent() {
         body: JSON.stringify({ email: authEmail.trim(), password: authPassword }),
       });
       const text = await res.text();
-      let data: any = {};
+      let data: { error?: string; user?: AuthUser } = {};
       try {
         data = JSON.parse(text);
       } catch {
         data = { error: text || "Login failed" };
       }
-      if (!res.ok) {
+      if (!res.ok || !data.user) {
         throw new Error(data.error || "Login failed");
       }
-      setCurrentUser(data.user);
+      const signedInUser = data.user;
+      setCurrentUser(signedInUser);
       setFormData((prev) => ({
         ...prev,
-        student_name: prev.student_name ? prev.student_name : (data.user.name || ""),
+        student_name: prev.student_name ? prev.student_name : (signedInUser.name || ""),
       }));
     } catch (err: unknown) {
       setAuthError(err instanceof Error ? err.message : "Failed to sign in");
@@ -977,8 +1132,12 @@ function UnifiedPrintingContent() {
       setAuthError("Please enter your email address.");
       return;
     }
-    if (authPassword.length < 6) {
-      setAuthError("Password must be at least 6 characters long.");
+    if (
+      authPassword.length < 8 ||
+      !/[a-zA-Z]/.test(authPassword) ||
+      !/[0-9!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?`~]/.test(authPassword)
+    ) {
+      setAuthError("Password must be at least 8 characters and include a letter plus a number or symbol.");
       return;
     }
     if (authPassword !== authConfirmPassword) {
@@ -997,19 +1156,20 @@ function UnifiedPrintingContent() {
         }),
       });
       const text = await res.text();
-      let data: any = {};
+      let data: { error?: string; user?: AuthUser } = {};
       try {
         data = JSON.parse(text);
       } catch {
         data = { error: text || "Registration failed" };
       }
-      if (!res.ok) {
+      if (!res.ok || !data.user) {
         throw new Error(data.error || "Registration failed");
       }
-      setCurrentUser(data.user);
+      const registeredUser = data.user;
+      setCurrentUser(registeredUser);
       setFormData((prev) => ({
         ...prev,
-        student_name: data.user.name || prev.student_name,
+        student_name: registeredUser.name || prev.student_name,
       }));
     } catch (err: unknown) {
       setAuthError(err instanceof Error ? err.message : "Failed to create account");
@@ -1226,6 +1386,7 @@ function UnifiedPrintingContent() {
     if (activeTab === tab) return;
 
     setActiveTab(tab);
+    setSubmitError(null);
 
     // Update URL query smoothly without reload - keep URL clean without saving ticket
     const url = new URL(window.location.href);
@@ -1248,17 +1409,132 @@ function UnifiedPrintingContent() {
   };
 
   // ----------------------------------------------------
-  // SUBMIT HANDLERS
+  // SUBMIT & STEPPER HANDLERS
   // ----------------------------------------------------
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      if (file.size > 100 * 1024 * 1024) {
-        setSubmitError("File size exceeds 100MB limit.");
+  const scrollFormIntoView = useCallback(() => {
+    if (typeof window === "undefined") return;
+    requestAnimationFrame(() => {
+      const el = formCardRef.current;
+      if (!el) return;
+      const headerOffset = window.innerWidth >= 768 ? 84 : 72;
+      const rect = el.getBoundingClientRect();
+      if (rect.top < headerOffset || rect.top > window.innerHeight * 0.45) {
+        window.scrollTo({
+          top: Math.max(0, rect.top + window.scrollY - headerOffset),
+          behavior: "smooth",
+        });
+      }
+    });
+  }, []);
+
+  const validateStep1 = useCallback((): string | null => {
+    if (!formData.student_name.trim()) {
+      return "Please enter your full name.";
+    }
+    if (!formData.grade_level) {
+      return "Please select your grade or year level.";
+    }
+    if (!formData.purok) {
+      return "Please select your Purok / Sitio in Barangay Tocok.";
+    }
+    return null;
+  }, [formData.student_name, formData.grade_level, formData.purok]);
+
+  const validateStep2 = useCallback((): string | null => {
+    if (!formData.print_type) {
+      return "Please select your preferred print color (Black & White or Colored).";
+    }
+    if (!formData.paper_size) {
+      return "Please select your preferred paper size (A4, Short, or Long).";
+    }
+    if (pageRangeMode === "custom" && !formData.page_range.trim()) {
+      return "Please enter the page range to print, or select All Pages.";
+    }
+    if (!formData.pickup_station) {
+      return "Please select your preferred claiming station.";
+    }
+    return null;
+  }, [formData.print_type, formData.paper_size, formData.page_range, formData.pickup_station, pageRangeMode]);
+
+  const goToStep = useCallback((targetStep: 1 | 2 | 3) => {
+    if (targetStep === formStep) return;
+    if (targetStep < formStep) {
+      setSubmitError(null);
+      setFormStep(targetStep);
+      scrollFormIntoView();
+      return;
+    }
+
+    const err1 = validateStep1();
+    if (err1) {
+      setSubmitError(err1);
+      setFormStep(1);
+      scrollFormIntoView();
+      return;
+    }
+
+    if (targetStep === 3) {
+      const err2 = validateStep2();
+      if (err2) {
+        setSubmitError(err2);
+        setFormStep(2);
+        scrollFormIntoView();
         return;
       }
-      setSelectedFile(file);
+    }
+
+    setSubmitError(null);
+    setFormStep(targetStep);
+    scrollFormIntoView();
+  }, [formStep, validateStep1, validateStep2, scrollFormIntoView]);
+
+  const handleNextStep = useCallback(() => {
+    if (formStep === 1) {
+      const err1 = validateStep1();
+      if (err1) {
+        setSubmitError(err1);
+        scrollFormIntoView();
+        return;
+      }
       setSubmitError(null);
+      setFormStep(2);
+      scrollFormIntoView();
+    } else if (formStep === 2) {
+      const err2 = validateStep2();
+      if (err2) {
+        setSubmitError(err2);
+        scrollFormIntoView();
+        return;
+      }
+      setSubmitError(null);
+      setFormStep(3);
+      scrollFormIntoView();
+    }
+  }, [formStep, validateStep1, validateStep2, scrollFormIntoView]);
+
+  const validateAndAttachFile = (file: File) => {
+    if (file.size > 100 * 1024 * 1024) {
+      setSubmitError("File size exceeds 100MB limit.");
+      return;
+    }
+    setSelectedFile(file);
+    setSubmitError(null);
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      validateAndAttachFile(e.target.files[0]);
+    }
+    // Reset input value so re-selecting the same file still fires onChange
+    e.target.value = "";
+  };
+
+  const handleFileDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingFile(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      validateAndAttachFile(e.dataTransfer.files[0]);
     }
   };
 
@@ -1266,60 +1542,48 @@ function UnifiedPrintingContent() {
     e.preventDefault();
     setSubmitError(null);
 
+    if (formStep === 1 || formStep === 2) {
+      handleNextStep();
+      return;
+    }
+
     if (!currentUser) {
       setSubmitError("Please sign in or create an account before submitting your print request.");
       return;
     }
 
+    const err1 = validateStep1();
+    if (err1) {
+      setSubmitError(err1);
+      setFormStep(1);
+      scrollFormIntoView();
+      return;
+    }
+
+    const err2 = validateStep2();
+    if (err2) {
+      setSubmitError(err2);
+      setFormStep(2);
+      scrollFormIntoView();
+      return;
+    }
+
     if (!selectedFile) {
       setSubmitError("Please attach the document file you need to print.");
+      scrollFormIntoView();
       return;
     }
 
     if (!agreed) {
       setSubmitError("Please agree to the program guidelines before submitting.");
+      scrollFormIntoView();
       return;
     }
 
-    const effectiveSchool =
-      formData.school === "OTHERS" || formData.school === "Others"
-        ? (formData.custom_school || "").trim()
-        : formData.school;
-
-    if (!formData.student_name.trim()) {
-      setSubmitError("Please enter your full name.");
-      return;
-    }
-
-    if (!formData.school || !effectiveSchool) {
-      setSubmitError("Please select or specify your school / university name.");
-      return;
-    }
-
-    if (!formData.grade_level) {
-      setSubmitError("Please select your grade or year level.");
-      return;
-    }
-
-    if (!formData.purok) {
-      setSubmitError("Please select your Purok / Sitio in Barangay Tocok.");
-      return;
-    }
-
-    if (!formData.print_type) {
-      setSubmitError("Please select your preferred print color (Black & White or Colored).");
-      return;
-    }
-
-    if (!formData.paper_size) {
-      setSubmitError("Please select your preferred paper size (A4, Letter, or Legal).");
-      return;
-    }
-
-    if (!formData.pickup_station) {
-      setSubmitError("Please select your preferred claiming station.");
-      return;
-    }
+    const effectivePageRange =
+      pageRangeMode === "all" || !formData.page_range.trim()
+        ? "All pages"
+        : formData.page_range.trim();
 
     let progressTimer: NodeJS.Timeout | null = null;
     let cloudTimer: NodeJS.Timeout | null = null;
@@ -1343,9 +1607,9 @@ function UnifiedPrintingContent() {
       setUploadStatusText("Uploading document to server...");
       const data = new FormData();
       Object.entries(formData).forEach(([k, v]) => {
-        if (k === "school") {
-          data.append(k, effectiveSchool);
-        } else if (k !== "custom_school") {
+        if (k === "page_range") {
+          data.append(k, effectivePageRange);
+        } else {
           data.append(k, String(v));
         }
       });
@@ -1455,7 +1719,18 @@ function UnifiedPrintingContent() {
       loadMyRequests();
       try {
         localStorage.removeItem(DRAFT_STORAGE_KEY);
-      } catch (e) {}
+        localStorage.setItem(
+          PROFILE_STORAGE_KEY,
+          JSON.stringify({
+            userId: currentUser.id,
+            student_name: formData.student_name,
+            facebook_name: formData.facebook_name,
+            purok: formData.purok,
+            grade_level: formData.grade_level,
+            pickup_station: formData.pickup_station,
+          })
+        );
+      } catch {}
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Something went wrong. Please try again.";
       setSubmitError(message);
@@ -1476,6 +1751,8 @@ function UnifiedPrintingContent() {
   };
 
   const goToTrackingWithCode = (code: string) => {
+    setTrackFilter("all");
+    setMyJobsPage(1);
     setTrackingCode(code);
     switchTab("track");
     handleLookup(code);
@@ -1484,14 +1761,22 @@ function UnifiedPrintingContent() {
   // ----------------------------------------------------
   // TRACK HANDLERS
   // ----------------------------------------------------
-  const handleLookup = async (codeToSearch: string): Promise<boolean> => {
+  const handleLookup = async (
+    codeToSearch: string,
+    options?: { preserveJob?: boolean }
+  ): Promise<boolean> => {
     const code = codeToSearch.trim();
     if (!code) return false;
+    const preserveJob = options?.preserveJob === true;
 
     try {
-      setTrackingLoading(true);
+      if (preserveJob) {
+        setRefreshingJob(true);
+      } else {
+        setTrackingLoading(true);
+        setJob(null);
+      }
       setTrackError(null);
-      setJob(null);
 
       // Update URL query with tab without saving code
       const url = new URL(window.location.href);
@@ -1506,15 +1791,67 @@ function UnifiedPrintingContent() {
         throw new Error(data.error || "No print request found with this code");
       }
 
-      setJob(data.job);
+      if (preserveJob) {
+        setJob((prev) =>
+          prev && prev.tracking_code === data.job.tracking_code ? data.job : prev
+        );
+      } else {
+        setJob(data.job);
+      }
+      setMyJobs((prev) => {
+        const next = prev.map((m) =>
+          m.tracking_code === data.job.tracking_code ? { ...m, ...data.job } : m
+        );
+        cachedMyJobs = next;
+        return next;
+      });
       return true;
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Failed to look up tracking code";
-      setTrackError(message);
+      if (!preserveJob) {
+        setTrackError(message);
+      }
       return false;
     } finally {
-      setTrackingLoading(false);
+      if (preserveJob) {
+        setRefreshingJob(false);
+      } else {
+        setTrackingLoading(false);
+      }
     }
+  };
+
+  const handleViewTicket = async (targetJob: PrintJobDetails) => {
+    // Tactile haptic feedback on mobile tap
+    if (typeof window !== "undefined" && "vibrate" in navigator) {
+      try {
+        navigator.vibrate(10);
+      } catch {}
+    }
+
+    // Open modal IMMEDIATELY with the local job details (0ms delay!)
+    setJobModalClosing(false);
+    setJob({ ...targetJob, is_owner: true });
+    setTrackError(null);
+
+    // Update URL cleanly without blocking
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set("tab", "track");
+      url.searchParams.delete("code");
+      window.history.replaceState({}, "", url.toString());
+    } catch {}
+
+    // Background refresh so the modal status is silently up-to-date
+    try {
+      const res = await fetch(`/api/printing/${encodeURIComponent(targetJob.tracking_code)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.job) {
+          setJob((prev) => (prev && prev.tracking_code === targetJob.tracking_code ? { ...data.job, is_owner: true } : prev));
+        }
+      }
+    } catch {}
   };
 
   const handleConfirmCancel = async () => {
@@ -1535,10 +1872,12 @@ function UnifiedPrintingContent() {
       const cancelledCode = jobToCancel.tracking_code;
       // Update active job if it matches
       setJob((prev) => (prev && prev.tracking_code === cancelledCode ? { ...prev, status: "Cancelled" } : prev));
-      // Update myJobs list
-      setMyJobs((prev) =>
-        prev.map((j) => (j.tracking_code === cancelledCode ? { ...j, status: "Cancelled" } : j))
-      );
+      // Update myJobs list & cache
+      setMyJobs((prev) => {
+        const next = prev.map((j) => (j.tracking_code === cancelledCode ? { ...j, status: "Cancelled" } : j));
+        cachedMyJobs = next;
+        return next;
+      });
       setJobToCancel(null);
       loadMyRequests(false);
     } catch (err: unknown) {
@@ -1559,28 +1898,28 @@ function UnifiedPrintingContent() {
   };
 
   const renderAuthCard = (subtitleText: string) => (
-    <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl border border-slate-200 dark:border-slate-800 p-4 sm:p-7 shadow-xs max-w-md mx-auto space-y-3 sm:space-y-4 animate-in fade-in font-sans">
+    <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl border border-slate-200 dark:border-slate-800 p-4 sm:p-7 shadow-xs max-w-md mx-auto space-y-3.5 sm:space-y-4 animate-in fade-in font-sans">
       <div className="text-center space-y-1">
         <div className="inline-flex items-center justify-center gap-2">
-          <span className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-brand-50 dark:bg-brand-950/50 border border-brand-200 dark:border-brand-800/70 text-brand-700 dark:text-brand-400 flex items-center justify-center shrink-0">
-            <Lock className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+          <span className="w-8 h-8 rounded-xl bg-brand-50 dark:bg-brand-950/50 border border-brand-200 dark:border-brand-800/70 text-brand-700 dark:text-brand-400 flex items-center justify-center shrink-0">
+            <Lock className="w-4 h-4" />
           </span>
           <h2 className="text-base sm:text-xl font-extrabold text-slate-900 dark:text-slate-100 tracking-tight">
             Student Login Required
           </h2>
         </div>
-        <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400">
+        <p className="text-[11.5px] sm:text-xs text-slate-500 dark:text-slate-400">
           {subtitleText}
         </p>
       </div>
 
-      <div className="space-y-2.5 sm:space-y-3.5">
+      <div className="space-y-3 sm:space-y-3.5">
         {/* Continue with Google button */}
         <button
           type="button"
           disabled={googleSubmitting || authSubmitting}
           onClick={handleContinueWithGoogle}
-          className="w-full flex items-center justify-center gap-2.5 py-2 sm:py-2.5 px-3.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 font-semibold text-xs sm:text-sm transition shadow-2xs hover:shadow-xs cursor-pointer active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed"
+          className="w-full min-h-[46px] flex items-center justify-center gap-2.5 py-2.5 px-3.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 font-semibold text-xs sm:text-sm transition shadow-2xs hover:shadow-xs cursor-pointer active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed"
         >
           {googleSubmitting ? (
             <>
@@ -1611,11 +1950,11 @@ function UnifiedPrintingContent() {
         </div>
 
         {/* Sub-Tabs: Sign In vs Create Account */}
-        <div className="grid grid-cols-2 p-0.5 sm:p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
+        <div className="grid grid-cols-2 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
           <button
             type="button"
             onClick={() => { setAuthMode("signin"); setAuthError(null); }}
-            className={`py-1.5 sm:py-2 text-[11px] sm:text-xs font-bold rounded-lg transition cursor-pointer ${
+            className={`min-h-[38px] py-1.5 sm:py-2 text-xs font-bold rounded-lg transition cursor-pointer ${
               authMode === "signin"
                 ? "bg-white dark:bg-slate-900 text-brand-700 dark:text-brand-400 shadow-2xs"
                 : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100"
@@ -1626,7 +1965,7 @@ function UnifiedPrintingContent() {
           <button
             type="button"
             onClick={() => { setAuthMode("register"); setAuthError(null); }}
-            className={`py-1.5 sm:py-2 text-[11px] sm:text-xs font-bold rounded-lg transition cursor-pointer ${
+            className={`min-h-[38px] py-1.5 sm:py-2 text-xs font-bold rounded-lg transition cursor-pointer ${
               authMode === "register"
                 ? "bg-white dark:bg-slate-900 text-brand-700 dark:text-brand-400 shadow-2xs"
                 : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100"
@@ -1637,46 +1976,61 @@ function UnifiedPrintingContent() {
         </div>
 
         {authError && (
-          <div className="p-2.5 sm:p-3 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800/70 text-rose-800 dark:text-rose-300 text-xs flex items-center gap-2">
+          <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800/70 text-rose-800 dark:text-rose-300 text-xs flex items-center gap-2">
             <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
             <span>{authError}</span>
           </div>
         )}
 
         {authMode === "signin" ? (
-          <form onSubmit={handleEmailSignIn} className="space-y-2.5 sm:space-y-3">
+          <form onSubmit={handleEmailSignIn} className="space-y-3">
             <div>
-              <label className="block text-[11px] sm:text-xs font-semibold text-slate-700 dark:text-slate-300 mb-0.5 sm:mb-1">
+              <label className="block text-[11px] sm:text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                 Email Address
               </label>
               <input
                 type="email"
                 required
+                autoComplete="email"
+                inputMode="email"
+                enterKeyHint="next"
                 placeholder="student@example.com"
                 value={authEmail}
                 onChange={(e) => setAuthEmail(e.target.value)}
-                className="w-full px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl border border-slate-200 dark:border-slate-800 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-brand-600 bg-slate-50/50 dark:bg-slate-800/50"
+                className="w-full min-h-[46px] px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600 bg-slate-50/50 dark:bg-slate-800/50"
               />
             </div>
 
             <div>
-              <label className="block text-[11px] sm:text-xs font-semibold text-slate-700 dark:text-slate-300 mb-0.5 sm:mb-1">
+              <label className="block text-[11px] sm:text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                 Password
               </label>
-              <input
-                type="password"
-                required
-                placeholder="••••••••"
-                value={authPassword}
-                onChange={(e) => setAuthPassword(e.target.value)}
-                className="w-full px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl border border-slate-200 dark:border-slate-800 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-brand-600 bg-slate-50/50 dark:bg-slate-800/50"
-              />
+              <div className="relative">
+                <input
+                  type={showAuthPassword ? "text" : "password"}
+                  required
+                  autoComplete="current-password"
+                  enterKeyHint="done"
+                  placeholder="••••••••"
+                  value={authPassword}
+                  onChange={(e) => setAuthPassword(e.target.value)}
+                  className="w-full min-h-[46px] pl-3.5 pr-11 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600 bg-slate-50/50 dark:bg-slate-800/50"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowAuthPassword((v) => !v)}
+                  aria-label={showAuthPassword ? "Hide password" : "Show password"}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 w-9 h-9 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 flex items-center justify-center transition cursor-pointer"
+                >
+                  {showAuthPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
             </div>
 
             <button
               type="submit"
               disabled={authSubmitting}
-              className="w-full py-2 sm:py-2.5 px-4 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs sm:text-sm shadow-sm shadow-brand-500/20 transition cursor-pointer disabled:opacity-60 flex items-center justify-center gap-2 active:scale-95"
+              className="w-full min-h-[46px] py-2.5 px-4 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs sm:text-sm shadow-sm shadow-brand-500/20 transition cursor-pointer disabled:opacity-60 flex items-center justify-center gap-2 active:scale-[0.99]"
             >
               {authSubmitting ? (
                 <>
@@ -1689,61 +2043,80 @@ function UnifiedPrintingContent() {
             </button>
           </form>
         ) : (
-          <form onSubmit={handleEmailRegister} className="space-y-2 sm:space-y-3">
+          <form onSubmit={handleEmailRegister} className="space-y-2.5 sm:space-y-3">
             <div>
-              <label className="block text-[11px] sm:text-xs font-semibold text-slate-700 dark:text-slate-300 mb-0.5 sm:mb-1">
+              <label className="block text-[11px] sm:text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                 Full Student Name
               </label>
               <input
                 type="text"
                 required
+                autoComplete="name"
+                enterKeyHint="next"
                 placeholder="e.g. Maria Santos"
                 value={authName}
                 onChange={(e) => setAuthName(e.target.value)}
-                className="w-full px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl border border-slate-200 dark:border-slate-800 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-brand-600 bg-slate-50/50 dark:bg-slate-800/50"
+                className="w-full min-h-[46px] px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600 bg-slate-50/50 dark:bg-slate-800/50"
               />
             </div>
 
             <div>
-              <label className="block text-[11px] sm:text-xs font-semibold text-slate-700 dark:text-slate-300 mb-0.5 sm:mb-1">
+              <label className="block text-[11px] sm:text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                 Email Address
               </label>
               <input
                 type="email"
                 required
+                autoComplete="email"
+                inputMode="email"
+                enterKeyHint="next"
                 placeholder="student@example.com"
                 value={authEmail}
                 onChange={(e) => setAuthEmail(e.target.value)}
-                className="w-full px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl border border-slate-200 dark:border-slate-800 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-brand-600 bg-slate-50/50 dark:bg-slate-800/50"
+                className="w-full min-h-[46px] px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600 bg-slate-50/50 dark:bg-slate-800/50"
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <div>
-                <label className="block text-[11px] sm:text-xs font-semibold text-slate-700 dark:text-slate-300 mb-0.5 sm:mb-1">
-                  Password <span className="text-slate-400 dark:text-slate-500 font-normal">(6+ chars)</span>
+                <label className="block text-[11px] sm:text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Password <span className="text-slate-400 dark:text-slate-500 font-normal">(8+ chars)</span>
                 </label>
-                <input
-                  type="password"
-                  required
-                  placeholder="••••••••"
-                  value={authPassword}
-                  onChange={(e) => setAuthPassword(e.target.value)}
-                  className="w-full px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl border border-slate-200 dark:border-slate-800 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-brand-600 bg-slate-50/50 dark:bg-slate-800/50"
-                />
+                <div className="relative">
+                  <input
+                    type={showAuthPassword ? "text" : "password"}
+                    required
+                    autoComplete="new-password"
+                    enterKeyHint="next"
+                    placeholder="••••••••"
+                    value={authPassword}
+                    onChange={(e) => setAuthPassword(e.target.value)}
+                    className="w-full min-h-[46px] pl-3.5 pr-11 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600 bg-slate-50/50 dark:bg-slate-800/50"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowAuthPassword((v) => !v)}
+                    aria-label={showAuthPassword ? "Hide password" : "Show password"}
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 w-9 h-9 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 flex items-center justify-center transition cursor-pointer"
+                  >
+                    {showAuthPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
 
               <div>
-                <label className="block text-[11px] sm:text-xs font-semibold text-slate-700 dark:text-slate-300 mb-0.5 sm:mb-1">
+                <label className="block text-[11px] sm:text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   Confirm Password
                 </label>
                 <input
-                  type="password"
+                  type={showAuthPassword ? "text" : "password"}
                   required
+                  autoComplete="new-password"
+                  enterKeyHint="done"
                   placeholder="••••••••"
                   value={authConfirmPassword}
                   onChange={(e) => setAuthConfirmPassword(e.target.value)}
-                  className="w-full px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl border border-slate-200 dark:border-slate-800 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-brand-600 bg-slate-50/50 dark:bg-slate-800/50"
+                  className="w-full min-h-[46px] px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600 bg-slate-50/50 dark:bg-slate-800/50"
                 />
               </div>
             </div>
@@ -1751,7 +2124,7 @@ function UnifiedPrintingContent() {
             <button
               type="submit"
               disabled={authSubmitting}
-              className="w-full py-2 sm:py-2.5 px-4 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs sm:text-sm shadow-sm shadow-brand-500/20 transition cursor-pointer disabled:opacity-60 flex items-center justify-center gap-2 active:scale-95"
+              className="w-full min-h-[46px] py-2.5 px-4 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs sm:text-sm shadow-sm shadow-brand-500/20 transition cursor-pointer disabled:opacity-60 flex items-center justify-center gap-2 active:scale-[0.99]"
             >
               {authSubmitting ? (
                 <>
@@ -1773,40 +2146,64 @@ function UnifiedPrintingContent() {
   );
 
   return (
-    <div className="max-w-4xl mx-auto px-3.5 sm:px-6 py-3.5 sm:py-8 space-y-4 sm:space-y-6 pb-12 sm:pb-16 min-h-[calc(100vh-58px-3.5rem)] md:min-h-[calc(100vh-110px-4rem)]">
+    <div className="max-w-3xl mx-auto px-2.5 sm:px-6 pt-1.5 sm:pt-4 space-y-2 sm:space-y-4 pb-[calc(6.5rem+env(safe-area-inset-bottom,0px))] md:pb-16 min-h-[calc(100vh-58px-3.5rem)] md:min-h-[calc(100vh-110px-4rem)]">
       {/* Top Controls: Mode Switcher & Guidelines Info */}
-      <div className="flex flex-row items-center justify-between gap-2 sm:gap-3 max-w-2xl mx-auto w-full">
-        <div className="flex-1 min-w-0 sm:max-w-md w-full bg-slate-100/90 dark:bg-slate-800/90 p-1 sm:p-1.5 rounded-2xl border border-slate-200/80 dark:border-slate-800/90 shadow-xs">
-          <div className="grid grid-cols-2 gap-1 sm:gap-1.5">
-            <button
-              type="button"
-              onClick={() => switchTab("submit")}
-              className={`flex items-center justify-center gap-1.5 sm:gap-2 py-2 sm:py-2.5 px-2 sm:px-3 rounded-xl text-xs sm:text-sm font-bold whitespace-nowrap transition-all cursor-pointer active:scale-95 touch-manipulation select-none ${
-                activeTab === "submit"
-                  ? "bg-white dark:bg-slate-900 text-brand-700 dark:text-brand-400 shadow-sm border border-slate-200/60 dark:border-slate-700/70 font-extrabold"
-                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-white/50 dark:hover:bg-slate-700/50"
+      <div className="flex flex-row items-stretch justify-between gap-1.5 sm:gap-2 max-w-2xl mx-auto w-full">
+        <div
+          role="tablist"
+          aria-label="Printing portal views"
+          className="relative flex-1 min-w-0 sm:max-w-md w-full grid grid-cols-2 gap-1 bg-slate-100/90 dark:bg-slate-800/90 p-1 rounded-xl border border-slate-200/80 dark:border-slate-800/90 shadow-xs"
+        >
+          <div
+            aria-hidden="true"
+            className="tab-sliding-pill absolute top-1 bottom-1 rounded-lg bg-white dark:bg-slate-900 shadow-xs border border-slate-200/60 dark:border-slate-700/70 pointer-events-none"
+            style={getHorizontalPillStyle(2, activeTab === "track" ? 1 : 0, 0.25, 0.25)}
+          />
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "submit"}
+            onClick={() => switchTab("submit")}
+            className={`relative z-10 flex flex-row items-center justify-center gap-1 sm:gap-1.5 py-1 sm:py-2 px-1 sm:px-2 rounded-lg font-sans text-[10.5px] min-[390px]:text-[11.5px] sm:text-xs transition-colors duration-200 select-none active:scale-95 cursor-pointer touch-manipulation ${
+              activeTab === "submit"
+                ? "text-brand-700 dark:text-brand-400 font-bold"
+                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 font-semibold"
+            }`}
+          >
+            <Printer
+              className={`w-3.5 h-3.5 shrink-0 transition-colors ${
+                activeTab === "submit" ? "text-brand-600 dark:text-brand-400" : "text-slate-500 dark:text-slate-400"
               }`}
-            >
-              <Printer className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-brand-600 dark:text-brand-400 shrink-0" />
-              <span>Submit Request</span>
-            </button>
+            />
+            <span className="whitespace-nowrap tracking-tight leading-none">Submit Request</span>
+          </button>
 
-            <button
-              type="button"
-              onClick={() => switchTab("track")}
-              className={`relative flex items-center justify-center gap-1.5 sm:gap-2 py-2 sm:py-2.5 px-2 sm:px-3 rounded-xl text-xs sm:text-sm font-bold whitespace-nowrap transition-all cursor-pointer active:scale-95 touch-manipulation select-none ${
-                activeTab === "track"
-                  ? "bg-white dark:bg-slate-900 text-brand-700 dark:text-brand-400 shadow-sm border border-slate-200/60 dark:border-slate-700/70 font-extrabold"
-                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-white/50 dark:hover:bg-slate-700/50"
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "track"}
+            onClick={() => switchTab("track")}
+            className={`relative z-10 flex flex-row items-center justify-center gap-1 sm:gap-1.5 py-1 sm:py-2 px-1 sm:px-2 rounded-lg font-sans text-[10.5px] min-[390px]:text-[11.5px] sm:text-xs transition-colors duration-200 select-none active:scale-95 cursor-pointer touch-manipulation ${
+              activeTab === "track"
+                ? "text-brand-700 dark:text-brand-400 font-bold"
+                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 font-semibold"
+            }`}
+          >
+            <Search
+              className={`w-3.5 h-3.5 shrink-0 transition-colors ${
+                activeTab === "track" ? "text-brand-600 dark:text-brand-400" : "text-slate-500 dark:text-slate-400"
               }`}
-            >
-              <Search className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-brand-600 dark:text-brand-400 shrink-0" />
-              <span>Track Status</span>
-              {submittedCode && (
-                <span className="w-2 h-2 rounded-full bg-brand-500 animate-ping shrink-0" />
-              )}
-            </button>
-          </div>
+            />
+            <span className="whitespace-nowrap tracking-tight leading-none">Track Status</span>
+            {activeJobsCount > 0 && (
+              <span className="inline-flex items-center justify-center min-w-[14px] h-[14px] px-1 rounded-full bg-brand-600 text-white text-[9px] font-extrabold leading-none shrink-0">
+                {activeJobsCount}
+              </span>
+            )}
+            {submittedCode && activeJobsCount === 0 && (
+              <span className="w-1.5 h-1.5 rounded-full bg-brand-500 animate-ping shrink-0" />
+            )}
+          </button>
         </div>
 
         <button
@@ -1814,23 +2211,23 @@ function UnifiedPrintingContent() {
           onClick={() => setShowInfoModal(true)}
           aria-label="Guidelines & Station Info"
           title="Guidelines & Station Info"
-          className="inline-flex items-center justify-center gap-1.5 w-11 h-11 sm:w-auto sm:h-auto sm:px-3.5 sm:py-2.5 rounded-2xl sm:rounded-xl bg-brand-50 dark:bg-brand-950/50 hover:bg-brand-100 dark:hover:bg-brand-900/60 border border-brand-200 dark:border-brand-800/70 text-brand-700 dark:text-brand-400 text-xs font-bold transition-all shadow-2xs shrink-0 cursor-pointer active:scale-95 touch-manipulation"
+          className="inline-flex items-center justify-center gap-1.5 w-[34px] sm:w-auto sm:px-3.5 rounded-xl bg-brand-50 dark:bg-brand-950/50 hover:bg-brand-100 dark:hover:bg-brand-900/60 border border-brand-200 dark:border-brand-800/70 text-brand-700 dark:text-brand-400 text-xs font-bold transition-all shadow-xs shrink-0 cursor-pointer active:scale-95 touch-manipulation"
         >
-          <Info className="w-[18px] h-[18px] sm:w-4 sm:h-4 text-brand-600 dark:text-brand-400 shrink-0" />
-          <span className="hidden sm:inline">Guidelines &amp; Station Info</span>
+          <Info className="w-4 h-4 text-brand-600 dark:text-brand-400 shrink-0" />
+          <span className="hidden sm:inline">Guidelines</span>
         </button>
       </div>
 
-      {/* Main Content Workspace (Clean, centered, uncluttered layout) */}
-      <div className="w-full space-y-4 sm:space-y-6">
+      {/* Main Content Workspace */}
+      <div key={activeTab} className={`w-full space-y-3 sm:space-y-4 overflow-x-clip ${tabAnimClass}`}>
           {/* --------------------------------------------------------------- */}
           {/* TAB 1: SUBMIT PRINT REQUEST                                     */}
           {/* --------------------------------------------------------------- */}
           {activeTab === "submit" && (
-            <div className="space-y-6">
+            <div className="space-y-3">
               {/* Program Inactive Notice */}
               {!isActive && (
-                <div className="p-5 rounded-2xl bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800/70 text-amber-900 dark:text-amber-200 flex items-start gap-3 shadow-xs">
+                <div className="p-4 sm:p-5 rounded-2xl bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800/70 text-amber-900 dark:text-amber-200 flex items-start gap-3 shadow-xs">
                   <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                   <div className="space-y-1 text-sm">
                     <p className="font-bold">Monthly Free Printing Supplies Limit Reached</p>
@@ -1843,26 +2240,25 @@ function UnifiedPrintingContent() {
 
               {/* Submission Success View */}
               {submittedCode ? (
-                /* Submission Success View */
                 <div
                   id="submission-success-view"
                   className="max-w-md sm:max-w-lg mx-auto bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl border border-emerald-200/90 dark:border-emerald-800/70 p-4 sm:p-7 shadow-md text-center space-y-3.5 sm:space-y-5 animate-in fade-in zoom-in-95 duration-200 scroll-mt-20"
                 >
                   {/* Minimalist Header */}
                   <div className="space-y-1">
-                    <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-100 dark:border-emerald-900/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto">
-                      <CheckCircle2 className="w-5 h-5 sm:w-6 sm:h-6" />
+                    <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-100 dark:border-emerald-900/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto">
+                      <CheckCircle2 className="w-6 h-6" />
                     </div>
                     <h2 className="text-lg sm:text-2xl font-extrabold text-slate-900 dark:text-slate-100 tracking-tight pt-1">
                       Print Request Submitted!
                     </h2>
-                    <p className="text-[11.5px] sm:text-xs text-slate-500 dark:text-slate-400 leading-snug">
+                    <p className="text-xs text-slate-500 dark:text-slate-400 leading-snug">
                       Queued for printing. Save your ticket below to claim.
                     </p>
                   </div>
 
                   {/* Unified Minimalist Claim Ticket Card */}
-                  <div className="bg-gradient-to-br from-brand-50/90 dark:from-brand-950/50 via-white dark:via-slate-900 to-amber-50/40 dark:to-amber-950/30 border-2 border-dashed border-brand-300 dark:border-brand-700/80 rounded-xl sm:rounded-2xl p-3.5 sm:p-5 space-y-2.5 shadow-2xs">
+                  <div className="bg-gradient-to-br from-brand-50/90 dark:from-brand-950/50 via-white dark:via-slate-900 to-amber-50/40 dark:to-amber-950/30 border-2 border-dashed border-brand-300 dark:border-brand-700/80 rounded-2xl p-4 sm:p-5 space-y-2.5 shadow-2xs">
                     <span className="text-[10px] sm:text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest block">
                       Official Claim Ticket
                     </span>
@@ -1874,8 +2270,9 @@ function UnifiedPrintingContent() {
                       <button
                         type="button"
                         onClick={copyCode}
-                        className="p-1.5 sm:p-2 rounded-lg sm:rounded-xl bg-brand-100 dark:bg-brand-950/70 hover:bg-brand-200 dark:hover:bg-brand-900/80 text-brand-800 dark:text-brand-300 transition-colors cursor-pointer"
+                        className="w-10 h-10 rounded-xl bg-brand-100 dark:bg-brand-950/70 hover:bg-brand-200 dark:hover:bg-brand-900/80 text-brand-800 dark:text-brand-300 transition-colors cursor-pointer flex items-center justify-center active:scale-95"
                         title="Copy ticket code"
+                        aria-label="Copy ticket code"
                       >
                         {copied ? <Check className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600 dark:text-emerald-400" /> : <Copy className="w-4 h-4 sm:w-5 sm:h-5" />}
                       </button>
@@ -1892,7 +2289,7 @@ function UnifiedPrintingContent() {
                     {/* Compact Station & Turnaround Meta */}
                     <div className="pt-2.5 border-t border-brand-200/70 dark:border-brand-800/70 flex flex-col items-center gap-1.5 text-[11px] sm:text-xs font-sans">
                       <span className="inline-flex items-center justify-center gap-1 text-emerald-800 dark:text-emerald-300 font-semibold leading-tight">
-                        <MapPin className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                        <MapPin className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                         <span>
                           {formData.pickup_station
                             ? formData.pickup_station.includes("Purok 5")
@@ -1918,13 +2315,13 @@ function UnifiedPrintingContent() {
                   <PushNotificationManager variant="banner" />
 
                   {/* Compact Side-by-Side Action Buttons */}
-                  <div className="grid grid-cols-2 gap-2 sm:gap-2.5 pt-0.5 font-sans">
+                  <div className="grid grid-cols-2 gap-2.5 pt-0.5 font-sans">
                     <button
                       type="button"
                       onClick={() => goToTrackingWithCode(submittedCode)}
-                      className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs sm:text-sm shadow-sm shadow-brand-500/20 transition-all cursor-pointer whitespace-nowrap"
+                      className="min-h-[46px] inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs sm:text-sm shadow-sm shadow-brand-500/20 transition-all cursor-pointer whitespace-nowrap active:scale-[0.98]"
                     >
-                      <Search className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+                      <Search className="w-4 h-4 shrink-0" />
                       <span>Track Request</span>
                     </button>
                     <button
@@ -1933,13 +2330,23 @@ function UnifiedPrintingContent() {
                         setSubmittedCode(null);
                         setSelectedFile(null);
                         setAgreed(false);
-                        setFormData(DEFAULT_FORM_DATA);
+                        setPageRangeMode("all");
+                        setFormStep(1);
+                        setFormData({
+                          ...DEFAULT_FORM_DATA,
+                          student_name: formData.student_name,
+                          facebook_name: formData.facebook_name,
+                          purok: formData.purok,
+                          grade_level: formData.grade_level,
+                          pickup_station: formData.pickup_station,
+                        });
+                        setProfilePrefilled(true);
                         try {
                           localStorage.removeItem(DRAFT_STORAGE_KEY);
-                        } catch (e) {}
+                        } catch {}
                         window.scrollTo({ top: 0, behavior: "smooth" });
                       }}
-                      className="inline-flex items-center justify-center px-3 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs sm:text-sm font-semibold transition-colors cursor-pointer whitespace-nowrap"
+                      className="min-h-[46px] inline-flex items-center justify-center px-3 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs sm:text-sm font-semibold transition-colors cursor-pointer whitespace-nowrap active:scale-[0.98]"
                     >
                       New Request
                     </button>
@@ -1947,400 +2354,789 @@ function UnifiedPrintingContent() {
                 </div>
               ) : authChecking ? (
                 /* Auth Checking State */
-                <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-12 text-center text-slate-500 dark:text-slate-400 shadow-xs space-y-3">
+                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-8 sm:p-12 text-center text-slate-500 dark:text-slate-400 shadow-xs space-y-3 max-w-2xl mx-auto min-h-[486px] sm:min-h-0 flex flex-col items-center justify-center">
                   <div className="w-8 h-8 border-2 border-brand-600 border-t-transparent rounded-full animate-spin mx-auto" />
                   <p className="text-xs sm:text-sm font-medium">Checking student account status...</p>
                 </div>
               ) : !currentUser ? (
                 renderAuthCard("Sign in or create an account to submit print requests.")
               ) : (
-                /* Submission Form */
-                <form onSubmit={handleSubmit} className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-3.5 sm:p-8 space-y-4 sm:space-y-6 shadow-xs font-sans">
-                  {submitError && (
-                    <div className="p-3 sm:p-4 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800/70 text-rose-800 dark:text-rose-300 flex items-start gap-2.5 sm:gap-3 text-xs sm:text-sm">
-                      <AlertCircle className="w-4 h-4 sm:w-5 sm:h-5 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
-                      <span>{submitError}</span>
+                /* Compact Mobile-First 3-Step Submission Form */
+                <form
+                  ref={formCardRef}
+                  noValidate
+                  onSubmit={handleSubmit}
+                  className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-3 sm:p-5 space-y-2.5 sm:space-y-3.5 shadow-xs font-sans max-w-2xl mx-auto min-h-[486px] sm:min-h-0 flex flex-col"
+                >
+                  {/* Compact Step Progress Header */}
+                  <div className="space-y-2 border-b border-slate-100 dark:border-slate-800 pb-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <h3 className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-slate-100 tracking-tight truncate">
+                        {formStep === 1 && "1. Student & Resident Info"}
+                        {formStep === 2 && "2. Print Options & Station"}
+                        {formStep === 3 && "3. Attach File & Submit"}
+                      </h3>
+
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {formStep === 1 && profilePrefilled && (
+                          <>
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-brand-50 dark:bg-brand-950/60 text-brand-700 dark:text-brand-300 text-[10px] font-bold border border-brand-200/70 dark:border-brand-800/70">
+                              <Sparkles className="w-2.5 h-2.5" />
+                              Saved
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setFormData((prev) => ({
+                                  ...DEFAULT_FORM_DATA,
+                                  student_name: currentUser?.name || "",
+                                  print_type: prev.print_type,
+                                  paper_size: prev.paper_size,
+                                  copies: prev.copies,
+                                  page_range: prev.page_range,
+                                  notes: prev.notes,
+                                  is_urgent: prev.is_urgent,
+                                }));
+                                setProfilePrefilled(false);
+                                setSubmitError(null);
+                              }}
+                              className="text-[10.5px] font-semibold text-slate-500 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 transition cursor-pointer"
+                              title="Clear saved student info"
+                            >
+                              Clear
+                            </button>
+                          </>
+                        )}
+                        <span className="text-[10.5px] font-bold text-slate-400 dark:text-slate-500 tabular-nums">
+                          {formStep}/3
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-1">
+                      {[
+                        { step: 1 as const, label: "Info" },
+                        { step: 2 as const, label: "Options" },
+                        { step: 3 as const, label: "Upload" },
+                      ].map((item) => {
+                        const isCurrent = formStep === item.step;
+                        const isCompleted = formStep > item.step;
+                        return (
+                          <button
+                            key={item.step}
+                            type="button"
+                            onClick={() => goToStep(item.step)}
+                            className="group text-left space-y-1 cursor-pointer touch-manipulation focus:outline-none"
+                          >
+                            <div
+                              className={`h-1 w-full rounded-full transition-all duration-300 ${
+                                isCurrent
+                                  ? "bg-brand-600 dark:bg-brand-500"
+                                  : isCompleted
+                                  ? "bg-emerald-500"
+                                  : "bg-slate-200 dark:bg-slate-800 group-hover:bg-slate-300 dark:group-hover:bg-slate-700"
+                              }`}
+                            />
+                            <span
+                              className={`block text-[10px] font-bold tracking-tight transition-colors ${
+                                isCurrent
+                                  ? "text-brand-700 dark:text-brand-400"
+                                  : isCompleted
+                                  ? "text-emerald-700 dark:text-emerald-400"
+                                  : "text-slate-400 dark:text-slate-500"
+                              }`}
+                            >
+                              {item.step}. {item.label}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* ========================================================== */}
+                  {/* STEP 1: STUDENT & RESIDENT INFORMATION                     */}
+                  {/* ========================================================== */}
+                  {formStep === 1 && (
+                    <div className="flex-1 flex flex-col gap-2.5 animate-in fade-in">
+                      <div className="space-y-2.5">
+                        <div className="min-w-0">
+                          <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                            Full Name <span className="text-rose-500 dark:text-rose-400">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            autoComplete="name"
+                            enterKeyHint="done"
+                            placeholder="e.g. Juan Dela Cruz"
+                            value={formData.student_name}
+                            onChange={(e) => {
+                              setFormData({ ...formData, student_name: e.target.value });
+                              if (submitError) setSubmitError(null);
+                            }}
+                            className="w-full min-w-0 h-[42px] px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700/80 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-slate-50/40 dark:bg-slate-800/70 text-slate-900 dark:text-slate-100"
+                          />
+                        </div>
+
+                        {/* Grade / Year Level Segmented Control */}
+                        <div className="min-w-0">
+                          <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                            Grade / Year Level <span className="text-rose-500 dark:text-rose-400">*</span>
+                          </label>
+                          <div className="grid grid-cols-3 gap-1.5">
+                            {GRADE_LEVEL_CARDS.map((g) => {
+                              const selected = formData.grade_level === g.value;
+                              return (
+                                <button
+                                  key={g.value}
+                                  type="button"
+                                  onClick={() => {
+                                    setFormData({ ...formData, grade_level: g.value });
+                                    if (submitError) setSubmitError(null);
+                                  }}
+                                  aria-pressed={selected}
+                                  className={`min-h-[42px] px-2 py-1 rounded-xl border text-center transition-all cursor-pointer touch-manipulation active:scale-[0.98] flex flex-col items-center justify-center ${
+                                    selected
+                                      ? "bg-brand-50 dark:bg-brand-950/60 border-brand-500 text-brand-800 dark:text-brand-300 ring-1 ring-brand-500/30 font-bold"
+                                      : "bg-slate-50/70 dark:bg-slate-800/70 border-slate-200 dark:border-slate-700/80 text-slate-700 dark:text-slate-200 hover:border-slate-300"
+                                  }`}
+                                >
+                                  <span className="text-xs font-bold leading-tight">{g.shortLabel}</span>
+                                  <span
+                                    className={`text-[10px] leading-tight mt-0.5 ${
+                                      selected
+                                        ? "text-brand-700/80 dark:text-brand-300/80 font-medium"
+                                        : "text-slate-400 dark:text-slate-500"
+                                    }`}
+                                  >
+                                    {g.subLabel}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* Purok / Sitio Grid Cards */}
+                        <div className="min-w-0">
+                          <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                            Purok / Sitio in Tocok <span className="text-rose-500 dark:text-rose-400">*</span>
+                          </label>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                            {PUROK_CARDS.map((p, idx) => {
+                              const selected = formData.purok === p.value;
+                              return (
+                                <button
+                                  key={p.value}
+                                  type="button"
+                                  onClick={() => {
+                                    setFormData({ ...formData, purok: p.value });
+                                    if (submitError) setSubmitError(null);
+                                  }}
+                                  aria-label={p.value}
+                                  aria-pressed={selected}
+                                  className={`min-h-[38px] px-2 py-1 rounded-xl border text-center transition-all cursor-pointer touch-manipulation active:scale-[0.98] flex flex-col items-center justify-center ${
+                                    idx === PUROK_CARDS.length - 1 ? "col-span-2 sm:col-span-3" : ""
+                                  } ${
+                                    selected
+                                      ? "bg-brand-50 dark:bg-brand-950/60 border-brand-500 text-brand-800 dark:text-brand-300 ring-1 ring-brand-500/30 font-bold"
+                                      : "bg-slate-50/70 dark:bg-slate-800/70 border-slate-200 dark:border-slate-700/80 text-slate-700 dark:text-slate-200 hover:border-slate-300"
+                                  }`}
+                                >
+                                  <span className="text-[11.5px] font-bold leading-none">{p.shortLabel}</span>
+                                  <span
+                                    className={`text-[9.5px] leading-none mt-0.5 truncate max-w-full ${
+                                      selected
+                                        ? "text-brand-700/80 dark:text-brand-300/80 font-medium"
+                                        : "text-slate-500 dark:text-slate-400"
+                                    }`}
+                                  >
+                                    {p.subLabel}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Step 1 Next CTA */}
+                      <div className="mt-auto pt-0.5">
+                        <button
+                          type="button"
+                          onClick={handleNextStep}
+                          className="w-full h-[44px] px-4 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs sm:text-sm shadow-sm shadow-brand-500/20 transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-[0.99] touch-manipulation"
+                        >
+                          <span>Next: Print Options</span>
+                          <ChevronRight className="w-4 h-4 shrink-0" />
+                        </button>
+                      </div>
                     </div>
                   )}
 
-                  {/* Section 1: Student Information */}
-                  <div className="space-y-3 sm:space-y-4">
-                    <div className="border-b border-slate-100 dark:border-slate-800 pb-2 sm:pb-3">
-                      <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100">
-                        1. Student &amp; Resident Information
-                      </h3>
-                      <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400">
-                        Verification of residency in Barangay Tocok, San Fabian
-                      </p>
-                    </div>
+                  {/* ========================================================== */}
+                  {/* STEP 2: PRINT OPTIONS & CLAIMING STATION                   */}
+                  {/* ========================================================== */}
+                  {formStep === 2 && (
+                    <div className="flex-1 flex flex-col gap-1.5 animate-in fade-in">
+                      <div className="space-y-1.5">
+                        {/* Print Color Toggle Cards */}
+                        <div className="min-w-0">
+                          <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                            Print Color <span className="text-rose-500 dark:text-rose-400">*</span>
+                          </label>
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setFormData({ ...formData, print_type: "Black & White" });
+                                if (submitError) setSubmitError(null);
+                              }}
+                              aria-pressed={formData.print_type === "Black & White"}
+                              className={`h-[36px] px-2.5 py-1 rounded-xl border text-left transition-all cursor-pointer touch-manipulation active:scale-[0.98] flex items-center gap-2 ${
+                                formData.print_type === "Black & White"
+                                  ? "bg-brand-50 dark:bg-brand-950/60 border-brand-500 ring-1 ring-brand-500/30"
+                                  : "bg-slate-50/70 dark:bg-slate-800/70 border-slate-200 dark:border-slate-700/80 hover:border-slate-300"
+                              }`}
+                            >
+                              <span className="w-6 h-6 rounded-lg bg-slate-900 dark:bg-slate-200 text-white dark:text-slate-900 flex items-center justify-center shrink-0">
+                                <FileText className="w-3 h-3" />
+                              </span>
+                              <span className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
+                                Black &amp; White
+                              </span>
+                            </button>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-4">
-                      <div>
-                        <label className="block text-[11px] sm:text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1 sm:mb-1.5">
-                          Full Name <span className="text-rose-500 dark:text-rose-400">*</span>
-                        </label>
-                        <input
-                          type="text"
-                          required
-                          placeholder="e.g. Juan Dela Cruz"
-                          value={formData.student_name}
-                          onChange={(e) => setFormData({ ...formData, student_name: e.target.value })}
-                          className="w-full px-3 py-2 sm:px-3.5 sm:py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-brand-600 bg-slate-50/50 dark:bg-slate-800/50"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-[11px] sm:text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1 sm:mb-1.5">
-                          Facebook / Messenger Name <span className="text-slate-400 dark:text-slate-500 font-normal">(Optional)</span>
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="e.g. Juan Tocok"
-                          value={formData.facebook_name}
-                          onChange={(e) => setFormData({ ...formData, facebook_name: e.target.value })}
-                          className="w-full px-3 py-2 sm:px-3.5 sm:py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-brand-600 bg-slate-50/50 dark:bg-slate-800/50"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-[11px] sm:text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1 sm:mb-1.5">
-                          School / University <span className="text-rose-500 dark:text-rose-400">*</span>
-                        </label>
-                        <select
-                          required
-                          value={formData.school}
-                          onChange={(e) => setFormData({ ...formData, school: e.target.value })}
-                          className={`w-full px-3 py-2 sm:px-3.5 sm:py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-brand-600 bg-slate-50/50 dark:bg-slate-800/50 font-medium ${
-                            !formData.school ? "text-slate-400 dark:text-slate-500" : "text-slate-800 dark:text-slate-200"
-                          }`}
-                        >
-                          <option value="" disabled className="text-slate-400 dark:text-slate-500">
-                            Select School / University...
-                          </option>
-                          {SCHOOL_OPTIONS.map((sch) => (
-                            <option key={sch} value={sch} className="text-slate-800 dark:text-slate-200">
-                              {sch}
-                            </option>
-                          ))}
-                        </select>
-                        {(formData.school === "OTHERS" || formData.school === "Others") && (
-                          <input
-                            type="text"
-                            required
-                            placeholder="Type your School / University name..."
-                            value={formData.custom_school || ""}
-                            onChange={(e) => setFormData({ ...formData, custom_school: e.target.value })}
-                            className="w-full mt-2 px-3 py-2 sm:px-3.5 sm:py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-brand-600 bg-white dark:bg-slate-900 animate-in fade-in"
-                          />
-                        )}
-                      </div>
-
-                      <div>
-                        <label className="block text-[11px] sm:text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1 sm:mb-1.5">
-                          Grade / Year Level <span className="text-rose-500 dark:text-rose-400">*</span>
-                        </label>
-                        <select
-                          required
-                          value={formData.grade_level}
-                          onChange={(e) => setFormData({ ...formData, grade_level: e.target.value })}
-                          className={`w-full px-3 py-2 sm:px-3.5 sm:py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-brand-600 bg-slate-50/50 dark:bg-slate-800/50 font-medium ${
-                            !formData.grade_level ? "text-slate-400 dark:text-slate-500" : "text-slate-800 dark:text-slate-200"
-                          }`}
-                        >
-                          <option value="" disabled className="text-slate-400 dark:text-slate-500">
-                            Select Grade / Year Level...
-                          </option>
-                          {GRADE_LEVEL_OPTIONS.map((level) => (
-                            <option key={level} value={level} className="text-slate-800 dark:text-slate-200">
-                              {level}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div className="sm:col-span-2">
-                        <label className="block text-[11px] sm:text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1 sm:mb-1.5">
-                          Purok / Sitio in Tocok <span className="text-rose-500 dark:text-rose-400">*</span>
-                        </label>
-                        <select
-                          required
-                          value={formData.purok}
-                          onChange={(e) => setFormData({ ...formData, purok: e.target.value })}
-                          className={`w-full px-3 py-2 sm:px-3.5 sm:py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-brand-600 bg-slate-50/50 dark:bg-slate-800/50 font-medium ${
-                            !formData.purok ? "text-slate-400 dark:text-slate-500" : "text-slate-800 dark:text-slate-200"
-                          }`}
-                        >
-                          <option value="" disabled className="text-slate-400 dark:text-slate-500">
-                            Select your Purok / Sitio...
-                          </option>
-                          {PUROK_OPTIONS.map((purok) => (
-                            <option key={purok} value={purok} className="text-slate-800 dark:text-slate-200">
-                              {purok}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Section 2: Print Specifications */}
-                  <div className="space-y-3 sm:space-y-4">
-                    <div className="border-b border-slate-100 dark:border-slate-800 pb-2 sm:pb-3">
-                      <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100">
-                        2. Print Options &amp; Preferences
-                      </h3>
-                      <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400">
-                        Select color mode, bond paper size, and copies
-                      </p>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-4">
-                      <div>
-                        <label className="block text-[11px] sm:text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1 sm:mb-1.5">
-                          Print Color <span className="text-rose-500 dark:text-rose-400">*</span>
-                        </label>
-                        <select
-                          required
-                          value={formData.print_type}
-                          onChange={(e) => setFormData({ ...formData, print_type: e.target.value })}
-                          className={`w-full px-3 py-2 sm:px-3.5 sm:py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-brand-600 bg-slate-50/50 dark:bg-slate-800/50 font-medium ${
-                            !formData.print_type ? "text-slate-400 dark:text-slate-500" : "text-slate-800 dark:text-slate-200"
-                          }`}
-                        >
-                          <option value="" disabled className="text-slate-400 dark:text-slate-500">
-                            Select Print Color...
-                          </option>
-                          <option value="Black & White" className="text-slate-800 dark:text-slate-200">Black &amp; White (Grayscale)</option>
-                          <option value="Colored" className="text-slate-800 dark:text-slate-200">Colored</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block text-[11px] sm:text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1 sm:mb-1.5">
-                          Paper Size <span className="text-rose-500 dark:text-rose-400">*</span>
-                        </label>
-                        <select
-                          required
-                          value={formData.paper_size}
-                          onChange={(e) => setFormData({ ...formData, paper_size: e.target.value })}
-                          className={`w-full px-3 py-2 sm:px-3.5 sm:py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-brand-600 bg-slate-50/50 dark:bg-slate-800/50 font-medium ${
-                            !formData.paper_size ? "text-slate-400 dark:text-slate-500" : "text-slate-800 dark:text-slate-200"
-                          }`}
-                        >
-                          <option value="" disabled className="text-slate-400 dark:text-slate-500">
-                            Select Paper Size...
-                          </option>
-                          <option value="A4" className="text-slate-800 dark:text-slate-200">A4 (Standard 210 × 297 mm)</option>
-                          <option value="Letter (Short)" className="text-slate-800 dark:text-slate-200">Letter / Short (8.5 × 11 in)</option>
-                          <option value="Legal (Long)" className="text-slate-800 dark:text-slate-200">Legal / Long (8.5 × 13 in)</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block text-[11px] sm:text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1 sm:mb-1.5">
-                          Number of Copies
-                        </label>
-                        <input
-                          type="number"
-                          min="1"
-                          max="5"
-                          value={formData.copies}
-                          onChange={(e) => setFormData({ ...formData, copies: parseInt(e.target.value) || 1 })}
-                          className="w-full px-3 py-2 sm:px-3.5 sm:py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-brand-600 bg-slate-50/50 dark:bg-slate-800/50 font-medium"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-4">
-                      <div>
-                        <label className="block text-[11px] sm:text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1 sm:mb-1.5">
-                          Page Range
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="e.g. All pages, or Pages 1-5"
-                          value={formData.page_range}
-                          onChange={(e) => setFormData({ ...formData, page_range: e.target.value })}
-                          className="w-full px-3 py-2 sm:px-3.5 sm:py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-brand-600 bg-slate-50/50 dark:bg-slate-800/50"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-[11px] sm:text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1 sm:mb-1.5">
-                          Special Instructions / Notes
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="e.g. Back-to-back if possible / due tomorrow"
-                          value={formData.notes}
-                          onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                          className="w-full px-3 py-2 sm:px-3.5 sm:py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-brand-600 bg-slate-50/50 dark:bg-slate-800/50"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Claiming Station Selector */}
-                    <div>
-                      <label className="block text-[11px] sm:text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1 sm:mb-1.5 flex flex-wrap items-center justify-between gap-1">
-                        <span>Preferred Claiming Station (Printer) <span className="text-rose-500 dark:text-rose-400">*</span></span>
-                        <span className="text-[10.5px] sm:text-[11px] text-brand-700 dark:text-brand-400 font-semibold lowercase">Pick closest to you</span>
-                      </label>
-                      <select
-                        required
-                        value={formData.pickup_station}
-                        onChange={(e) => setFormData({ ...formData, pickup_station: e.target.value })}
-                        className={`w-full px-3 py-2 sm:px-3.5 sm:py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-brand-600 bg-slate-50/50 dark:bg-slate-800/50 font-medium ${
-                          !formData.pickup_station ? "text-slate-400 dark:text-slate-500" : "text-slate-800 dark:text-slate-200"
-                        }`}
-                      >
-                        <option value="" disabled className="text-slate-400 dark:text-slate-500">
-                          Select Preferred Claiming Station...
-                        </option>
-                        {CLAIMING_STATIONS.map((station) => (
-                          <option key={station.id} value={station.label} className="text-slate-800 dark:text-slate-200">
-                            {station.label}
-                          </option>
-                        ))}
-                      </select>
-                      <p className="text-[10.5px] sm:text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-                        {formData.pickup_station
-                          ? formData.pickup_station.includes("Purok 5")
-                            ? "Near Purok 5 (Sitio Sapdaan) or surrounding puroks? Claim from our SK Treasurer."
-                            : "Near Purok 1 (Sitio Bio, Sitio Sagur, Sitio Baybay)? Claim from our SK Chairperson."
-                          : "Choose the printer station closest to your home in Barangay Tocok."}
-                      </p>
-                    </div>
-
-                    {/* Needed Urgently Toggle */}
-                    <div className={`p-2.5 sm:p-3.5 rounded-xl border transition-all ${
-                      formData.is_urgent
-                        ? "bg-amber-50/90 dark:bg-amber-950/45 border-amber-300 dark:border-amber-700/80 ring-2 ring-amber-200 dark:ring-amber-800/70"
-                        : "bg-slate-50/70 dark:bg-slate-800/60 border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800"
-                    }`}>
-                      <label className="flex items-start gap-2.5 sm:gap-3 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={formData.is_urgent}
-                          onChange={(e) => setFormData({ ...formData, is_urgent: e.target.checked })}
-                          className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400 rounded border-slate-300 dark:border-slate-700 focus:ring-amber-500 cursor-pointer"
-                        />
-                        <div className="space-y-0.5">
-                          <span className="block text-xs font-bold text-slate-900 dark:text-slate-100">
-                            Needed Urgently (Rush / Urgent School Deadline)
-                          </span>
-                          <p className="text-[11px] sm:text-[11.5px] text-slate-600 dark:text-slate-400 leading-snug">
-                            Standard turnaround is <strong>1–2 days</strong> because SK Officials attend classes and jobs. Check this if you need your copies ASAP so officials can prioritize it.
-                          </p>
-                        </div>
-                      </label>
-                    </div>
-                  </div>
-
-                  {/* Section 3: File Upload */}
-                  <div className="space-y-3 sm:space-y-4">
-                    <div className="border-b border-slate-100 dark:border-slate-800 pb-2 sm:pb-3 flex items-center justify-between gap-2.5">
-                      <div>
-                        <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100">
-                          3. Attach Document
-                        </h3>
-                        <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400">
-                          PDF, DOCX, PPTX, JPG, PNG (Max: 100 MB)
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setShowInfoModal(true)}
-                        className="text-[11px] sm:text-xs text-brand-600 dark:text-brand-400 hover:text-brand-800 dark:hover:text-brand-300 font-bold inline-flex items-center gap-1 cursor-pointer shrink-0"
-                      >
-                        <Info className="w-3.5 h-3.5" />
-                        <span className="hidden sm:inline">File</span> guidelines
-                      </button>
-                    </div>
-
-                    <div className="border-2 border-dashed border-brand-200 dark:border-brand-800/70 hover:border-brand-500 rounded-2xl p-4 sm:p-7 text-center bg-brand-50/20 dark:bg-brand-950/25 hover:bg-brand-50/40 dark:hover:bg-brand-950/40 transition-all cursor-pointer relative">
-                      <input
-                        type="file"
-                        required
-                        accept=".pdf,.doc,.docx,.ppt,.pptx,.jpg,.jpeg,.png"
-                        onChange={handleFileChange}
-                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                      />
-                      <div className="space-y-2 sm:space-y-3">
-                        <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-brand-100 dark:bg-brand-950/70 text-brand-700 dark:text-brand-400 flex items-center justify-center mx-auto shadow-xs">
-                          <Upload className="w-5 h-5 sm:w-6 sm:h-6" />
-                        </div>
-                        {selectedFile ? (
-                          <div className="space-y-0.5 sm:space-y-1">
-                            <p className="font-bold text-slate-900 dark:text-slate-100 text-xs sm:text-sm">{selectedFile.name}</p>
-                            <p className="text-[11px] sm:text-xs text-emerald-600 dark:text-emerald-400 font-bold">
-                              {(selectedFile.size / (1024 * 1024)).toFixed(2)} MB • File attached! Click to replace
-                            </p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setFormData({ ...formData, print_type: "Colored" });
+                                if (submitError) setSubmitError(null);
+                              }}
+                              aria-pressed={formData.print_type === "Colored"}
+                              className={`h-[36px] px-2.5 py-1 rounded-xl border text-left transition-all cursor-pointer touch-manipulation active:scale-[0.98] flex items-center gap-2 ${
+                                formData.print_type === "Colored"
+                                  ? "bg-brand-50 dark:bg-brand-950/60 border-brand-500 ring-1 ring-brand-500/30"
+                                  : "bg-slate-50/70 dark:bg-slate-800/70 border-slate-200 dark:border-slate-700/80 hover:border-slate-300"
+                              }`}
+                            >
+                              <span className="w-6 h-6 rounded-lg bg-gradient-to-br from-rose-500 via-amber-400 to-sky-500 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                                <Palette className="w-3 h-3" />
+                              </span>
+                              <span className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
+                                Colored
+                              </span>
+                            </button>
                           </div>
-                        ) : (
-                          <div>
-                            <p className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200">
-                              Click to browse or drag and drop your document here
-                            </p>
-                            <p className="text-[10.5px] sm:text-xs text-slate-500 dark:text-slate-400 mt-0.5 sm:mt-1">
-                              PDF documents recommended for accurate margins and page breaks
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
+                        </div>
 
-                  {/* Guidelines Agreement */}
-                  <div className="p-3 sm:p-4 rounded-xl bg-brand-50/70 dark:bg-brand-950/45 border border-brand-200 dark:border-brand-800/70 space-y-1 sm:space-y-2">
-                    <div className="flex items-start gap-2.5 sm:gap-3">
-                      <input
-                        type="checkbox"
-                        id="agree"
-                        checked={agreed}
-                        onChange={(e) => setAgreed(e.target.checked)}
-                        className="mt-0.5 w-4 h-4 text-brand-600 dark:text-brand-400 rounded border-slate-300 dark:border-slate-700 focus:ring-brand-500 cursor-pointer"
-                      />
-                      <label htmlFor="agree" className="text-[11px] sm:text-xs text-slate-700 dark:text-slate-300 leading-relaxed cursor-pointer">
-                        <span className="font-bold text-slate-900 dark:text-slate-100">Program Guidelines Confirmation:</span> I confirm that I am a youth resident (ages 15–30) of Barangay Tocok and this material complies with the program guidelines. I understand that printing is provided free of charge while monthly supplies last, and will claim my printouts promptly at my selected station.{" "}
+                        {/* Paper Size 3-Card Grid */}
+                        <div className="min-w-0">
+                          <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                            Bond Paper Size <span className="text-rose-500 dark:text-rose-400">*</span>
+                          </label>
+                          <div className="grid grid-cols-3 gap-1.5">
+                            {PAPER_SIZE_CARDS.map((paper) => {
+                              const selected = formData.paper_size === paper.value;
+                              return (
+                                <button
+                                  key={paper.value}
+                                  type="button"
+                                  onClick={() => {
+                                    setFormData({ ...formData, paper_size: paper.value });
+                                    if (submitError) setSubmitError(null);
+                                  }}
+                                  aria-pressed={selected}
+                                  className={`min-h-[38px] px-1.5 py-1 rounded-xl border text-center transition-all cursor-pointer touch-manipulation active:scale-[0.98] flex flex-col items-center justify-center ${
+                                    selected
+                                      ? "bg-brand-50 dark:bg-brand-950/60 border-brand-500 text-brand-800 dark:text-brand-300 ring-1 ring-brand-500/30"
+                                      : "bg-slate-50/70 dark:bg-slate-800/70 border-slate-200 dark:border-slate-700/80 text-slate-800 dark:text-slate-200 hover:border-slate-300"
+                                  }`}
+                                >
+                                  <span className="text-xs font-extrabold leading-none">{paper.label}</span>
+                                  <span className={`text-[9.5px] leading-none mt-0.5 ${selected ? "text-brand-700 dark:text-brand-400 font-semibold" : "text-slate-400 dark:text-slate-500"}`}>
+                                    {paper.dims}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* Copies Stepper + Page Range Side-by-Side */}
+                        <div className="min-w-0">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="min-w-0">
+                              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                                Copies <span className="text-slate-400 dark:text-slate-500 font-normal">(1–5)</span>
+                              </label>
+                              <div className="flex items-center justify-between h-[36px] p-1 rounded-xl border border-slate-200 dark:border-slate-700/80 bg-slate-50/50 dark:bg-slate-800/60">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setFormData((prev) => ({ ...prev, copies: Math.max(1, prev.copies - 1) }))
+                                  }
+                                  disabled={formData.copies <= 1}
+                                  aria-label="Decrease copies"
+                                  className="w-7 h-6 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 flex items-center justify-center transition active:scale-90 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-2xs"
+                                >
+                                  <Minus className="w-3 h-3" />
+                                </button>
+                                <span className="font-mono text-xs sm:text-sm font-extrabold text-slate-900 dark:text-slate-100 tabular-nums px-1">
+                                  {formData.copies}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setFormData((prev) => ({ ...prev, copies: Math.min(5, prev.copies + 1) }))
+                                  }
+                                  disabled={formData.copies >= 5}
+                                  aria-label="Increase copies"
+                                  className="w-7 h-6 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 flex items-center justify-center transition active:scale-90 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-2xs"
+                                >
+                                  <Plus className="w-3 h-3" />
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="min-w-0">
+                              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                                Page Range
+                              </label>
+                              <div className="grid grid-cols-2 gap-1 h-[36px] p-1 rounded-xl border border-slate-200 dark:border-slate-700/80 bg-slate-100/80 dark:bg-slate-800/80">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setPageRangeMode("all");
+                                    setFormData((prev) => ({ ...prev, page_range: "All pages" }));
+                                    if (submitError) setSubmitError(null);
+                                  }}
+                                  className={`h-full rounded-lg text-[11px] font-bold transition cursor-pointer touch-manipulation ${
+                                    pageRangeMode === "all"
+                                      ? "bg-white dark:bg-slate-900 text-brand-700 dark:text-brand-400 shadow-2xs"
+                                      : "text-slate-600 dark:text-slate-400"
+                                  }`}
+                                >
+                                  All
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setPageRangeMode("custom");
+                                    setFormData((prev) => ({
+                                      ...prev,
+                                      page_range:
+                                        prev.page_range.trim().toLowerCase() === "all pages" ? "" : prev.page_range,
+                                    }));
+                                    setTimeout(() => {
+                                      customPageRangeInputRef.current?.focus({ preventScroll: true });
+                                    }, 180);
+                                  }}
+                                  className={`h-full rounded-lg text-[11px] font-bold transition cursor-pointer touch-manipulation ${
+                                    pageRangeMode === "custom"
+                                      ? "bg-white dark:bg-slate-900 text-brand-700 dark:text-brand-400 shadow-2xs"
+                                      : "text-slate-600 dark:text-slate-400"
+                                  }`}
+                                >
+                                  Custom
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div
+                            aria-hidden={pageRangeMode !== "custom"}
+                            className={`grid transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                              pageRangeMode === "custom"
+                                ? "grid-rows-[1fr] opacity-100 mt-1.5"
+                                : "grid-rows-[0fr] opacity-0 mt-0 pointer-events-none"
+                            }`}
+                          >
+                            <div className="overflow-hidden">
+                              <input
+                                ref={customPageRangeInputRef}
+                                type="text"
+                                tabIndex={pageRangeMode === "custom" ? 0 : -1}
+                                enterKeyHint="done"
+                                placeholder="Enter pages (e.g. 1-5, 8, 12)"
+                                value={formData.page_range}
+                                onChange={(e) => {
+                                  setFormData({ ...formData, page_range: e.target.value });
+                                  if (submitError) setSubmitError(null);
+                                }}
+                                className={`w-full min-w-0 h-[38px] px-3 py-1 rounded-xl border border-brand-300 dark:border-brand-700 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                                  pageRangeMode === "custom" ? "translate-y-0 scale-100" : "-translate-y-2 scale-[0.98]"
+                                }`}
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Claiming Station Compact 2-Column Cards */}
+                        <div className="min-w-0">
+                          <div className="flex items-center justify-between gap-1 mb-1">
+                            <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                              Claiming Station <span className="text-rose-500 dark:text-rose-400">*</span>
+                            </label>
+                            <span className="text-[10px] text-brand-700 dark:text-brand-400 font-semibold">
+                              Pick closest
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            {STATION_CARDS.map((station) => {
+                              const selected = formData.pickup_station === station.value;
+                              const isRecommended = formData.purok.startsWith(station.matchPrefix);
+                              return (
+                                <button
+                                  key={station.id}
+                                  type="button"
+                                  onClick={() => {
+                                    setFormData({ ...formData, pickup_station: station.value });
+                                    if (submitError) setSubmitError(null);
+                                  }}
+                                  aria-pressed={selected}
+                                  className={`w-full px-2.5 py-2 rounded-xl border text-left transition-all cursor-pointer touch-manipulation active:scale-[0.98] flex flex-col justify-between gap-0.5 ${
+                                    selected
+                                      ? "bg-brand-50 dark:bg-brand-950/60 border-brand-500 ring-1 ring-brand-500/30"
+                                      : "bg-slate-50/70 dark:bg-slate-800/70 border-slate-200 dark:border-slate-700/80 hover:border-slate-300"
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-between gap-1 w-full">
+                                    <span className="text-xs font-extrabold text-slate-900 dark:text-slate-100 truncate">
+                                      {station.title.replace(" Station", "")}
+                                    </span>
+                                    {isRecommended ? (
+                                      <span className="px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 text-[9px] font-bold shrink-0">
+                                        Near
+                                      </span>
+                                    ) : (
+                                      <span
+                                        className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0 ${
+                                          selected
+                                            ? "bg-brand-600 border-brand-600 text-white"
+                                            : "border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900"
+                                        }`}
+                                      >
+                                        {selected && <Check className="w-2.5 h-2.5 stroke-[3]" />}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-[10px] font-medium text-slate-500 dark:text-slate-400 truncate">
+                                    <span className="text-brand-700 dark:text-brand-400 font-semibold">{station.sitio}</span> · {station.official}
+                                  </p>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* Special Notes & Urgent Priority Side-by-Side */}
+                        <div className="min-w-0">
+                          <div className="flex items-center justify-between gap-2 mb-1">
+                            <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 truncate">
+                              Special Notes <span className="text-slate-400 dark:text-slate-500 font-normal">(Optional)</span>
+                            </label>
+                            <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500 shrink-0">
+                              1–2d standard
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              enterKeyHint="done"
+                              placeholder="e.g. Back-to-back"
+                              value={formData.notes}
+                              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                              className="flex-1 min-w-0 h-[38px] px-3 py-1 rounded-xl border border-slate-200 dark:border-slate-700/80 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-slate-50/40 dark:bg-slate-800/70 text-slate-900 dark:text-slate-100"
+                            />
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={formData.is_urgent}
+                              onClick={() => setFormData({ ...formData, is_urgent: !formData.is_urgent })}
+                              title="Needed Urgently (Rush)"
+                              className={`h-[38px] px-2.5 rounded-xl border transition-all cursor-pointer touch-manipulation active:scale-[0.98] flex items-center gap-1.5 shrink-0 ${
+                                formData.is_urgent
+                                  ? "bg-amber-50/90 dark:bg-amber-950/50 border-amber-400 dark:border-amber-600 text-amber-900 dark:text-amber-200 ring-1 ring-amber-300/70 font-bold"
+                                  : "bg-slate-50/70 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700/80 text-slate-600 dark:text-slate-300 hover:border-slate-300 font-semibold"
+                              }`}
+                            >
+                              <span
+                                className={`w-5 h-5 rounded-md flex items-center justify-center shrink-0 ${
+                                  formData.is_urgent
+                                    ? "bg-amber-500 text-white"
+                                    : "bg-slate-200/80 dark:bg-slate-700 text-slate-500 dark:text-slate-300"
+                                }`}
+                              >
+                                <Zap className="w-3 h-3" />
+                              </span>
+                              <span className="text-xs leading-none whitespace-nowrap">Urgent</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Step 2 Navigation Footer */}
+                      <div className="flex items-center gap-2 mt-auto pt-0.5">
                         <button
                           type="button"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            setShowInfoModal(true);
-                          }}
-                          className="font-bold text-brand-700 dark:text-brand-400 hover:text-brand-900 dark:hover:text-brand-200 underline inline cursor-pointer ml-0.5"
+                          onClick={() => goToStep(1)}
+                          className="h-[44px] px-3.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs sm:text-sm flex items-center justify-center gap-1 transition cursor-pointer active:scale-[0.98] touch-manipulation"
                         >
-                          View rules
+                          <ChevronLeft className="w-4 h-4 shrink-0" />
+                          <span>Back</span>
                         </button>
-                      </label>
+                        <button
+                          type="button"
+                          onClick={handleNextStep}
+                          className="flex-1 h-[44px] px-4 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs sm:text-sm shadow-sm shadow-brand-500/20 transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-[0.99] touch-manipulation"
+                        >
+                          <span>Next: Attach File</span>
+                          <ChevronRight className="w-4 h-4 shrink-0" />
+                        </button>
+                      </div>
                     </div>
-                  </div>
+                  )}
 
-                  {/* Submit Button */}
-                  <div>
-                    <button
-                      type="submit"
-                      disabled={submitting || !isActive}
-                      className={`w-full py-2.5 sm:py-3.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 active:scale-[0.99] ${
-                        submitting || !isActive
-                          ? "bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500 cursor-not-allowed"
-                          : "bg-brand-600 hover:bg-brand-700 text-white shadow-md shadow-brand-500/20 hover:shadow-lg cursor-pointer"
-                      }`}
-                    >
-                      {submitting ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          <span>Uploading &amp; Submitting...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Printer className="w-4 h-4" />
-                          Submit Print Request Now
-                        </>
-                      )}
-                    </button>
-                  </div>
+                  {/* ========================================================== */}
+                  {/* STEP 3: ATTACH DOCUMENT & CONFIRM                          */}
+                  {/* ========================================================== */}
+                  {formStep === 3 && (
+                    <div className="flex-1 flex flex-col gap-2.5 animate-in fade-in">
+                      <div className="space-y-2.5">
+                        {/* Compact Request Summary Strip */}
+                        <div className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/50 p-2.5 space-y-1.5 text-xs">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="font-bold text-slate-900 dark:text-slate-100 truncate">
+                              {formData.student_name}
+                            </p>
+                            <p className="text-[10.5px] text-slate-500 dark:text-slate-400 truncate">
+                              {[formData.grade_level, formData.purok.split(" (")[0]]
+                                .filter(Boolean)
+                                .join(" • ")}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => goToStep(1)}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10.5px] font-bold text-brand-700 dark:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-950/60 shrink-0 cursor-pointer"
+                          >
+                            <Pencil className="w-3 h-3" />
+                            <span>Edit</span>
+                          </button>
+                        </div>
+
+                        <div className="pt-1.5 border-t border-slate-200/70 dark:border-slate-700/70 flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="font-semibold text-[11px] text-slate-800 dark:text-slate-200 truncate">
+                              {[
+                                formData.print_type,
+                                formData.paper_size,
+                                `${formData.copies} ${formData.copies > 1 ? "copies" : "copy"}`,
+                                pageRangeMode === "all" ? "All pages" : `Pages ${formData.page_range}`,
+                              ].join(" • ")}
+                            </p>
+                            <p className="text-[10.5px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5 flex-wrap">
+                              <span>{formatStationShort(formData.pickup_station)}</span>
+                              {formData.is_urgent && (
+                                <span className="px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 text-[9.5px] font-bold">
+                                  Urgent
+                                </span>
+                              )}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => goToStep(2)}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10.5px] font-bold text-brand-700 dark:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-950/60 shrink-0 cursor-pointer"
+                          >
+                            <Pencil className="w-3 h-3" />
+                            <span>Edit</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Compact File Picker */}
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                            Document File <span className="text-rose-500 dark:text-rose-400">*</span>
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setShowInfoModal(true)}
+                            className="text-[10.5px] text-brand-600 dark:text-brand-400 hover:text-brand-800 dark:hover:text-brand-300 font-bold inline-flex items-center gap-1 cursor-pointer"
+                          >
+                            <Info className="w-3 h-3" />
+                            <span>Guidelines</span>
+                          </button>
+                        </div>
+
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          accept=".pdf,.doc,.docx,.ppt,.pptx,.jpg,.jpeg,.png"
+                          onChange={handleFileChange}
+                          className="sr-only"
+                        />
+
+                        {selectedFile ? (
+                          <div className="rounded-xl border border-emerald-400/80 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-950/25 p-2.5 space-y-2">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-9 h-9 rounded-lg bg-emerald-100 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 font-mono font-black text-[11px] flex items-center justify-center shrink-0 border border-emerald-200 dark:border-emerald-800">
+                                {getFileBadge(selectedFile.name)}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
+                                  {selectedFile.name}
+                                </p>
+                                <p className="text-[10.5px] font-semibold text-emerald-700 dark:text-emerald-400">
+                                  {formatFileSize(selectedFile.size)} • Ready to upload
+                                </p>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => fileInputRef.current?.click()}
+                                className="h-[36px] px-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold transition cursor-pointer active:scale-[0.98]"
+                              >
+                                Replace
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setSelectedFile(null)}
+                                className="h-[36px] px-2.5 rounded-lg border border-rose-200 dark:border-rose-800/70 bg-white dark:bg-slate-900 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 text-xs font-bold transition cursor-pointer active:scale-[0.98]"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => fileInputRef.current?.click()}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                fileInputRef.current?.click();
+                              }
+                            }}
+                            onDragOver={(e) => {
+                              e.preventDefault();
+                              setIsDraggingFile(true);
+                            }}
+                            onDragLeave={() => setIsDraggingFile(false)}
+                            onDrop={handleFileDrop}
+                            className={`border-2 border-dashed rounded-xl p-5 sm:p-6 text-center transition-all cursor-pointer touch-manipulation active:scale-[0.99] ${
+                              isDraggingFile
+                                ? "border-brand-600 bg-brand-50/70 dark:bg-brand-950/50"
+                                : "border-brand-300/90 dark:border-brand-800/80 hover:border-brand-500 bg-brand-50/25 dark:bg-brand-950/20 hover:bg-brand-50/45"
+                            }`}
+                          >
+                            <div className="space-y-1.5">
+                              <div className="w-9 h-9 rounded-xl bg-brand-100 dark:bg-brand-950/80 text-brand-700 dark:text-brand-400 flex items-center justify-center mx-auto">
+                                <FileUp className="w-4 h-4" />
+                              </div>
+                              <div>
+                                <p className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-slate-100">
+                                  <span className="sm:hidden">Tap to choose document</span>
+                                  <span className="hidden sm:inline">Click to browse or drop document here</span>
+                                </p>
+                                <p className="text-[10.5px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                  PDF (recommended), DOCX, PPTX, JPG/PNG • Max 100 MB
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Compact Guidelines Agreement */}
+                      <div
+                        role="checkbox"
+                        aria-checked={agreed}
+                        tabIndex={0}
+                        onClick={() => {
+                          setAgreed((prev) => !prev);
+                          if (submitError) setSubmitError(null);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === " " || e.key === "Enter") {
+                            e.preventDefault();
+                            setAgreed((prev) => !prev);
+                            if (submitError) setSubmitError(null);
+                          }
+                        }}
+                        className={`p-2.5 rounded-xl border transition-all cursor-pointer touch-manipulation flex items-start gap-2.5 ${
+                          agreed
+                            ? "bg-brand-50/80 dark:bg-brand-950/45 border-brand-400 dark:border-brand-700"
+                            : "bg-slate-50/70 dark:bg-slate-800/50 border-slate-200 dark:border-slate-800 hover:border-brand-300"
+                        }`}
+                      >
+                        <span
+                          aria-hidden="true"
+                          className={`mt-0.5 w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${
+                            agreed
+                              ? "bg-brand-600 border-brand-600 text-white"
+                              : "bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-600"
+                          }`}
+                        >
+                          {agreed && <Check className="w-3 h-3 stroke-[3]" />}
+                        </span>
+                        <div className="text-[11px] text-slate-700 dark:text-slate-300 leading-snug select-none">
+                          I confirm I am a Barangay Tocok youth resident (ages 15–30), this file follows guidelines, and I will claim printouts promptly.{" "}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setShowInfoModal(true);
+                            }}
+                            className="font-bold text-brand-700 dark:text-brand-400 underline inline cursor-pointer"
+                          >
+                            Rules
+                          </button>
+                        </div>
+                      </div>
+
+                      </div>
+
+                      {/* Step 3 Submit Navigation Footer */}
+                      <div className="flex items-center gap-2 mt-auto pt-0.5">
+                        <button
+                          type="button"
+                          onClick={() => goToStep(2)}
+                          className="h-[44px] px-3.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs sm:text-sm flex items-center justify-center gap-1 transition cursor-pointer active:scale-[0.98] touch-manipulation"
+                        >
+                          <ChevronLeft className="w-4 h-4 shrink-0" />
+                          <span>Back</span>
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={submitting || !isActive || !agreed}
+                          className={`flex-1 h-[44px] px-4 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 touch-manipulation ${
+                            submitting || !isActive || !agreed
+                              ? "bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500 cursor-not-allowed"
+                              : "bg-brand-600 hover:bg-brand-700 text-white shadow-md shadow-brand-500/20 cursor-pointer active:scale-[0.99]"
+                          }`}
+                        >
+                          {submitting ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              <span>Uploading...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Printer className="w-4 h-4 shrink-0" />
+                              <span>Submit Print Request</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </form>
               )}
             </div>
@@ -2350,41 +3146,38 @@ function UnifiedPrintingContent() {
           {/* TAB 2: TRACK PRINT STATUS                                       */}
           {/* --------------------------------------------------------------- */}
           {activeTab === "track" && (
-            <div className="space-y-6 min-h-[420px]">
+            <div className="max-w-2xl mx-auto">
               {currentUser ? (
                 /* ============================================================== */
                 /* LOGGED-IN VIEW: YOUR SUBMITTED REQUESTS                        */
                 /* ============================================================== */
-                <div className="space-y-6 font-sans">
-                  {/* Unified Dashboard Card Container (Fixed size across pages, sized for 2 tickets) */}
-                  <div
-                    className={`bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden flex flex-col ${
-                      myJobs.length > 0
-                        ? totalJobsPages > 1
-                          ? "h-[500px] sm:h-[410px]"
-                          : "h-[450px] sm:h-[356px]"
-                        : "h-[560px] sm:h-[720px]"
-                    }`}
-                  >
-                    {/* Dashboard Header Bar */}
-                    <div className="shrink-0 bg-gradient-to-b from-slate-50/80 dark:from-slate-900 to-white dark:to-slate-900 border-b border-slate-200/80 dark:border-slate-800/90 p-3 sm:p-5">
+                <div className="font-sans">
+                  {/* Unified Dashboard Card Container (Same fixed mobile card size as Submit Request) */}
+                  <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden flex flex-col h-[486px] sm:h-auto sm:min-h-[486px]">
+                    {/* Compact Card Header + Segmented Filter */}
+                    <div className="shrink-0 p-3 sm:p-5 pb-2.5 border-b border-slate-100 dark:border-slate-800 space-y-2.5">
                       <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
-                          <h2 className="text-sm sm:text-lg font-bold text-slate-900 dark:text-slate-100 tracking-tight shrink-0">
-                            Your Print Requests
+                        <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                          <h2 className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-slate-100 tracking-tight truncate">
+                            Your Requests
                           </h2>
-                          {myJobs.length === 0 ? (
-                            <span className="shrink-0 px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-[10.5px] sm:text-xs font-semibold border border-slate-200/70 dark:border-slate-800/80">
-                              0 Requests
-                            </span>
-                          ) : (
-                            <span className="shrink-0 px-2 py-0.5 rounded-full bg-brand-50 dark:bg-brand-950/50 text-brand-700 dark:text-brand-400 text-[10.5px] sm:text-xs font-bold border border-brand-200 dark:border-brand-800/70">
-                              {myJobs.length} {myJobs.length === 1 ? "Request" : "Requests"}
+                          <span
+                            className={`shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-bold tabular-nums border ${
+                              myJobs.length === 0
+                                ? "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200/70 dark:border-slate-700/70"
+                                : "bg-brand-50 dark:bg-brand-950/50 text-brand-700 dark:text-brand-400 border-brand-200 dark:border-brand-800/70"
+                            }`}
+                          >
+                            {myJobs.length}
+                          </span>
+                          {filteredJobs.length > JOBS_PER_PAGE && (
+                            <span className="text-[10.5px] font-medium text-slate-400 dark:text-slate-500 tabular-nums shrink-0">
+                              • {startJobIndex + 1}–{Math.min(startJobIndex + JOBS_PER_PAGE, filteredJobs.length)}
                             </span>
                           )}
                         </div>
 
-                        {/* Action Toolbar: Sleek, compact icon-only buttons on the same top line */}
+                        {/* Compact Toolbar Actions */}
                         <div className="flex items-center gap-1.5 shrink-0">
                           <PushNotificationManager variant="compact" />
 
@@ -2394,209 +3187,293 @@ function UnifiedPrintingContent() {
                               setTrackError(null);
                               setShowManualSearch(true);
                             }}
-                            className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 flex items-center justify-center transition cursor-pointer shadow-2xs active:scale-95"
+                            className="w-10 h-10 sm:w-auto sm:px-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/70 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 flex items-center justify-center gap-1.5 text-xs font-semibold transition cursor-pointer active:scale-95 touch-manipulation"
                             title="Lookup ticket number"
                             aria-label="Lookup ticket number"
                           >
-                            <Search className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                            <Search className="w-4 h-4 shrink-0" />
+                            <span className="hidden sm:inline">Find Code</span>
                           </button>
 
                           <button
                             type="button"
                             onClick={() => {
-                              loadMyRequests(false);
-                              if (job) handleLookup(job.tracking_code);
+                              loadMyRequests(false, true);
+                              if (job) handleLookup(job.tracking_code, { preserveJob: true });
                             }}
                             disabled={myJobsLoading}
-                            className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 flex items-center justify-center transition cursor-pointer disabled:opacity-60 shadow-2xs active:scale-95"
+                            className="w-10 h-10 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/70 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 flex items-center justify-center transition cursor-pointer disabled:opacity-60 active:scale-95 touch-manipulation"
                             title="Refresh status of your print requests"
                             aria-label="Refresh status of your print requests"
                           >
-                            <RotateCw className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${myJobsLoading ? "animate-spin text-brand-600 dark:text-brand-400" : ""}`} />
+                            <RotateCw className={`w-4 h-4 ${myJobsLoading ? "animate-spin text-brand-600 dark:text-brand-400" : ""}`} />
                           </button>
                         </div>
                       </div>
+
+                      {myJobs.length > 0 && (
+                        <div
+                          role="tablist"
+                          aria-label="Filter print requests"
+                          className="grid grid-cols-3 gap-1 p-1 rounded-xl bg-slate-100/90 dark:bg-slate-800/80 border border-slate-200/70 dark:border-slate-800"
+                        >
+                          {[
+                            { id: "all" as const, label: "All", count: myJobs.length },
+                            { id: "active" as const, label: "Active", count: activeJobsCount },
+                            { id: "done" as const, label: "History", count: historyJobsCount },
+                          ].map((f) => {
+                            const selected = trackFilter === f.id;
+                            return (
+                              <button
+                                key={f.id}
+                                type="button"
+                                role="tab"
+                                aria-selected={selected}
+                                onClick={() => {
+                                  setTrackFilter(f.id);
+                                  setMyJobsPage(1);
+                                }}
+                                className={`h-[30px] px-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer touch-manipulation active:scale-[0.98] flex items-center justify-center gap-1 ${
+                                  selected
+                                    ? "bg-white dark:bg-slate-900 text-brand-700 dark:text-brand-400 shadow-2xs border border-slate-200/60 dark:border-slate-700/70"
+                                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+                                }`}
+                              >
+                                <span>{f.label}</span>
+                                <span
+                                  className={`text-[9.5px] px-1.5 py-0.5 rounded-full leading-none tabular-nums ${
+                                    selected
+                                      ? "bg-brand-50 dark:bg-brand-950/60 text-brand-700 dark:text-brand-300"
+                                      : "bg-slate-200/70 dark:bg-slate-700/70 text-slate-500 dark:text-slate-400"
+                                  }`}
+                                >
+                                  {f.count}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
 
                     {/* Main Content Area */}
                     {myJobsLoading && myJobs.length === 0 ? (
-                      <div className="flex-1 flex flex-col items-center justify-center p-8 sm:p-12 text-center text-slate-400 dark:text-slate-500 space-y-2">
-                        <RotateCw className="w-5 h-5 sm:w-6 sm:h-6 animate-spin text-brand-600 dark:text-brand-400" />
+                      <div className="flex-1 min-h-0 flex flex-col items-center justify-center p-8 text-center text-slate-400 dark:text-slate-500 space-y-2">
+                        <RotateCw className="w-6 h-6 animate-spin text-brand-600 dark:text-brand-400" />
                         <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Loading your print requests...</p>
                       </div>
                     ) : myJobs.length === 0 ? (
-                      /* Redesigned Clean Compact Empty State */
-                      <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-10 flex flex-col overscroll-contain">
-                        <div className="my-auto text-center space-y-3.5 sm:space-y-6">
-                          <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-xl sm:rounded-2xl bg-gradient-to-br from-brand-50 dark:from-brand-950/45 to-brand-100 dark:to-brand-950/60 text-brand-700 dark:text-brand-400 flex items-center justify-center mx-auto border border-brand-200/70 dark:border-brand-800/70 shadow-2xs">
-                            <Printer className="w-6 h-6 sm:w-8 sm:h-8 text-brand-600 dark:text-brand-400" />
+                      /* Clean Mobile Empty State fitting inside fixed card height */
+                      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-3.5 sm:p-5 flex flex-col justify-between gap-3">
+                        <div className="text-center space-y-2.5 my-auto">
+                          <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-brand-50 dark:from-brand-950/45 to-brand-100 dark:to-brand-950/60 text-brand-700 dark:text-brand-400 flex items-center justify-center mx-auto border border-brand-200/70 dark:border-brand-800/70 shadow-2xs">
+                            <Printer className="w-5 h-5 text-brand-600 dark:text-brand-400" />
                           </div>
 
-                          <div className="space-y-1 sm:space-y-2 max-w-md mx-auto">
-                            <h3 className="text-sm sm:text-xl font-bold text-slate-900 dark:text-slate-100 tracking-tight">
-                              No Print Requests Submitted Yet
+                          <div className="space-y-1 max-w-md mx-auto">
+                            <h3 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-slate-100 tracking-tight">
+                              No Print Requests Yet
                             </h3>
-                            <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 leading-relaxed max-w-sm mx-auto">
-                              You haven&apos;t submitted any school documents for printing under this account. Free printing is available to all students of Barangay Tocok!
+                            <p className="text-[11.5px] sm:text-xs text-slate-500 dark:text-slate-400 leading-snug max-w-xs mx-auto">
+                              Free printing is available to all Barangay Tocok youth. Submit your first document to track it here.
                             </p>
                           </div>
 
-                          <div className="flex justify-center pt-0.5">
+                          <div className="grid grid-cols-2 sm:flex sm:justify-center gap-2 pt-0.5">
                             <button
                               type="button"
                               onClick={() => switchTab("submit")}
-                              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 sm:px-6 sm:py-3 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-xs sm:text-sm font-bold shadow-md shadow-brand-600/20 transition cursor-pointer active:scale-95"
+                              className="h-[42px] inline-flex items-center justify-center gap-1.5 px-3 sm:px-5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-xs sm:text-sm font-bold shadow-sm shadow-brand-600/20 transition cursor-pointer active:scale-95 whitespace-nowrap touch-manipulation"
                             >
-                              <Printer className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                              <span>Submit a Print Request Now</span>
+                              <Printer className="w-3.5 h-3.5 shrink-0" />
+                              <span>Submit Request</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setTrackError(null);
+                                setShowManualSearch(true);
+                              }}
+                              className="h-[42px] inline-flex items-center justify-center gap-1.5 px-3 sm:px-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/70 hover:bg-slate-100 text-slate-700 dark:text-slate-200 text-xs sm:text-sm font-semibold transition cursor-pointer active:scale-95 whitespace-nowrap touch-manipulation"
+                            >
+                              <Search className="w-3.5 h-3.5 shrink-0" />
+                              <span>Lookup Code</span>
                             </button>
                           </div>
+                        </div>
 
-                          {/* Push Alert Opt-in Banner */}
-                          <div className="max-w-md mx-auto w-full pt-1 text-left">
-                            <PushNotificationManager variant="banner" />
-                          </div>
-
-                          {/* 3 Step Guidance Cards - Compact list on mobile */}
-                          <div className="pt-3.5 sm:pt-6 border-t border-slate-100 dark:border-slate-800">
-                            <p className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 text-center mb-2.5 sm:mb-4">
-                              How Free Student Printing Works
-                            </p>
-                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3.5 text-left">
-                              <div className="p-2.5 sm:p-3.5 rounded-xl bg-slate-50/70 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-800/80 space-y-0.5 sm:space-y-1">
-                                <div className="flex items-center gap-2">
-                                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-brand-100 dark:bg-brand-950/70 text-brand-800 dark:text-brand-300 text-[10px] sm:text-[11px] font-bold shrink-0">1</span>
-                                  <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">Upload &amp; Options</h4>
-                                </div>
-                                <p className="text-[10.5px] sm:text-[11px] text-slate-500 dark:text-slate-400 leading-snug pl-7 sm:pl-0">Submit your school PDF or Word file with preferred paper size and color.</p>
+                        {/* Compact 3-Step Guide */}
+                        <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800">
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 text-center mb-1.5">
+                            How It Works
+                          </p>
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 text-left">
+                            <div className="px-2.5 py-2 rounded-xl bg-slate-50/70 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-800/80 flex sm:flex-col items-center sm:items-start gap-2 sm:gap-1">
+                              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-brand-100 dark:bg-brand-950/70 text-brand-800 dark:text-brand-300 text-[10px] font-bold shrink-0">1</span>
+                              <div className="min-w-0">
+                                <h4 className="text-[11px] font-bold text-slate-800 dark:text-slate-200 leading-tight">Upload File</h4>
+                                <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight truncate sm:whitespace-normal">Pick paper size, color &amp; station.</p>
                               </div>
-                              <div className="p-2.5 sm:p-3.5 rounded-xl bg-slate-50/70 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-800/80 space-y-0.5 sm:space-y-1">
-                                <div className="flex items-center gap-2">
-                                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-brand-100 dark:bg-brand-950/70 text-brand-800 dark:text-brand-300 text-[10px] sm:text-[11px] font-bold shrink-0">2</span>
-                                  <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">SK Queue &amp; Print</h4>
-                                </div>
-                                <p className="text-[10.5px] sm:text-[11px] text-slate-500 dark:text-slate-400 leading-snug pl-7 sm:pl-0">SK officials review, queue, and print your copies during active printing hours.</p>
+                            </div>
+                            <div className="px-2.5 py-2 rounded-xl bg-slate-50/70 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-800/80 flex sm:flex-col items-center sm:items-start gap-2 sm:gap-1">
+                              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-brand-100 dark:bg-brand-950/70 text-brand-800 dark:text-brand-300 text-[10px] font-bold shrink-0">2</span>
+                              <div className="min-w-0">
+                                <h4 className="text-[11px] font-bold text-slate-800 dark:text-slate-200 leading-tight">SK Prints Copy</h4>
+                                <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight truncate sm:whitespace-normal">Track live progress from queue.</p>
                               </div>
-                              <div className="p-2.5 sm:p-3.5 rounded-xl bg-slate-50/70 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-800/80 space-y-0.5 sm:space-y-1">
-                                <div className="flex items-center gap-2">
-                                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-brand-100 dark:bg-brand-950/70 text-brand-800 dark:text-brand-300 text-[10px] sm:text-[11px] font-bold shrink-0">3</span>
-                                  <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">Pick Up at Station</h4>
-                                </div>
-                                <p className="text-[10.5px] sm:text-[11px] text-slate-500 dark:text-slate-400 leading-snug pl-7 sm:pl-0">Check live status here and claim at your designated Purok station with your Student ID.</p>
+                            </div>
+                            <div className="px-2.5 py-2 rounded-xl bg-slate-50/70 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-800/80 flex sm:flex-col items-center sm:items-start gap-2 sm:gap-1">
+                              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-brand-100 dark:bg-brand-950/70 text-brand-800 dark:text-brand-300 text-[10px] font-bold shrink-0">3</span>
+                              <div className="min-w-0">
+                                <h4 className="text-[11px] font-bold text-slate-800 dark:text-slate-200 leading-tight">Claim at Purok</h4>
+                                <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight truncate sm:whitespace-normal">Pick up once marked Ready.</p>
                               </div>
                             </div>
                           </div>
                         </div>
                       </div>
-                    ) : (
-                      /* Has Requests: Compact Cards Grid (Max 2 per page, scrollable container) */
-                      <div className="flex-1 min-h-0 flex flex-col">
-                        <div className="shrink-0 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 px-3.5 sm:px-5 pt-3 sm:pt-4 pb-2">
-                          <span className="font-bold uppercase tracking-wider text-[10px] sm:text-[10.5px] text-slate-600 dark:text-slate-400">
-                            {myJobs.length === 1 ? "Your Submitted Request" : "Your Submitted Requests"}
-                          </span>
-                          <span className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">
-                            {myJobs.length > JOBS_PER_PAGE
-                              ? `Showing ${startJobIndex + 1}–${Math.min(startJobIndex + JOBS_PER_PAGE, myJobs.length)} of ${myJobs.length}`
-                              : `${myJobs.length} ${myJobs.length === 1 ? "item" : "items"}`}
-                          </span>
+                    ) : filteredJobs.length === 0 ? (
+                      /* Empty Filtered View */
+                      <div className="flex-1 min-h-0 flex flex-col items-center justify-center p-6 text-center space-y-2.5">
+                        <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 flex items-center justify-center">
+                          <Search className="w-4 h-4" />
                         </div>
-
+                        <div className="space-y-0.5">
+                          <p className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200">
+                            No {trackFilter === "active" ? "active" : "past"} requests found
+                          </p>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                            Switch tabs above to view your other print requests.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setTrackFilter("all")}
+                          className="h-[36px] px-3.5 rounded-xl bg-brand-50 dark:bg-brand-950/60 border border-brand-200 dark:border-brand-800/70 text-brand-700 dark:text-brand-300 text-xs font-bold transition cursor-pointer active:scale-95"
+                        >
+                          Show All ({myJobs.length})
+                        </button>
+                      </div>
+                    ) : (
+                      /* Has Requests: Compact Tappable Cards inside fixed-height Track Card */
+                      <div className="flex-1 min-h-0 flex flex-col">
                         <div
                           ref={myJobsListRef}
-                          className="flex-1 min-h-0 overflow-y-auto themed-scrollbar touch-pan-y px-3 sm:px-5 pb-3 sm:pb-4 space-y-2 sm:space-y-2.5 overscroll-contain"
+                          className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-2.5 sm:p-4 space-y-2"
                         >
-                          {visibleJobs.map((mJob) => (
-                            <div
-                              key={mJob.tracking_code}
-                              className="p-3 sm:p-3.5 rounded-xl sm:rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700 transition-all shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4"
-                            >
-                              {/* Left Info */}
-                              <div className="space-y-1 min-w-0 flex-1">
-                                <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-2">
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    <span className="font-mono font-bold text-[11px] sm:text-xs text-brand-800 dark:text-brand-300 bg-brand-50 dark:bg-brand-950/50 border border-brand-200/60 dark:border-brand-800/60 px-2 py-0.5 rounded-md whitespace-nowrap shrink-0">
+                          {visibleJobs.map((mJob) => {
+                            const isReady = mJob.status === "Ready for Pickup";
+                            return (
+                              <div
+                                key={mJob.tracking_code}
+                                role="button"
+                                tabIndex={0}
+                                onClick={() => handleViewTicket(mJob)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" || e.key === " ") {
+                                    e.preventDefault();
+                                    handleViewTicket(mJob);
+                                  }
+                                }}
+                                className={`p-2.5 sm:p-3 rounded-xl border transition-all flex flex-col gap-1.5 cursor-pointer active:scale-[0.99] touch-manipulation ${
+                                  isReady
+                                    ? "border-emerald-300/90 dark:border-emerald-700/80 bg-emerald-50/40 dark:bg-emerald-950/20 hover:border-emerald-400 shadow-2xs"
+                                    : "border-slate-200/90 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-800/35 hover:border-brand-300 dark:hover:border-brand-700"
+                                }`}
+                              >
+                                {/* Top Badge, Urgency & Date Row */}
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+                                    <span className="font-mono font-bold text-[10.5px] sm:text-xs text-brand-800 dark:text-brand-300 bg-brand-50 dark:bg-brand-950/50 border border-brand-200/60 dark:border-brand-800/60 px-1.5 py-0.5 rounded-md whitespace-nowrap shrink-0">
                                       {mJob.tracking_code.startsWith("SK") || mJob.tracking_code.startsWith("PRN")
-                                        ? `Ticket ${mJob.tracking_code}`
-                                        : `Ticket #${mJob.tracking_code}`}
+                                        ? mJob.tracking_code
+                                        : `#${mJob.tracking_code}`}
                                     </span>
                                     <PrintStatusBadge status={mJob.status} size="sm" />
+                                    {Number(mJob.is_urgent) === 1 && (
+                                      <span className="text-[9.5px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/70">
+                                        Urgent
+                                      </span>
+                                    )}
                                   </div>
-                                  <span className="text-[11px] text-slate-400 dark:text-slate-500 font-medium whitespace-nowrap">
-                                    {new Date(mJob.created_at).toLocaleDateString("en-PH", {
-                                      month: "short",
-                                      day: "numeric",
-                                      hour: "2-digit",
-                                      minute: "2-digit",
-                                    })}
-                                  </span>
+
+                                  <div className="flex items-center gap-1 shrink-0 text-[10px] text-slate-400 dark:text-slate-500 font-medium tabular-nums">
+                                    <span className="whitespace-nowrap">
+                                      {new Date(mJob.created_at).toLocaleDateString("en-PH", {
+                                        month: "short",
+                                        day: "numeric",
+                                      })}
+                                    </span>
+                                    <ChevronRight className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 shrink-0" />
+                                  </div>
                                 </div>
 
-                                <p className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 truncate" title={mJob.file_name || undefined}>
-                                  {mJob.file_name}
-                                </p>
+                                {/* Filename, Specs & Inline Cancel Action */}
+                                <div className="flex items-center justify-between gap-2 min-w-0">
+                                  <div className="min-w-0 flex-1 space-y-0.5">
+                                    <p className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 truncate" title={mJob.file_name || undefined}>
+                                      {mJob.file_name}
+                                    </p>
+                                    <div className="flex items-center flex-wrap gap-x-1.5 gap-y-0.5 text-[10.5px] sm:text-[11px] text-slate-500 dark:text-slate-400">
+                                      <span className="truncate">
+                                        {[
+                                          `${mJob.copies || 1} ${(mJob.copies || 1) > 1 ? "copies" : "copy"}`,
+                                          mJob.paper_size,
+                                          mJob.print_type === "Black & White" ? "B&W" : mJob.print_type,
+                                        ].filter(Boolean).join(" • ")}
+                                      </span>
+                                      {mJob.pickup_station && (
+                                        <span className="inline-flex items-center gap-0.5 text-emerald-700 dark:text-emerald-400 font-semibold truncate">
+                                          <MapPin className="w-2.5 h-2.5 shrink-0" />
+                                          <span className="truncate">{formatStationShort(mJob.pickup_station)}</span>
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
 
-                                <p className="text-[10.5px] sm:text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                                  {[
-                                    `${mJob.copies || 1} ${(mJob.copies || 1) > 1 ? "copies" : "copy"}`,
-                                    mJob.paper_size,
-                                    mJob.print_type,
-                                    mJob.pickup_station,
-                                  ].filter(Boolean).join(" • ")}
-                                </p>
+                                  {mJob.status === "Pending Review" && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setJobToCancel(mJob);
+                                      }}
+                                      className="h-[32px] px-2.5 rounded-lg border border-rose-200 dark:border-rose-800/70 bg-white dark:bg-slate-900 hover:bg-rose-50 dark:hover:bg-rose-950/60 text-rose-600 dark:text-rose-400 font-bold text-[11px] transition cursor-pointer active:scale-95 select-none shrink-0"
+                                    >
+                                      Cancel
+                                    </button>
+                                  )}
+                                </div>
                               </div>
-
-                              {/* Right Actions */}
-                              <div className="flex items-center gap-2 shrink-0 self-end sm:self-center pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 dark:border-slate-800 w-full sm:w-auto justify-end">
-                                {mJob.status === "Pending Review" && (
-                                  <button
-                                    type="button"
-                                    onClick={() => setJobToCancel(mJob)}
-                                    className="px-2.5 py-1.5 rounded-lg border border-rose-200 dark:border-rose-800/70 hover:bg-rose-50 dark:hover:bg-rose-950/60 text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 font-bold text-xs transition cursor-pointer shadow-2xs"
-                                  >
-                                    Cancel
-                                  </button>
-                                )}
-                                <button
-                                  type="button"
-                                  onClick={() => handleLookup(mJob.tracking_code)}
-                                  className="px-3 py-1.5 rounded-lg border border-transparent bg-slate-900 dark:bg-slate-100 hover:bg-slate-800 dark:hover:bg-white text-white dark:text-slate-900 font-bold text-xs transition cursor-pointer shadow-2xs flex items-center gap-1.5"
-                                  title="View ticket details"
-                                >
-                                  <span>View</span>
-                                  <ArrowRight className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
 
-                        {/* Pagination Bar pinned to bottom when requests exceed 2 */}
+                        {/* Compact Pagination Bar */}
                         {totalJobsPages > 1 && (
-                          <div className="shrink-0 px-3 sm:px-5 py-2.5 sm:py-3 flex items-center justify-between border-t border-slate-100 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-800/40 text-xs">
+                          <div className="shrink-0 mt-auto px-3 sm:px-5 py-2 flex items-center justify-between border-t border-slate-100 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-800/40 text-xs">
                             <button
                               type="button"
                               onClick={() => setMyJobsPage((prev) => Math.max(1, prev - 1))}
                               disabled={currentJobsPage === 1}
-                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold text-xs transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-2xs active:scale-95"
+                              className="h-[36px] inline-flex items-center gap-1 px-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold text-xs transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-2xs active:scale-95 touch-manipulation"
                             >
                               <ChevronLeft className="w-3.5 h-3.5" />
                               <span>Prev</span>
                             </button>
 
                             <div className="flex items-center gap-1 font-mono text-[11px] text-slate-500 dark:text-slate-400 font-semibold">
-                              <span>Page</span>
                               <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-bold border border-slate-200 dark:border-slate-800">
                                 {currentJobsPage}
                               </span>
-                              <span>of {totalJobsPages}</span>
+                              <span>/ {totalJobsPages}</span>
                             </div>
 
                             <button
                               type="button"
                               onClick={() => setMyJobsPage((prev) => Math.min(totalJobsPages, prev + 1))}
                               disabled={currentJobsPage === totalJobsPages}
-                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold text-xs transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-2xs active:scale-95"
+                              className="h-[36px] inline-flex items-center gap-1 px-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold text-xs transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-2xs active:scale-95 touch-manipulation"
                             >
                               <span>Next</span>
                               <ChevronRight className="w-3.5 h-3.5" />
@@ -2609,7 +3486,7 @@ function UnifiedPrintingContent() {
                 </div>
               ) : authChecking ? (
                 /* Auth Checking State */
-                <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-12 text-center text-slate-500 dark:text-slate-400 shadow-xs space-y-3">
+                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-8 sm:p-12 text-center text-slate-500 dark:text-slate-400 shadow-xs space-y-3 max-w-2xl mx-auto min-h-[486px] sm:min-h-0 flex flex-col items-center justify-center">
                   <div className="w-8 h-8 border-2 border-brand-600 border-t-transparent rounded-full animate-spin mx-auto" />
                   <p className="text-xs sm:text-sm font-medium">Checking student account status...</p>
                 </div>
@@ -2625,19 +3502,38 @@ function UnifiedPrintingContent() {
 
 
       {/* ========================================================
+          FLOATING VALIDATION / SUBMIT ERROR TOAST (Zero layout shift)
+         ======================================================== */}
+      {mounted && submitError && createPortal(
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="fixed top-[calc(58px+0.5rem+env(safe-area-inset-top,0px))] md:top-[120px] left-1/2 -translate-x-1/2 z-[9500] w-[calc(100%-1.5rem)] max-w-md pointer-events-none font-sans"
+        >
+          <div className="pointer-events-auto p-3 rounded-2xl bg-rose-50/95 dark:bg-rose-950/95 border border-rose-300 dark:border-rose-700/80 text-rose-900 dark:text-rose-100 shadow-lg shadow-rose-950/10 backdrop-blur-md flex items-center gap-2.5 animate-in fade-in slide-in-from-top-2 duration-200">
+            <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+            <span className="flex-1 text-xs font-semibold leading-snug">{submitError}</span>
+            <button
+              type="button"
+              onClick={() => setSubmitError(null)}
+              aria-label="Dismiss warning"
+              className="w-7 h-7 rounded-lg text-rose-600 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-900/60 flex items-center justify-center shrink-0 transition cursor-pointer active:scale-95"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* ========================================================
           POPUP MODAL: PROGRAM GUIDELINES & STATION INFORMATION
          ======================================================== */}
       {mounted && showInfoModal && createPortal(
         <div 
           role="dialog"
           aria-modal="true"
-          className="fixed inset-0 z-[9999] bg-slate-950/75 dark:bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6 overscroll-none touch-none select-none"
-          style={{
-            paddingTop: "max(0.75rem, env(safe-area-inset-top, 0px))",
-            paddingBottom: "max(0.75rem, env(safe-area-inset-bottom, 0px))",
-            paddingLeft: "max(0.75rem, env(safe-area-inset-left, 0px))",
-            paddingRight: "max(0.75rem, env(safe-area-inset-right, 0px))",
-          }}
+          className="fixed inset-0 z-[9999] bg-slate-950/75 dark:bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-6 pt-[max(2.5rem,env(safe-area-inset-top,0px))] animate-modal-backdrop-in overscroll-none touch-none select-none"
           onTouchMove={(e) => {
             if (e.target === e.currentTarget) e.preventDefault();
           }}
@@ -2649,23 +3545,33 @@ function UnifiedPrintingContent() {
           }}
         >
           <div 
-            style={{
-              maxHeight: "calc(100dvh - 1.5rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))",
-            }}
-            className="relative bg-white dark:bg-slate-900 rounded-3xl max-w-4xl lg:max-w-5xl w-full shadow-2xl border border-slate-200 dark:border-slate-800 my-auto z-[10000] flex flex-col overflow-hidden animate-in zoom-in-95 duration-150 font-sans overscroll-contain touch-auto select-text"
+            className="relative bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl max-w-4xl lg:max-w-5xl w-full max-h-[90dvh] sm:max-h-[calc(100dvh-3rem)] shadow-2xl border border-slate-200 dark:border-slate-800 sm:my-auto z-[10000] flex flex-col overflow-hidden animate-modal-card-in font-sans overscroll-contain touch-auto select-text"
             onClick={(e) => e.stopPropagation()}
             onTouchMove={(e) => e.stopPropagation()}
           >
+            {/* Mobile Bottom-Sheet Drag Handle */}
+            <div className="sm:hidden flex justify-center pt-2.5 pb-0.5 shrink-0 bg-white dark:bg-slate-900">
+              <div className="w-10 h-1 rounded-full bg-slate-200 dark:bg-slate-700" />
+            </div>
+
             {/* Modal Header (Pinned shrink-0) */}
-            <div className="flex items-center p-5 sm:p-6 lg:px-8 border-b border-slate-100 dark:border-slate-800 shrink-0 bg-white dark:bg-slate-900">
-              <h2 className="text-xl sm:text-2xl font-black text-slate-950 dark:text-slate-50 tracking-tight">
-                Program Guidelines &amp; Station Information
+            <div className="flex items-center justify-between gap-3 px-4 py-3.5 sm:p-6 lg:px-8 border-b border-slate-100 dark:border-slate-800 shrink-0 bg-white dark:bg-slate-900">
+              <h2 className="text-base sm:text-2xl font-black text-slate-950 dark:text-slate-50 tracking-tight">
+                Program Guidelines &amp; Stations
               </h2>
+              <button
+                type="button"
+                onClick={() => setShowInfoModal(false)}
+                aria-label="Close guidelines"
+                className="w-9 h-9 rounded-xl text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition cursor-pointer shrink-0"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
 
             {/* Modal Scrollable Body */}
             <div 
-              className="flex-1 min-h-0 overflow-y-auto p-5 sm:p-7 lg:p-8 space-y-4 lg:space-y-5 overscroll-contain no-scrollbar"
+              className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-7 lg:p-8 space-y-4 lg:space-y-5 overscroll-contain no-scrollbar"
               style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
             >
               {/* Service Highlights */}
@@ -2680,7 +3586,7 @@ function UnifiedPrintingContent() {
                   Zero Printing Fees
                 </p>
                 <p className="text-[11.5px] text-slate-600 dark:text-slate-400 leading-relaxed">
-                  Free paper and ink for modules, reviewers, assignments, and capstones for Tocok students.
+                  Free printing assistance for educational and essential documents.
                 </p>
               </div>
 
@@ -2747,14 +3653,11 @@ function UnifiedPrintingContent() {
           </div>
 
           {/* Modal Footer (Pinned shrink-0) */}
-          <div className="p-4 sm:p-5 lg:px-8 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0">
-            <p className="text-[11px] text-slate-400 dark:text-slate-500 hidden sm:block">
-              Sangguniang Kabataan ng Barangay Tocok • Free Youth Printing Services
-            </p>
+          <div className="p-4 sm:p-5 lg:px-8 pb-[max(1rem,env(safe-area-inset-bottom))] sm:pb-5 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center justify-end shrink-0">
             <button
               type="button"
               onClick={() => setShowInfoModal(false)}
-              className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs sm:text-sm shadow-sm transition-colors cursor-pointer"
+              className="w-full sm:w-auto min-h-[46px] px-6 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs sm:text-sm shadow-sm transition-colors cursor-pointer"
             >
               Got It, Return to Printing Form
             </button>
@@ -2772,13 +3675,9 @@ function UnifiedPrintingContent() {
           role="dialog"
           aria-modal="true"
           aria-labelledby="claim-ticket-title"
-          className="fixed inset-0 z-[9990] bg-slate-950/70 dark:bg-black/80 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150 overscroll-none touch-none select-none-callout"
-          style={{
-            paddingTop: "max(0.75rem, env(safe-area-inset-top, 0px))",
-            paddingBottom: "max(0.75rem, env(safe-area-inset-bottom, 0px))",
-            paddingLeft: "max(0.75rem, env(safe-area-inset-left, 0px))",
-            paddingRight: "max(0.75rem, env(safe-area-inset-right, 0px))",
-          }}
+          className={`fixed inset-0 z-[9990] bg-slate-950/70 dark:bg-black/80 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 pt-[max(2.5rem,env(safe-area-inset-top,0px))] overscroll-none touch-none select-none-callout ${
+            jobModalClosing ? "animate-modal-backdrop-out" : "animate-modal-backdrop-in"
+          }`}
           onTouchMove={(e) => {
             if (e.target === e.currentTarget) e.preventDefault();
           }}
@@ -2787,32 +3686,31 @@ function UnifiedPrintingContent() {
           }}
           onClick={(e) => {
             if (e.target === e.currentTarget && !cancelSubmitting) {
-              setJob(null);
-              setTrackingCode("");
-              setTrackError(null);
+              handleCloseJobModal();
             }
           }}
         >
           <div 
-            style={{
-              maxHeight: "calc(100dvh - 1.5rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))",
-            }}
-            className="relative bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full shadow-2xl border border-slate-100 dark:border-slate-800 flex flex-col overflow-hidden animate-in zoom-in-95 duration-150 font-sans my-auto overscroll-contain touch-auto"
+            className={`relative bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl max-w-lg w-full max-h-[90dvh] sm:max-h-[calc(100dvh-2rem)] shadow-2xl border border-slate-100 dark:border-slate-800 flex flex-col overflow-hidden font-sans sm:my-auto overscroll-contain touch-auto ${
+              jobModalClosing ? "animate-modal-card-out" : "animate-modal-card-in"
+            }`}
             onClick={(e) => e.stopPropagation()}
             onTouchMove={(e) => e.stopPropagation()}
           >
+            <div className="sm:hidden flex justify-center pt-2.5 pb-0.5 shrink-0 bg-white dark:bg-slate-900">
+              <div className="w-10 h-1 rounded-full bg-slate-200 dark:bg-slate-700" />
+            </div>
             <JobDetailsView
               job={job}
-              onRefresh={() => handleLookup(job.tracking_code)}
+              onRefresh={() => {
+                if (!jobModalClosing) handleLookup(job.tracking_code, { preserveJob: true });
+              }}
               getStepStatus={getStepStatus}
               isOwner={job.is_owner ?? myJobs.some((m) => m.tracking_code === job.tracking_code)}
-              onClose={() => {
-                setJob(null);
-                setTrackingCode("");
-                setTrackError(null);
-              }}
+              onClose={handleCloseJobModal}
               onCancel={(j) => setJobToCancel(j)}
               cancelling={cancelSubmitting}
+              refreshing={refreshingJob}
             />
           </div>
         </div>,
@@ -2825,8 +3723,11 @@ function UnifiedPrintingContent() {
       <SearchModal
         open={showManualSearch}
         onClose={() => setShowManualSearch(false)}
+        title="Lookup Print Ticket"
         ariaLabel="Lookup ticket number"
         placeholder="Search ticket code (e.g. SK104, #12)..."
+        submitLabel="Lookup"
+        loadingLabel="Looking up..."
         value={trackingCode}
         onChange={(val) => {
           setTrackingCode(val);
@@ -2853,13 +3754,7 @@ function UnifiedPrintingContent() {
         <div 
           role="dialog"
           aria-modal="true"
-          className="fixed inset-0 z-[9999] bg-slate-950/70 dark:bg-black/80 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150 overscroll-none touch-none select-none select-none-callout"
-          style={{
-            paddingTop: "max(0.75rem, env(safe-area-inset-top, 0px))",
-            paddingBottom: "max(0.75rem, env(safe-area-inset-bottom, 0px))",
-            paddingLeft: "max(0.75rem, env(safe-area-inset-left, 0px))",
-            paddingRight: "max(0.75rem, env(safe-area-inset-right, 0px))",
-          }}
+          className="fixed inset-0 z-[9999] bg-slate-950/70 dark:bg-black/80 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 pt-[max(2.5rem,env(safe-area-inset-top,0px))] animate-modal-backdrop-in overscroll-none touch-none select-none select-none-callout"
           onTouchMove={(e) => {
             if (e.target === e.currentTarget) e.preventDefault();
           }}
@@ -2872,17 +3767,21 @@ function UnifiedPrintingContent() {
         >
           <div 
             style={{
-              maxHeight: "calc(100dvh - 1.5rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))",
               WebkitTouchCallout: "none",
               WebkitUserSelect: "none",
               userSelect: "none",
             }}
-            className="relative bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full shadow-2xl border border-slate-100 dark:border-slate-800 flex flex-col overflow-hidden animate-in zoom-in-95 duration-150 font-sans my-auto overscroll-contain touch-auto select-none select-none-callout"
+            className="relative bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl max-w-md w-full max-h-[90dvh] sm:max-h-[calc(100dvh-2rem)] shadow-2xl border border-slate-100 dark:border-slate-800 flex flex-col overflow-hidden animate-modal-card-in font-sans sm:my-auto overscroll-contain touch-auto select-none select-none-callout"
             onClick={(e) => e.stopPropagation()}
             onTouchMove={(e) => e.stopPropagation()}
           >
+            {/* Mobile Bottom-Sheet Drag Handle */}
+            <div className="sm:hidden flex justify-center pt-2.5 pb-0.5 shrink-0 bg-white dark:bg-slate-900">
+              <div className="w-10 h-1 rounded-full bg-slate-200 dark:bg-slate-700" />
+            </div>
+
             {/* Modal Header (Pinned shrink-0) */}
-            <div className="flex items-start justify-between gap-3 p-5 sm:p-6 border-b border-slate-100 dark:border-slate-800 shrink-0 bg-white dark:bg-slate-900 select-none select-none-callout">
+            <div className="flex items-start justify-between gap-3 px-4 py-3.5 sm:p-6 border-b border-slate-100 dark:border-slate-800 shrink-0 bg-white dark:bg-slate-900 select-none select-none-callout">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-2xl bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 flex items-center justify-center border border-rose-200/70 dark:border-rose-800/70 shadow-2xs shrink-0">
                   <Trash2 className="w-5 h-5 text-rose-600 dark:text-rose-400" />
@@ -2900,18 +3799,19 @@ function UnifiedPrintingContent() {
                 type="button"
                 disabled={cancelSubmitting}
                 onClick={() => setJobToCancel(null)}
-                className="p-1.5 rounded-xl text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer shrink-0 disabled:opacity-50"
+                className="w-9 h-9 rounded-xl text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition cursor-pointer shrink-0 disabled:opacity-50"
                 title="Close"
+                aria-label="Close"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {/* Modal Body (Scrollable flex-1 min-h-0) */}
-            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-5 sm:p-6 space-y-4 select-none select-none-callout">
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 sm:p-6 space-y-4 select-none select-none-callout">
               <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-800 text-xs space-y-1">
                 <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 dark:text-slate-500 block">Document to Cancel</span>
-                <p className="font-bold text-slate-900 dark:text-slate-100 text-sm truncate">{jobToCancel.file_name}</p>
+                <p className="font-bold text-slate-900 dark:text-slate-100 text-sm break-words">{jobToCancel.file_name}</p>
                 <p className="text-slate-500 dark:text-slate-400">
                   {[
                     `${jobToCancel.copies || 1} ${(jobToCancel.copies || 1) > 1 ? "copies" : "copy"}`,
@@ -2942,12 +3842,12 @@ function UnifiedPrintingContent() {
             </div>
 
             {/* Modal Footer (Pinned shrink-0) */}
-            <div className="flex flex-col sm:flex-row gap-2.5 p-4 sm:p-5 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50 shrink-0 select-none select-none-callout">
+            <div className="flex flex-col sm:flex-row gap-2.5 p-4 sm:p-5 pb-[max(1rem,env(safe-area-inset-bottom))] sm:pb-5 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50 shrink-0 select-none select-none-callout">
               <button
                 type="button"
                 disabled={cancelSubmitting}
                 onClick={() => setJobToCancel(null)}
-                className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 font-semibold text-xs sm:text-sm hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer disabled:opacity-50 select-none select-none-callout"
+                className="w-full sm:w-auto min-h-[48px] px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 font-semibold text-xs sm:text-sm hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer disabled:opacity-50 select-none select-none-callout"
               >
                 Keep Request
               </button>
@@ -2958,7 +3858,7 @@ function UnifiedPrintingContent() {
                 label="Tap & Hold to Cancel"
                 holdingLabel="Keep holding..."
                 loadingLabel="Cancelling..."
-                className="w-full sm:flex-1 py-3 px-4 rounded-xl text-white font-bold text-xs sm:text-sm shadow-md shadow-rose-500/20"
+                className="w-full sm:flex-1 min-h-[48px] py-3 px-4 rounded-xl text-white font-bold text-xs sm:text-sm shadow-md shadow-rose-500/20"
               />
             </div>
           </div>
@@ -3118,17 +4018,31 @@ function UnifiedPrintingContent() {
 
 function PrintingFallback() {
   return (
-    <div className="max-w-4xl mx-auto px-4 sm:px-6 py-5 sm:py-8 space-y-6 min-h-[120vh]">
+    <div className="max-w-3xl mx-auto px-3.5 sm:px-6 pt-3.5 sm:pt-7 space-y-4 pb-24 min-h-[100dvh]">
       {/* Top Segmented Control Skeleton */}
-      <div className="max-w-md mx-auto w-full h-11 bg-slate-200/70 dark:bg-slate-700/70 rounded-2xl animate-pulse" />
+      <div className="flex items-center gap-2 max-w-2xl mx-auto w-full">
+        <div className="flex-1 sm:max-w-md h-12 bg-slate-200/70 dark:bg-slate-700/70 rounded-2xl animate-pulse" />
+        <div className="w-12 h-12 sm:w-36 bg-slate-200/70 dark:bg-slate-700/70 rounded-2xl animate-pulse shrink-0" />
+      </div>
 
       {/* Form Container Skeleton */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 sm:p-8 space-y-6 shadow-xs">
-        <div className="h-6 w-48 bg-slate-200 dark:bg-slate-700 rounded-lg animate-pulse" />
-        <div className="space-y-4">
-          <div className="h-10 w-full bg-slate-50 dark:bg-slate-800/70 border border-slate-100 dark:border-slate-800 rounded-xl animate-pulse" />
-          <div className="h-10 w-full bg-slate-50 dark:bg-slate-800/70 border border-slate-100 dark:border-slate-800 rounded-xl animate-pulse" />
-          <div className="h-28 w-full bg-slate-50 dark:bg-slate-800/70 border border-slate-100 dark:border-slate-800 rounded-xl animate-pulse" />
+      <div className="max-w-2xl mx-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl sm:rounded-3xl p-4 sm:p-6 space-y-4 shadow-xs">
+        <div className="grid grid-cols-3 gap-1.5">
+          <div className="h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full animate-pulse" />
+          <div className="h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full animate-pulse" />
+          <div className="h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full animate-pulse" />
+        </div>
+        <div className="h-5 w-44 bg-slate-200 dark:bg-slate-700 rounded-lg animate-pulse" />
+        <div className="space-y-3">
+          <div className="h-11 w-full bg-slate-50 dark:bg-slate-800/70 border border-slate-100 dark:border-slate-800 rounded-xl animate-pulse" />
+          <div className="h-11 w-full bg-slate-50 dark:bg-slate-800/70 border border-slate-100 dark:border-slate-800 rounded-xl animate-pulse" />
+          <div className="grid grid-cols-4 gap-1.5">
+            <div className="h-10 bg-slate-50 dark:bg-slate-800/70 rounded-xl animate-pulse" />
+            <div className="h-10 bg-slate-50 dark:bg-slate-800/70 rounded-xl animate-pulse" />
+            <div className="h-10 bg-slate-50 dark:bg-slate-800/70 rounded-xl animate-pulse" />
+            <div className="h-10 bg-slate-50 dark:bg-slate-800/70 rounded-xl animate-pulse" />
+          </div>
+          <div className="h-12 w-full bg-slate-200/70 dark:bg-slate-700/70 rounded-xl animate-pulse" />
         </div>
       </div>
     </div>

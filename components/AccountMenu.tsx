@@ -10,7 +10,6 @@ import {
   LogOut,
   ArrowLeft,
   Users,
-  RotateCcw,
   Loader2,
   User,
   UserPlus,
@@ -23,9 +22,9 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { useTheme } from "@/components/ThemeProvider";
-import { useAuth, isOfficialRole } from "@/components/AuthProvider";
+import { useAuth, isOfficialRole, type AuthUser } from "@/components/AuthProvider";
+import { triggerPageTransition } from "@/components/useOverviewCardTransition";
 import { AppearanceControls } from "@/components/ThemeToggle";
-import PushNotificationManager from "@/components/PushNotificationManager";
 import { SURFACE_THEME_MAP, ACCENT_THEME_MAP } from "@/lib/themes";
 
 interface AccountMenuProps {
@@ -73,9 +72,6 @@ export default function AccountMenu({ className = "" }: AccountMenuProps) {
     resolvedSurface,
     resolvedTheme,
     accent,
-    isCustomized,
-    syncStatus,
-    resetAppearance,
     mounted,
   } = useTheme();
   const { user, loggingOut, setUser, logout, requestNavigation } = useAuth();
@@ -83,7 +79,6 @@ export default function AccountMenu({ className = "" }: AccountMenuProps) {
   const router = useRouter();
 
   const [open, setOpen] = useState(false);
-  const [appearanceExpanded, setAppearanceExpanded] = useState(false);
   const [showSignInModal, setShowSignInModal] = useState(false);
   const [authMode, setAuthMode] = useState<"signin" | "register">("signin");
 
@@ -114,6 +109,12 @@ export default function AccountMenu({ className = "" }: AccountMenuProps) {
   const [signInEmail, setSignInEmail] = useState("");
   const [signInPassword, setSignInPassword] = useState("");
   const [showSignInPassword, setShowSignInPassword] = useState(false);
+
+  // Forgot Password Inline Flow
+  const [forgotMode, setForgotMode] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotBusy, setForgotBusy] = useState(false);
+  const [forgotNotice, setForgotNotice] = useState<string | null>(null);
 
   // Register Form
   const [registerName, setRegisterName] = useState("");
@@ -183,13 +184,6 @@ export default function AccountMenu({ className = "" }: AccountMenuProps) {
       document.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("scroll", handleWindowScroll);
     };
-  }, [open]);
-
-  // Collapse Appearance accordion whenever popover closes or route changes
-  useEffect(() => {
-    if (!open) {
-      setAppearanceExpanded(false);
-    }
   }, [open]);
 
   // Set data attribute on html element when Account Menu is open to coordinate z-indexes & FAB suppression
@@ -307,10 +301,6 @@ export default function AccountMenu({ className = "" }: AccountMenuProps) {
   const activeSurfaceMeta = SURFACE_THEME_MAP[resolvedSurface] ?? SURFACE_THEME_MAP.light;
   const activeAccentMeta = ACCENT_THEME_MAP[accent] ?? ACCENT_THEME_MAP["sk-green"];
   const themeLabel = theme === "system" ? "Auto" : activeSurfaceMeta.label;
-  const accentDotColor =
-    resolvedTheme === "dark"
-      ? activeAccentMeta.darkPrimaryHex
-      : activeAccentMeta.lightPrimaryHex;
 
   const isOfficial = isOfficialRole(user?.role);
   const isOnAdmin = Boolean(pathname?.startsWith("/admin"));
@@ -318,7 +308,9 @@ export default function AccountMenu({ className = "" }: AccountMenuProps) {
   const handleNavigate = (href: string) => {
     setOpen(false);
     requestNavigation(href, () => {
-      router.push(href, { scroll: false });
+      triggerPageTransition(pathname, href, () => {
+        router.push(href);
+      });
     });
   };
 
@@ -364,7 +356,7 @@ export default function AccountMenu({ className = "" }: AccountMenuProps) {
         }),
       });
       const text = await res.text();
-      let data: any = {};
+      let data: { error?: string; user?: AuthUser } = {};
       try {
         data = JSON.parse(text);
       } catch {
@@ -374,7 +366,7 @@ export default function AccountMenu({ className = "" }: AccountMenuProps) {
         throw new Error(data.error || "Sign in failed");
       }
 
-      setUser(data.user);
+      setUser(data.user ?? null);
       setShowSignInModal(false);
       setSignInEmail("");
       setSignInPassword("");
@@ -398,8 +390,12 @@ export default function AccountMenu({ className = "" }: AccountMenuProps) {
       setAuthError("Please enter your email address.");
       return;
     }
-    if (registerPassword.length < 6) {
-      setAuthError("Password must be at least 6 characters long.");
+    if (
+      registerPassword.length < 8 ||
+      !/[a-zA-Z]/.test(registerPassword) ||
+      !/[0-9!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?`~]/.test(registerPassword)
+    ) {
+      setAuthError("Password must be at least 8 characters and include a letter plus a number or symbol.");
       return;
     }
     if (registerPassword !== registerConfirmPassword) {
@@ -419,7 +415,7 @@ export default function AccountMenu({ className = "" }: AccountMenuProps) {
         }),
       });
       const text = await res.text();
-      let data: any = {};
+      let data: { error?: string; user?: AuthUser } = {};
       try {
         data = JSON.parse(text);
       } catch {
@@ -429,7 +425,7 @@ export default function AccountMenu({ className = "" }: AccountMenuProps) {
         throw new Error(data.error || "Failed to create account");
       }
 
-      setUser(data.user);
+      setUser(data.user ?? null);
       setShowSignInModal(false);
       setRegisterName("");
       setRegisterEmail("");
@@ -602,10 +598,11 @@ export default function AccountMenu({ className = "" }: AccountMenuProps) {
           className="fixed md:absolute right-3 md:right-0 top-[calc(var(--brand-h,68px)+env(safe-area-inset-top,0px)+8px)] md:top-full md:mt-2 w-[284px] sm:w-[312px] max-w-[calc(100vw-24px)] max-h-[calc(100dvh-var(--brand-h,68px)-env(safe-area-inset-top,0px)-5.5rem-env(safe-area-inset-bottom,0px))] md:max-h-[calc(100dvh-84px)] overflow-y-auto themed-scrollbar rounded-2xl border border-slate-200 dark:border-slate-700/90 bg-white dark:bg-slate-900 shadow-2xl dark:shadow-black/70 p-3 z-[70] font-sans overscroll-contain"
         >
           {user ? (
-            <div className="space-y-2.5">
-              {/* 1. Profile Header */}
-              <div className="flex items-start gap-2.5 pb-2.5 border-b border-slate-100 dark:border-slate-800">
-                <div className="w-10 h-10 rounded-full ring-2 ring-brand-300/80 dark:ring-brand-700/80 flex items-center justify-center shrink-0 overflow-hidden bg-brand-50 dark:bg-brand-950/50 text-brand-800 dark:text-brand-300 font-bold text-sm">
+            /* SIGNED-IN MODE: MATCHES GUEST STATE HERO CARD + APPEARANCE CONTROLS */
+            <div className="space-y-3">
+              {/* Centered Hero User Card */}
+              <div className="flex flex-col items-center text-center p-3 sm:p-3.5 rounded-2xl bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800/80">
+                <div className="w-14 h-14 rounded-full ring-2 ring-brand-500/30 dark:ring-brand-400/35 border-2 border-white dark:border-slate-800 shadow-2xs flex items-center justify-center shrink-0 overflow-hidden bg-brand-50 dark:bg-brand-950/50 text-brand-800 dark:text-brand-300 font-bold text-base mb-2 aspect-square">
                   {user.avatar_url ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
@@ -617,134 +614,72 @@ export default function AccountMenu({ className = "" }: AccountMenuProps) {
                     getAvatarInitial(user.name)
                   )}
                 </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <p className="text-xs font-extrabold text-slate-900 dark:text-slate-100 tracking-tight leading-snug break-words">
-                      {user.name}
-                    </p>
-                  </div>
-                  <div className="mt-1 flex items-center gap-1.5 flex-wrap">
-                    <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-brand-50 dark:bg-brand-950/60 text-brand-800 dark:text-brand-300 border border-brand-200/70 dark:border-brand-800/70 leading-none">
-                      {user.role}
-                    </span>
-                    <span className="text-[10.5px] text-slate-400 dark:text-slate-500 truncate">
-                      {isOfficial ? "Barangay Tocok SK Council" : "Student Account"}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                    {user.email}
-                  </p>
+                <h3 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-slate-100 tracking-tight leading-tight">
+                  {user.name}
+                </h3>
+                <div className="mt-1 flex items-center justify-center gap-1.5 flex-wrap">
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-brand-50 dark:bg-brand-950/60 text-brand-800 dark:text-brand-300 border border-brand-200/70 dark:border-brand-800/70 leading-none">
+                    {user.role}
+                  </span>
                 </div>
-              </div>
+                <p className="text-[11.5px] text-slate-500 dark:text-slate-400 font-medium mt-1 mb-3 truncate max-w-full">
+                  {user.email}
+                </p>
 
-              {/* 2. Officials Quick Navigation (shown only for signed-in SK officials) */}
-              {isOfficial && (
-                <div className="space-y-1">
-                  {isOnAdmin ? (
+                {/* Actions inside Hero Card */}
+                {isOfficial ? (
+                  <div className="w-full space-y-1.5">
                     <button
                       type="button"
-                      onClick={() => handleNavigate("/")}
-                      className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                      onClick={() => handleNavigate(isOnAdmin ? "/" : "/admin")}
+                      className="w-full inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-xs sm:text-[13px] font-bold shadow-sm shadow-brand-900/15 hover:shadow-brand-900/25 transition-all cursor-pointer active:scale-[0.98]"
                     >
-                      <ArrowLeft className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 shrink-0" />
-                      <span>Public Site</span>
+                      {isOnAdmin ? (
+                        <>
+                          <ArrowLeft className="w-4 h-4 stroke-[2.2]" />
+                          <span>Public Site</span>
+                        </>
+                      ) : (
+                        <>
+                          <Users className="w-4 h-4 stroke-[2.2]" />
+                          <span>Officials Portal</span>
+                        </>
+                      )}
                     </button>
-                  ) : (
                     <button
                       type="button"
-                      onClick={() => handleNavigate("/admin")}
-                      className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                      disabled={loggingOut}
+                      onClick={handleSignOut}
+                      className="w-full inline-flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-xl border border-slate-200/90 dark:border-slate-700 bg-white dark:bg-slate-800/80 hover:bg-rose-50 dark:hover:bg-rose-950/50 hover:border-rose-200 dark:hover:border-rose-900/70 text-slate-600 dark:text-slate-300 hover:text-rose-600 dark:hover:text-rose-400 text-xs font-semibold transition-colors cursor-pointer active:scale-[0.98] disabled:opacity-50"
                     >
-                      <Users className="w-3.5 h-3.5 text-brand-600 dark:text-brand-400 shrink-0" />
-                      <span>Officials Portal</span>
+                      {loggingOut ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <LogOut className="w-3.5 h-3.5" />
+                      )}
+                      <span>{loggingOut ? "Signing Out..." : "Sign Out"}</span>
                     </button>
-                  )}
-                </div>
-              )}
-
-              {/* 3. Collapsible Appearance Accordion */}
-              <div className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 overflow-hidden">
-                <div className="flex items-center justify-between gap-1">
+                  </div>
+                ) : (
                   <button
                     type="button"
-                    onClick={() => setAppearanceExpanded((prev) => !prev)}
-                    aria-expanded={appearanceExpanded}
-                    className="flex-1 flex items-center justify-between gap-2 px-2.5 py-2 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100/80 dark:hover:bg-slate-800/80 transition-colors cursor-pointer"
+                    disabled={loggingOut}
+                    onClick={handleSignOut}
+                    className="w-full inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl border border-slate-200/90 dark:border-slate-700 bg-white dark:bg-slate-800/80 hover:bg-rose-50 dark:hover:bg-rose-950/50 hover:border-rose-200 dark:hover:border-rose-900/70 text-slate-700 dark:text-slate-200 hover:text-rose-600 dark:hover:text-rose-400 text-xs sm:text-[13px] font-bold shadow-2xs transition-colors cursor-pointer active:scale-[0.98] disabled:opacity-50"
                   >
-                    <span className="flex items-center gap-2 min-w-0">
-                      <Palette className="w-3.5 h-3.5 text-brand-600 dark:text-brand-400 shrink-0" />
-                      <span>Appearance</span>
-                    </span>
-                    <span className="flex items-center gap-1.5 shrink-0">
-                      <span className="text-[10.5px] font-semibold text-slate-500 dark:text-slate-400">
-                        {themeLabel}
-                      </span>
-                      <span
-                        className="w-2.5 h-2.5 rounded-full ring-1 ring-white dark:ring-slate-900 shrink-0"
-                        style={{ backgroundColor: accentDotColor }}
-                      />
-                      <ChevronDown
-                        className={`w-3.5 h-3.5 text-slate-400 dark:text-slate-500 transition-transform duration-150 ${
-                          appearanceExpanded ? "rotate-180" : ""
-                        }`}
-                      />
-                    </span>
+                    {loggingOut ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <LogOut className="w-4 h-4 stroke-[2.2]" />
+                    )}
+                    <span>{loggingOut ? "Signing Out..." : "Sign Out"}</span>
                   </button>
-                </div>
-
-                {appearanceExpanded && (
-                  <div className="px-2.5 pb-2.5 pt-2 border-t border-slate-200/70 dark:border-slate-800 bg-white dark:bg-slate-900/70 space-y-2.5">
-                    <div className="flex items-center justify-between h-6">
-                      <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500">
-                        {syncStatus === "saving"
-                          ? "Saving to account..."
-                          : isCustomized
-                          ? "Synced to account"
-                          : isOfficial
-                          ? "SK Official • Synced"
-                          : "Student • Synced"}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={resetAppearance}
-                        disabled={!isCustomized}
-                        className={`inline-flex items-center gap-1 h-6 text-[10.5px] font-bold px-1.5 rounded-md transition-colors ${
-                          isCustomized
-                            ? "text-slate-500 dark:text-slate-400 hover:text-brand-600 dark:hover:text-brand-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                            : "text-slate-300 dark:text-slate-600 opacity-50 cursor-default"
-                        }`}
-                        title="Reset to Auto theme and SK Green accent"
-                      >
-                        <RotateCcw className="w-3 h-3" />
-                        <span>Reset</span>
-                      </button>
-                    </div>
-                    <AppearanceControls showHeader={false} />
-                  </div>
                 )}
               </div>
 
-              {/* Push Notifications Toggle */}
-              <div className="flex items-center justify-between p-2 rounded-xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 text-xs">
-                <span className="font-semibold text-slate-700 dark:text-slate-300">Ticket Alerts</span>
-                <PushNotificationManager variant="button" />
-              </div>
-
-              {/* 4. Sign Out Action */}
-              <div className="pt-1 border-t border-slate-100 dark:border-slate-800">
-                <button
-                  type="button"
-                  disabled={loggingOut}
-                  onClick={handleSignOut}
-                  className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl border border-slate-200/90 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/70 hover:bg-rose-50 dark:hover:bg-rose-950/60 hover:border-rose-200 dark:hover:border-rose-900/80 text-slate-700 dark:text-slate-300 hover:text-rose-700 dark:hover:text-rose-300 text-xs font-bold transition-colors cursor-pointer active:scale-[0.98] disabled:opacity-50"
-                >
-                  {loggingOut ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <LogOut className="w-3.5 h-3.5" />
-                  )}
-                  <span>{loggingOut ? "Signing Out..." : "Sign Out"}</span>
-                </button>
+              {/* Theme & Appearance Controls */}
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+                <AppearanceControls />
               </div>
             </div>
           ) : (
@@ -752,8 +687,8 @@ export default function AccountMenu({ className = "" }: AccountMenuProps) {
             <div className="space-y-3">
               {/* Centered Hero Guest Card */}
               <div className="flex flex-col items-center text-center p-3 sm:p-3.5 rounded-2xl bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800/80">
-                <div className="w-13 h-13 sm:w-14 sm:h-14 rounded-full bg-white dark:bg-slate-800 border-2 border-slate-200/90 dark:border-slate-700 shadow-2xs flex items-center justify-center text-slate-400 dark:text-slate-400 mb-2">
-                  <User className="w-6 h-6 sm:w-7 sm:h-7 stroke-[1.8]" />
+                <div className="w-14 h-14 rounded-full bg-white dark:bg-slate-800 border-2 border-slate-200/90 dark:border-slate-700 shadow-2xs flex items-center justify-center text-slate-400 dark:text-slate-400 mb-2 shrink-0 aspect-square">
+                  <User className="w-6 h-6 stroke-[1.8]" />
                 </div>
                 <h3 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-slate-100 tracking-tight leading-tight">
                   Guest Visitor
@@ -943,76 +878,157 @@ export default function AccountMenu({ className = "" }: AccountMenuProps) {
               )}
 
               {authMode === "signin" ? (
-                /* ---------------- TAB 1: SIGN IN FORM ---------------- */
-                <form onSubmit={handleSignInSubmit} className="space-y-3.5">
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
-                      Email Address
-                    </label>
-                    <div className="relative">
-                      <Mail className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
-                      <input
-                        ref={emailInputRef}
-                        type="email"
-                        required
-                        autoComplete="email"
-                        placeholder="Enter your email address"
-                        value={signInEmail}
-                        onChange={(e) => setSignInEmail(e.target.value)}
-                        className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-base sm:text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-brand-600 bg-slate-50/50 dark:bg-slate-800/50"
-                      />
+                !forgotMode ? (
+                  /* ---------------- TAB 1: SIGN IN FORM ---------------- */
+                  <form onSubmit={handleSignInSubmit} className="space-y-3.5">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
+                        Email Address
+                      </label>
+                      <div className="relative">
+                        <Mail className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
+                        <input
+                          ref={emailInputRef}
+                          type="email"
+                          required
+                          autoComplete="email"
+                          placeholder="Enter your email address"
+                          value={signInEmail}
+                          onChange={(e) => setSignInEmail(e.target.value)}
+                          className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-base sm:text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-brand-600 bg-slate-50/50 dark:bg-slate-800/50"
+                        />
+                      </div>
                     </div>
-                  </div>
 
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
-                      Password
-                    </label>
-                    <div className="relative">
-                      <Lock className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
-                      <input
-                        type={showSignInPassword ? "text" : "password"}
-                        required
-                        autoComplete="current-password"
-                        placeholder="Enter your password"
-                        value={signInPassword}
-                        onChange={(e) => setSignInPassword(e.target.value)}
-                        className="w-full pl-9 pr-10 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-base sm:text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-brand-600 bg-slate-50/50 dark:bg-slate-800/50"
-                      />
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
+                        Password
+                      </label>
+                      <div className="relative">
+                        <Lock className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
+                        <input
+                          type={showSignInPassword ? "text" : "password"}
+                          required
+                          autoComplete="current-password"
+                          placeholder="Enter your password"
+                          value={signInPassword}
+                          onChange={(e) => setSignInPassword(e.target.value)}
+                          className="w-full pl-9 pr-10 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-base sm:text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-brand-600 bg-slate-50/50 dark:bg-slate-800/50"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowSignInPassword((prev) => !prev)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 p-0.5 rounded cursor-pointer"
+                          title={showSignInPassword ? "Hide password" : "Show password"}
+                          aria-label={showSignInPassword ? "Hide password" : "Show password"}
+                        >
+                          {showSignInPassword ? (
+                            <EyeOff className="w-4 h-4" />
+                          ) : (
+                            <Eye className="w-4 h-4" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end -mt-1">
                       <button
                         type="button"
-                        onClick={() => setShowSignInPassword((prev) => !prev)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 p-0.5 rounded cursor-pointer"
-                        title={showSignInPassword ? "Hide password" : "Show password"}
-                        aria-label={showSignInPassword ? "Hide password" : "Show password"}
+                        onClick={() => {
+                          setForgotMode(true);
+                          setForgotEmail(signInEmail);
+                          setForgotNotice(null);
+                          setAuthError(null);
+                        }}
+                        className="text-[11px] font-semibold text-brand-700 dark:text-brand-400 hover:underline cursor-pointer"
                       >
-                        {showSignInPassword ? (
-                          <EyeOff className="w-4 h-4" />
-                        ) : (
-                          <Eye className="w-4 h-4" />
-                        )}
+                        Forgot password?
                       </button>
                     </div>
-                  </div>
 
-                  <button
-                    type="submit"
-                    disabled={authSubmitting || googleSubmitting}
-                    className="w-full py-2.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-sm shadow-sm transition-colors cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2 active:scale-95"
+                    <button
+                      type="submit"
+                      disabled={authSubmitting || googleSubmitting}
+                      className="w-full py-2.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-sm shadow-sm transition-colors cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2 active:scale-95"
+                    >
+                      {authSubmitting ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Signing In...</span>
+                        </>
+                      ) : (
+                        <>
+                          <LogIn className="w-4 h-4" />
+                          <span>Sign In</span>
+                        </>
+                      )}
+                    </button>
+                  </form>
+                ) : (
+                  <form
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      if (!forgotEmail.trim()) {
+                        setForgotNotice("Please enter your account email address.");
+                        return;
+                      }
+                      setForgotBusy(true);
+                      setForgotNotice(null);
+                      try {
+                        const res = await fetch("/api/auth/forgot-password", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ email: forgotEmail.trim() }),
+                        });
+                        const data = await res.json();
+                        setForgotNotice(
+                          data.message || data.error || "Password reset request processed."
+                        );
+                      } catch {
+                        setForgotNotice("Unable to request reset link right now.");
+                      } finally {
+                        setForgotBusy(false);
+                      }
+                    }}
+                    className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/50 space-y-3"
                   >
-                    {authSubmitting ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        <span>Signing In...</span>
-                      </>
-                    ) : (
-                      <>
-                        <LogIn className="w-4 h-4" />
-                        <span>Sign In</span>
-                      </>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                        Reset Password (15-min link)
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setForgotMode(false);
+                          setForgotNotice(null);
+                        }}
+                        className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer"
+                      >
+                        Back to Sign In
+                      </button>
+                    </div>
+                    <input
+                      type="email"
+                      required
+                      placeholder="Account email address"
+                      value={forgotEmail}
+                      onChange={(e) => setForgotEmail(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-brand-600"
+                    />
+                    <button
+                      type="submit"
+                      disabled={forgotBusy}
+                      className="w-full py-2 rounded-xl bg-slate-900 dark:bg-brand-600 text-white text-xs font-bold hover:opacity-95 disabled:opacity-50 cursor-pointer"
+                    >
+                      {forgotBusy ? "Sending..." : "Send Expiring Reset Link"}
+                    </button>
+                    {forgotNotice && (
+                      <p className="text-[11px] text-emerald-700 dark:text-emerald-300 leading-relaxed">
+                        {forgotNotice}
+                      </p>
                     )}
-                  </button>
-                </form>
+                  </form>
+                )
               ) : (
                 /* ---------------- TAB 2: REGISTER FORM ---------------- */
                 <form onSubmit={handleRegisterSubmit} className="space-y-3">
@@ -1055,7 +1071,7 @@ export default function AccountMenu({ className = "" }: AccountMenuProps) {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
-                        Password <span className="text-slate-400 font-normal lowercase">(6+ chars)</span>
+                        Password <span className="text-slate-400 font-normal lowercase">(8+ chars)</span>
                       </label>
                       <div className="relative">
                         <Lock className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />

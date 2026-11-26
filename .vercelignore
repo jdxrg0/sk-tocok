@@ -1,0 +1,18 @@
+.git
+.gitignore
+.env*
+google-service-account.json
+*.pem
+*.key
+*.p12
+*.db
+*.db-shm
+*.db-wal
+*.log
+data
+scratch
+Profile Pictures
+scripts/attendance_backup.json
+.vercel
+.neon
+tsconfig.tsbuildinfo

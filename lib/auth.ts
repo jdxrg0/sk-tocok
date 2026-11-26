@@ -1,9 +1,14 @@
 import jwt from "jsonwebtoken";
 import { cookies } from "next/headers";
 import { sql } from "./db";
+import { getJwtSecret } from "./env";
+import { OFFICIAL_ROLES } from "./validation";
 
-const JWT_SECRET = process.env.JWT_SECRET || "sk-tocok-transparency-secret-key-2026";
+export const JWT_ISSUER = "sk-tocok-portal";
+export const JWT_AUDIENCE = "sk-tocok-portal";
 const COOKIE_NAME = "sk_tocok_admin_token";
+
+const OFFICIAL_ROLE_SET = new Set(OFFICIAL_ROLES.map((r) => r.toLowerCase()));
 
 export interface AdminUser {
   id: number;
@@ -15,6 +20,8 @@ export interface AdminUser {
   auth_provider?: string;
   theme_preference?: string | null;
   accent_preference?: string | null;
+  token_version?: number;
+  must_change_password?: boolean;
 }
 
 export type AuthUser = AdminUser;
@@ -24,15 +31,14 @@ export function isOfficialUser(
 ): boolean {
   if (!user || typeof user.role !== "string") return false;
   const normalizedRole = user.role.trim().toLowerCase();
-  return (
-    normalizedRole !== "" &&
-    normalizedRole !== "student" &&
-    normalizedRole !== "guest"
-  );
+  if (!normalizedRole || normalizedRole === "student" || normalizedRole === "guest") {
+    return false;
+  }
+  return OFFICIAL_ROLE_SET.has(normalizedRole);
 }
 
-export async function getCurrentOfficial(): Promise<AdminUser | null> {
-  const user = await getCurrentUser();
+export async function getCurrentOfficial(request?: Request): Promise<AdminUser | null> {
+  const user = await getCurrentUser(request);
   return isOfficialUser(user) ? user : null;
 }
 
@@ -44,9 +50,11 @@ export function ensureUserAppearanceColumns(): Promise<void> {
       try {
         await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS theme_preference TEXT`;
         await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS accent_preference TEXT`;
+        await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 1`;
+        await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE`;
       } catch (err) {
         appearanceColumnsPromise = null;
-        console.error("Failed to ensure user appearance columns:", err);
+        console.error("Failed to ensure user security/appearance columns:", err);
       }
     })();
   }
@@ -54,21 +62,36 @@ export function ensureUserAppearanceColumns(): Promise<void> {
 }
 
 export function signToken(user: AdminUser): string {
+  const secret = getJwtSecret();
   return jwt.sign(
     {
       id: user.id,
       name: user.name,
       email: user.email,
       role: user.role,
+      token_version: Number(user.token_version ?? 1),
     },
-    JWT_SECRET,
-    { expiresIn: "7d" }
+    secret,
+    {
+      algorithm: "HS256",
+      expiresIn: "7d",
+      issuer: JWT_ISSUER,
+      audience: JWT_AUDIENCE,
+    }
   );
 }
 
 export function verifyToken(token: string): AdminUser | null {
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as AdminUser;
+    const secret = getJwtSecret();
+    const decoded = jwt.verify(token, secret, {
+      algorithms: ["HS256"],
+      issuer: JWT_ISSUER,
+      audience: JWT_AUDIENCE,
+    }) as AdminUser;
+    if (!decoded || typeof decoded.id !== "number") {
+      return null;
+    }
     return decoded;
   } catch {
     return null;
@@ -79,18 +102,25 @@ export function isRequestSecure(request?: Request): boolean {
   if (process.env.COOKIE_SECURE === "true") return true;
   if (process.env.COOKIE_SECURE === "false") return false;
   if (process.env.VERCEL === "1") return true;
-  if (!request) {
-    return false;
+
+  if (request) {
+    const proto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
+    if (proto) {
+      return proto.toLowerCase() === "https";
+    }
+    try {
+      const parsed = new URL(request.url);
+      if (parsed.protocol === "https:") return true;
+      const host = parsed.hostname.toLowerCase();
+      if (host === "localhost" || host === "127.0.0.1" || host === "::1") {
+        return false;
+      }
+    } catch {
+      // fall through
+    }
   }
-  const proto = request.headers.get("x-forwarded-proto");
-  if (proto) {
-    return proto.toLowerCase() === "https";
-  }
-  try {
-    return new URL(request.url).protocol === "https:";
-  } catch {
-    return false;
-  }
+
+  return process.env.NODE_ENV === "production";
 }
 
 export function getAuthCookieOptions(request?: Request) {
@@ -111,7 +141,11 @@ export async function getCurrentUser(request?: Request): Promise<AdminUser | nul
     const cookieHeader = request.headers.get("cookie") || "";
     const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${COOKIE_NAME}=([^;]+)`));
     if (match) {
-      token = decodeURIComponent(match[1]);
+      try {
+        token = decodeURIComponent(match[1]);
+      } catch {
+        return null;
+      }
     }
   }
 
@@ -131,12 +165,22 @@ export async function getCurrentUser(request?: Request): Promise<AdminUser | nul
 
   await ensureUserAppearanceColumns();
 
-  // Confirm user still exists in DB
+  // Confirm user still exists in DB and token_version has not been revoked
   const rows = await sql`
-    SELECT id, name, email, role, contact_number, avatar_url, auth_provider, theme_preference, accent_preference
+    SELECT id, name, email, role, contact_number, avatar_url, auth_provider,
+           theme_preference, accent_preference, token_version, must_change_password
     FROM users WHERE id = ${decoded.id}
   `;
-  return (rows[0] as AdminUser) || null;
+  const dbUser = rows[0] as AdminUser | undefined;
+  if (!dbUser) return null;
+
+  const dbVersion = Number(dbUser.token_version ?? 1);
+  const tokenVersion = Number(decoded.token_version ?? 1);
+  if (dbVersion !== tokenVersion) {
+    return null;
+  }
+
+  return dbUser;
 }
 
 export { COOKIE_NAME };

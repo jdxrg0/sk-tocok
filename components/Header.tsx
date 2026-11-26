@@ -1,10 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback, type MouseEvent } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Home, Landmark, Printer, LayoutGrid, ClipboardCheck, MessageSquareQuote, X, Award, Compass } from "lucide-react";
 import AccountMenu from "@/components/AccountMenu";
+import {
+  clearPageExitClasses,
+  consumePendingScrollReset,
+  triggerPageTransition,
+} from "@/components/useOverviewCardTransition";
 
 const DESKTOP_NAV_LINKS = [
   { href: "/", label: "Overview", icon: Home },
@@ -35,12 +40,41 @@ export default function Header() {
   const [othersMenuOpen, setOthersMenuOpen] = useState(false);
   const [desktopNavOpen, setDesktopNavOpen] = useState(false);
 
-  // Clear optimistic pending state and close menus whenever route changes
+  const clickTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const navTransitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastClickTimeRef = useRef<number>(0);
+
+  // Clear optimistic pending state, click timer, and close menus whenever route changes
   useEffect(() => {
+    if (clickTimeoutRef.current) {
+      clearTimeout(clickTimeoutRef.current);
+      clickTimeoutRef.current = null;
+    }
+    if (navTransitionTimerRef.current) {
+      clearTimeout(navTransitionTimerRef.current);
+      navTransitionTimerRef.current = null;
+    }
+    clearPageExitClasses();
     setPendingHref(null);
     setOthersMenuOpen(false);
     setDesktopNavOpen(false);
+
+    if (consumePendingScrollReset()) {
+      window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+    }
   }, [pathname]);
+
+  // Clean up click timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (clickTimeoutRef.current) {
+        clearTimeout(clickTimeoutRef.current);
+      }
+      if (navTransitionTimerRef.current) {
+        clearTimeout(navTransitionTimerRef.current);
+      }
+    };
+  }, []);
 
   // Lock background scroll and suppress in-page floating action buttons when any navigation speed-dial is open
   useEffect(() => {
@@ -118,8 +152,83 @@ export default function Header() {
     return currentPath?.startsWith(href) ?? false;
   };
 
-  const handleNavClick = (href: string) => {
+  const handleNavClick = (
+    e: MouseEvent<HTMLAnchorElement>,
+    href: string,
+    closeMenus?: () => void
+  ) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
+      closeMenus?.();
+      return;
+    }
+
+    e.preventDefault();
+    closeMenus?.();
     setPendingHref(href);
+
+    if (navTransitionTimerRef.current) {
+      clearTimeout(navTransitionTimerRef.current);
+    }
+    navTransitionTimerRef.current = triggerPageTransition(pathname, href, () => {
+      navTransitionTimerRef.current = null;
+      router.push(href);
+    });
+  };
+
+  // Directly navigate to Overview (or scroll smoothly to top if already there) on double-tap
+  const goToOverview = useCallback(() => {
+    if (clickTimeoutRef.current) {
+      clearTimeout(clickTimeoutRef.current);
+      clickTimeoutRef.current = null;
+    }
+    lastClickTimeRef.current = 0;
+    setDesktopNavOpen(false);
+    setPendingHref("/");
+
+    if (pathname === "/") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } else {
+      if (navTransitionTimerRef.current) {
+        clearTimeout(navTransitionTimerRef.current);
+      }
+      navTransitionTimerRef.current = triggerPageTransition(pathname, "/", () => {
+        navTransitionTimerRef.current = null;
+        router.push("/");
+      });
+    }
+  }, [pathname, router]);
+
+  // Handle single-tap to toggle navigation speed-dial, double-tap to jump directly to Overview
+  const handleFabClick = () => {
+    const now = Date.now();
+    const timeSinceLastClick = now - lastClickTimeRef.current;
+
+    // Double-tap threshold (< 350ms)
+    if (timeSinceLastClick > 0 && timeSinceLastClick < 350) {
+      goToOverview();
+      return;
+    }
+
+    lastClickTimeRef.current = now;
+
+    // If menu is already open, closing it is instantaneous
+    if (desktopNavOpen) {
+      setDesktopNavOpen(false);
+      return;
+    }
+
+    // When menu is closed, debounce opening slightly (220ms) so rapid double-tap doesn't flash the menu
+    if (clickTimeoutRef.current) {
+      clearTimeout(clickTimeoutRef.current);
+    }
+    clickTimeoutRef.current = setTimeout(() => {
+      setDesktopNavOpen(true);
+      clickTimeoutRef.current = null;
+    }, 220);
+  };
+
+  const handleFabDoubleClick = () => {
+    goToOverview();
   };
 
   return (
@@ -264,12 +373,12 @@ export default function Header() {
                           key={option.href}
                           href={option.href}
                           prefetch={true}
-                          scroll={false}
                           tabIndex={othersMenuOpen ? 0 : -1}
-                          onClick={() => {
-                            setOthersMenuOpen(false);
-                            handleNavClick(option.href);
-                          }}
+                          onClick={(e) =>
+                            handleNavClick(e, option.href, () =>
+                              setOthersMenuOpen(false)
+                            )
+                          }
                           className={`relative flex items-center justify-center group cursor-pointer touch-manipulation active:scale-95 ${
                             othersMenuOpen
                               ? "opacity-100 translate-y-0 scale-100 pointer-events-auto"
@@ -376,11 +485,9 @@ export default function Header() {
                 key={link.href}
                 href={link.href}
                 prefetch={true}
-                scroll={false}
-                onClick={() => {
-                  setOthersMenuOpen(false);
-                  handleNavClick(link.href);
-                }}
+                onClick={(e) =>
+                  handleNavClick(e, link.href, () => setOthersMenuOpen(false))
+                }
                 className="relative flex flex-col items-center justify-center py-1 px-1 touch-manipulation select-none active:scale-95 transition-transform duration-75 group cursor-pointer"
                 aria-current={active ? "page" : undefined}
               >
@@ -454,12 +561,10 @@ export default function Header() {
                 key={link.href}
                 href={link.href}
                 prefetch={true}
-                scroll={false}
                 tabIndex={desktopNavOpen ? 0 : -1}
-                onClick={() => {
-                  setDesktopNavOpen(false);
-                  handleNavClick(link.href);
-                }}
+                onClick={(e) =>
+                  handleNavClick(e, link.href, () => setDesktopNavOpen(false))
+                }
                 className={`relative flex items-center justify-end group cursor-pointer touch-manipulation active:scale-95 ${
                   desktopNavOpen
                     ? "opacity-100 translate-y-0 scale-100 pointer-events-auto"
@@ -507,10 +612,12 @@ export default function Header() {
         {/* Primary Navigation FAB Trigger */}
         <button
           type="button"
-          onClick={() => setDesktopNavOpen((prev) => !prev)}
+          onClick={handleFabClick}
+          onDoubleClick={handleFabDoubleClick}
           aria-expanded={desktopNavOpen}
-          aria-label={desktopNavOpen ? "Close navigation menu" : "Open navigation menu"}
-          className="relative w-14 h-14 md:w-13 md:h-13 rounded-full bg-brand-600 hover:bg-brand-700 text-white shadow-xl md:shadow-lg shadow-brand-950/25 hover:shadow-brand-900/35 border-2 border-white/20 dark:border-brand-400/25 flex items-center justify-center cursor-pointer hover:scale-105 active:scale-90 transition-all duration-200 group focus:outline-none focus:ring-4 focus:ring-brand-500/30 select-none"
+          aria-label={desktopNavOpen ? "Close navigation menu" : "Navigation menu (Double-tap for Overview)"}
+          title={desktopNavOpen ? "Close navigation menu" : "Navigation menu — Double-tap for Overview"}
+          className="relative w-14 h-14 md:w-13 md:h-13 rounded-full bg-brand-600 hover:bg-brand-700 text-white shadow-xl md:shadow-lg shadow-brand-950/25 hover:shadow-brand-900/35 border-2 border-white/20 dark:border-brand-400/25 flex items-center justify-center cursor-pointer hover:scale-105 active:scale-90 transition-all duration-200 group focus:outline-none focus:ring-4 focus:ring-brand-500/30 select-none touch-manipulation"
         >
           <div
             className={`transition-transform duration-250 ease-out ${

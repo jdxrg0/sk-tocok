@@ -27,6 +27,13 @@ function getOrCreateSubfolder_(rootFolder, subfolderName) {
 function doPost(e) {
   try {
     const payload = JSON.parse(e.postData.contents);
+    const expectedSecret = PropertiesService.getScriptProperties().getProperty("APPS_SCRIPT_WEBHOOK_SECRET");
+    if (expectedSecret && payload.webhookSecret !== expectedSecret) {
+      return ContentService.createTextOutput(
+        JSON.stringify({ success: false, error: "Unauthorized webhook caller" })
+      ).setMimeType(ContentService.MimeType.JSON);
+    }
+
     const fileName = payload.fileName || "upload_" + Date.now();
     const mimeType = payload.mimeType || "application/octet-stream";
     const base64 = payload.base64;

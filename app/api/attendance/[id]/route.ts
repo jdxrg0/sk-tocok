@@ -3,6 +3,8 @@ import { sql, query } from "@/lib/db";
 import { getCurrentUser, isOfficialUser } from "@/lib/auth";
 import { ensureAttendanceTables, type AttendanceStatus } from "@/lib/attendance";
 import { deleteStoredFileByUrl } from "@/lib/storage";
+import { sanitizeSafeUrl } from "@/lib/urlSafety";
+import { isValidDateYMD, sanitizeText } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +13,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const user = await getCurrentUser();
+    const user = await getCurrentUser(request);
     if (!user) {
       return NextResponse.json({ error: "Unauthorized access." }, { status: 401 });
     }
@@ -36,11 +38,11 @@ export async function PUT(
     }
 
     const body = await request.json();
-    const title = String(body.title || "").trim();
-    const activityType = String(body.activity_type || "Regular Session").trim();
-    const sessionDate = String(body.session_date || "").trim();
-    const location = String(body.location || "").trim() || null;
-    const description = String(body.description || "").trim() || null;
+    const title = sanitizeText(body.title, 200);
+    const activityType = sanitizeText(body.activity_type || "Regular Session", 80) || "Regular Session";
+    const sessionDate = sanitizeText(body.session_date, 20);
+    const location = sanitizeText(body.location, 150) || null;
+    const description = sanitizeText(body.description, 1500) || null;
     const attendanceMapInput = body.attendance as Record<string, string> | undefined;
     const recordsInput = Array.isArray(body.records)
       ? (body.records as { user_id: number; status: string }[])
@@ -49,25 +51,29 @@ export async function PUT(
     if (!title) {
       return NextResponse.json({ error: "Session or activity title is required." }, { status: 400 });
     }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(sessionDate)) {
+    if (!isValidDateYMD(sessionDate)) {
       return NextResponse.json({ error: "Please provide a valid date (YYYY-MM-DD)." }, { status: 400 });
     }
 
     let proofPhotosJson: string | null = null;
     if (body.proof_photos !== undefined) {
-      let proofPhotosArr: string[] = [];
+      let rawPhotosArr: string[] = [];
       if (Array.isArray(body.proof_photos)) {
-        proofPhotosArr = body.proof_photos.map(String).filter(Boolean);
+        rawPhotosArr = body.proof_photos.map(String);
       } else if (typeof body.proof_photos === "string" && body.proof_photos.trim()) {
         try {
           const p = JSON.parse(body.proof_photos);
-          if (Array.isArray(p)) proofPhotosArr = p.map(String).filter(Boolean);
-          else proofPhotosArr = [body.proof_photos.trim()];
+          if (Array.isArray(p)) rawPhotosArr = p.map(String);
+          else rawPhotosArr = [body.proof_photos.trim()];
         } catch {
-          proofPhotosArr = [body.proof_photos.trim()];
+          rawPhotosArr = [body.proof_photos.trim()];
         }
       }
-      proofPhotosJson = JSON.stringify(proofPhotosArr);
+      const safePhotos = rawPhotosArr
+        .slice(0, 20)
+        .map((u) => sanitizeSafeUrl(u, { allowRelative: true }))
+        .filter((u): u is string => Boolean(u));
+      proofPhotosJson = JSON.stringify(safePhotos);
     }
 
     if (proofPhotosJson !== null) {
@@ -137,11 +143,11 @@ export async function PUT(
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const user = await getCurrentUser();
+    const user = await getCurrentUser(request);
     if (!user) {
       return NextResponse.json({ error: "Unauthorized access." }, { status: 401 });
     }

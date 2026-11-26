@@ -2,18 +2,28 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { cleanupExpiredBlobs } from "@/lib/blobCleanup";
 import { getCurrentUser, isOfficialUser } from "@/lib/auth";
+import { getCronSecret } from "@/lib/env";
+import { constantTimeEqual } from "@/lib/edgeCrypto";
+import { logSecurityEvent } from "@/lib/securityLogger";
 
 export async function GET(request: Request) {
-  // Allow Vercel Cron invocation or authenticated SK Official
-  const authHeader = request.headers.get("authorization");
-  const isVercelCron = process.env.CRON_SECRET
-    ? authHeader === `Bearer ${process.env.CRON_SECRET}`
-    : request.headers.get("user-agent")?.includes("vercel-cron");
+  // Allow verified Cron bearer secret or authenticated SK Official
+  const authHeader = request.headers.get("authorization") || "";
+  const cronSecret = getCronSecret();
+  const isVercelCron =
+    Boolean(cronSecret) &&
+    constantTimeEqual(authHeader, `Bearer ${cronSecret}`);
 
-  const currentUser = await getCurrentUser();
+  const currentUser = await getCurrentUser(request);
   const isAdmin = isOfficialUser(currentUser);
 
   if (!isVercelCron && !isAdmin) {
+    await logSecurityEvent({
+      eventType: "UNAUTHORIZED_CRON_ACCESS",
+      severity: "high",
+      request,
+      userId: currentUser?.id ?? null,
+    });
     return NextResponse.json({ error: "Unauthorized access." }, { status: 401 });
   }
 
@@ -26,9 +36,9 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST() {
+export async function POST(request: Request) {
   // Allow manual trigger from SK Officials Admin Portal
-  const currentUser = await getCurrentUser();
+  const currentUser = await getCurrentUser(request);
   if (!currentUser) {
     return NextResponse.json({ error: "Unauthorized access." }, { status: 401 });
   }

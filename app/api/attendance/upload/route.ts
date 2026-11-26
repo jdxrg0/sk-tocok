@@ -2,13 +2,15 @@ import { NextResponse } from "next/server";
 import { getCurrentUser, isOfficialUser } from "@/lib/auth";
 import { uploadToCloudStorage } from "@/lib/googleDrive";
 import { sql } from "@/lib/db";
+import { validateUploadedFile } from "@/lib/fileValidation";
+import { logSecurityEvent } from "@/lib/securityLogger";
 import sharp from "sharp";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   try {
-    const currentUser = await getCurrentUser();
+    const currentUser = await getCurrentUser(request);
     if (!currentUser) {
       return NextResponse.json({ error: "Unauthorized access" }, { status: 401 });
     }
@@ -31,19 +33,24 @@ export async function POST(request: Request) {
       );
     }
 
-    const MAX_SIZE = 15 * 1024 * 1024; // 15MB per photo
+    if (allFiles.length > 15) {
+      return NextResponse.json(
+        { error: "You can upload up to 15 photos per request." },
+        { status: 400 }
+      );
+    }
+
     for (const f of allFiles) {
-      if (!f.type.startsWith("image/") && !/\.(jpe?g|png|webp|gif|heic|heif)$/i.test(f.name || "")) {
-        return NextResponse.json(
-          { error: `"${f.name || "File"}" is not a supported image format. Please upload JPG, PNG, or WEBP.` },
-          { status: 400 }
-        );
-      }
-      if (f.size > MAX_SIZE) {
-        return NextResponse.json(
-          { error: `"${f.name || "File"}" exceeds maximum allowed file size of 15MB.` },
-          { status: 400 }
-        );
+      const check = await validateUploadedFile(f, "attendance");
+      if (!check.ok) {
+        await logSecurityEvent({
+          eventType: "UPLOAD_REJECTED",
+          severity: "warning",
+          request,
+          userId: currentUser.id,
+          details: { category: "attendance", reason: check.reason },
+        });
+        return NextResponse.json({ error: check.error }, { status: 400 });
       }
     }
 

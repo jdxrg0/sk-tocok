@@ -2,18 +2,27 @@ import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { getCurrentOfficial } from "@/lib/auth";
 import { ensureCseTable } from "@/lib/cse";
+import { logSecurityEvent } from "@/lib/securityLogger";
 
 export const dynamic = "force-dynamic";
 
 /**
  * Admin GET: Export CSV Liquidation Payroll for COA & SK Treasurer
  */
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const official = await getCurrentOfficial();
+    const official = await getCurrentOfficial(request);
     if (!official) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
+
+    await logSecurityEvent({
+      eventType: "CSE_LIQUIDATION_CSV_EXPORTED",
+      severity: "info",
+      request,
+      userId: official.id,
+      email: official.email,
+    });
 
     await ensureCseTable();
 
@@ -27,8 +36,10 @@ export async function GET() {
         birthdate,
         age,
         school_or_employment,
+        exam_category,
         exam_level,
         exam_date,
+        exam_fee_paid,
         is_first_time,
         payout_preference,
         gcash_number,
@@ -57,8 +68,10 @@ export async function GET() {
       "Contact Number",
       "Email",
       "School / Workplace",
+      "Exam Category",
       "Exam Level",
       "Exam Date",
+      "Actual Exam Fee (PHP)",
       "First Time Taker?",
       "Payout Preference",
       "GCash Number",
@@ -77,7 +90,9 @@ export async function GET() {
 
     const escapeCsv = (val: unknown) => {
       if (val === null || val === undefined) return '""';
-      const str = String(val).replace(/"/g, '""');
+      const raw = String(val);
+      const neutralized = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw;
+      const str = neutralized.replace(/"/g, '""');
       return `"${str}"`;
     };
 
@@ -93,8 +108,10 @@ export async function GET() {
         escapeCsv(row.contact_number),
         escapeCsv(row.email || ""),
         escapeCsv(row.school_or_employment || ""),
+        escapeCsv(row.exam_category || "Civil Service Exam (CSE)"),
         escapeCsv(row.exam_level),
         escapeCsv(row.exam_date),
+        escapeCsv(row.exam_fee_paid ?? row.reimbursement_amount ?? 500),
         escapeCsv(row.is_first_time ? "Yes" : "No"),
         escapeCsv(row.payout_preference),
         escapeCsv(row.gcash_number || ""),

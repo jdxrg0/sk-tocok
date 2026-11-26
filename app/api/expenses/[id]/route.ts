@@ -4,14 +4,19 @@ import { sql } from "@/lib/db";
 import { getCurrentUser, isOfficialUser } from "@/lib/auth";
 import { deleteStoredFileByUrl } from "@/lib/storage";
 import { uploadToCloudStorage } from "@/lib/googleDrive";
+import { parseExpenseLineItems } from "@/lib/expenseBreakdown";
+import { ensureExpenseLineItemsColumn } from "@/lib/expenseSchema";
 import { invalidateAllTransparencyCache } from "@/lib/transparencyCache";
+import { validateUploadedFile } from "@/lib/fileValidation";
+import { logSecurityEvent } from "@/lib/securityLogger";
+import { isValidDateYMD, parseMoney, sanitizeText } from "@/lib/validation";
 
 export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const user = await getCurrentUser();
+    const user = await getCurrentUser(request);
     if (!user) {
       return NextResponse.json({ error: "Unauthorized access" }, { status: 401 });
     }
@@ -19,9 +24,11 @@ export async function PUT(
       return NextResponse.json({ error: "Forbidden: SK Officials only" }, { status: 403 });
     }
 
+    await ensureExpenseLineItemsColumn();
+
     const { id } = await params;
     const expenseId = parseInt(id, 10);
-    if (!expenseId) {
+    if (!Number.isInteger(expenseId) || expenseId <= 0) {
       return NextResponse.json({ error: "Invalid expense ID" }, { status: 400 });
     }
 
@@ -32,39 +39,67 @@ export async function PUT(
     const existing = existingRows[0] as { id: number; receipt_url: string | null };
 
     const formData = await request.formData();
-    const title = formData.get("title") as string;
-    const description = (formData.get("description") as string) || "";
-    const category = formData.get("category") as string;
-    const amountStr = formData.get("amount") as string;
-    const date = formData.get("date") as string;
-    const voucher_no = (formData.get("voucher_no") as string) || "";
-    const payee = (formData.get("payee") as string) || "";
-    const receiptFile = formData.get("receipt") as File | null;
+    const title = sanitizeText(formData.get("title"), 200);
+    const description = sanitizeText(formData.get("description"), 1500);
+    const category = sanitizeText(formData.get("category"), 100);
+    const amount = parseMoney(formData.get("amount"));
+    const date = sanitizeText(formData.get("date"), 20);
+    const voucher_no = sanitizeText(formData.get("voucher_no"), 100);
+    const payee = sanitizeText(formData.get("payee"), 150);
+    const hasLineItemsField = formData.has("line_items");
+    const parsedLineItems = hasLineItemsField ? parseExpenseLineItems(formData.get("line_items")) : null;
+    const lineItemsJson = parsedLineItems && parsedLineItems.length > 0 ? JSON.stringify(parsedLineItems) : null;
+    const receiptFile = (formData.get("receipt") || formData.get("receipt_file")) as File | null;
 
-    if (!title || !category || !amountStr || !date) {
+    if (!title || !category || !date) {
       return NextResponse.json({ error: "Title, category, amount, and date are required." }, { status: 400 });
     }
 
-    const amount = parseFloat(amountStr);
-    if (isNaN(amount) || amount <= 0) {
-      return NextResponse.json({ error: "Please enter a valid amount." }, { status: 400 });
+    if (amount === null) {
+      return NextResponse.json({ error: "Please enter a valid positive amount." }, { status: 400 });
+    }
+
+    if (!isValidDateYMD(date)) {
+      return NextResponse.json({ error: "Invalid expense date format (expected YYYY-MM-DD)." }, { status: 400 });
     }
 
     let receipt_url = existing.receipt_url;
     let replacedOldReceipt = false;
     if (receiptFile && receiptFile.size > 0 && typeof receiptFile.name === "string") {
+      const fileCheck = await validateUploadedFile(receiptFile, "financial_doc");
+      if (!fileCheck.ok) {
+        await logSecurityEvent({
+          eventType: "UPLOAD_REJECTED",
+          severity: "warning",
+          request,
+          userId: user.id,
+          details: { category: "expense_update_receipt", reason: fileCheck.reason },
+        });
+        return NextResponse.json({ error: fileCheck.error }, { status: 400 });
+      }
       const saved = await uploadToCloudStorage(receiptFile, "vouchers");
       receipt_url = saved.filePath;
       replacedOldReceipt = true;
     }
 
-    await sql`
-      UPDATE expenses
-      SET title = ${title.trim()}, description = ${description.trim()}, category = ${category.trim()},
-          amount = ${amount}, date = ${date}, receipt_url = ${receipt_url},
-          voucher_no = ${voucher_no.trim()}, payee = ${payee.trim()}
-      WHERE id = ${expenseId}
-    `;
+    if (hasLineItemsField) {
+      await sql`
+        UPDATE expenses
+        SET title = ${title}, description = ${description}, category = ${category},
+            amount = ${amount}, date = ${date}, receipt_url = ${receipt_url},
+            voucher_no = ${voucher_no}, payee = ${payee},
+            line_items = ${lineItemsJson}::jsonb
+        WHERE id = ${expenseId}
+      `;
+    } else {
+      await sql`
+        UPDATE expenses
+        SET title = ${title}, description = ${description}, category = ${category},
+            amount = ${amount}, date = ${date}, receipt_url = ${receipt_url},
+            voucher_no = ${voucher_no}, payee = ${payee}
+        WHERE id = ${expenseId}
+      `;
+    }
 
     if (replacedOldReceipt && existing.receipt_url) {
       await deleteStoredFileByUrl(existing.receipt_url);
@@ -86,11 +121,11 @@ export async function PUT(
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const user = await getCurrentUser();
+    const user = await getCurrentUser(request);
     if (!user) {
       return NextResponse.json({ error: "Unauthorized access" }, { status: 401 });
     }
@@ -100,7 +135,7 @@ export async function DELETE(
 
     const { id } = await params;
     const expenseId = parseInt(id, 10);
-    if (!expenseId) {
+    if (!Number.isInteger(expenseId) || expenseId <= 0) {
       return NextResponse.json({ error: "Invalid expense ID" }, { status: 400 });
     }
 
@@ -115,6 +150,15 @@ export async function DELETE(
     }
 
     invalidateAllTransparencyCache();
+
+    await logSecurityEvent({
+      eventType: "EXPENSE_DELETED",
+      severity: "warning",
+      request,
+      userId: user.id,
+      email: user.email,
+      details: { expenseId },
+    });
 
     return NextResponse.json({ success: true, message: "Expense record removed" });
   } catch (error) {

@@ -10,11 +10,21 @@ import {
   sanitizeReturnTo,
 } from "@/lib/googleAuth";
 import { isRequestSecure } from "@/lib/auth";
-
-const JWT_SECRET =
-  process.env.JWT_SECRET || "sk-tocok-transparency-secret-key-2026";
+import { getJwtSecret } from "@/lib/env";
+import { checkRateLimit, rateLimitExceededResponse } from "@/lib/rateLimit";
 
 export async function GET(request: Request) {
+  const limit = await checkRateLimit({
+    request,
+    bucket: "google_oauth_start",
+    max: 30,
+    windowMs: 15 * 60 * 1000,
+  });
+  if (!limit.allowed) {
+    return rateLimitExceededResponse(limit.retryAfterSeconds);
+  }
+
+  const jwtSecret = getJwtSecret();
   const url = new URL(request.url);
   const returnTo = sanitizeReturnTo(url.searchParams.get("returnTo"));
   const origin = getRequestOrigin(request);
@@ -33,7 +43,8 @@ export async function GET(request: Request) {
   const state = crypto.randomBytes(24).toString("hex");
   const redirectUri = getGoogleRedirectUri(request);
 
-  const signedState = jwt.sign({ state, returnTo }, JWT_SECRET, {
+  const signedState = jwt.sign({ state, returnTo }, jwtSecret, {
+    algorithm: "HS256",
     expiresIn: "10m",
   });
 

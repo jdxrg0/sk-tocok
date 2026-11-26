@@ -1,92 +1,114 @@
 import { NextResponse } from "next/server";
 import sharp from "sharp";
+import { validatePublicExternalUrl } from "@/lib/urlSafety";
+import { logSecurityEvent } from "@/lib/securityLogger";
 
 export const dynamic = "force-dynamic";
 
-function isPrivateIpOrHost(hostname: string): boolean {
-  const h = hostname.toLowerCase();
-  if (
-    h === "localhost" ||
-    h === "127.0.0.1" ||
-    h === "0.0.0.0" ||
-    h === "::1" ||
-    h.endsWith(".local") ||
-    h.endsWith(".internal")
-  ) {
-    return true;
-  }
+const ALLOWED_IMAGE_HOSTS = [
+  "api.dicebear.com",
+  "lh3.googleusercontent.com",
+  "drive.google.com",
+  "public.blob.vercel-storage.com",
+  "googleusercontent.com",
+] as const;
 
-  // Check IPv4 private ranges: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16
-  const parts = h.split(".").map(Number);
-  if (parts.length === 4 && parts.every((p) => !Number.isNaN(p) && p >= 0 && p <= 255)) {
-    if (parts[0] === 10) return true;
-    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
-    if (parts[0] === 192 && parts[1] === 168) return true;
-    if (parts[0] === 169 && parts[1] === 254) return true;
-    if (parts[0] === 127) return true;
-  }
-
-  return false;
-}
+const MAX_REMOTE_IMAGE_BYTES = 10 * 1024 * 1024;
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const targetUrl = searchParams.get("url") || "";
+    const targetUrl = (searchParams.get("url") || "").trim();
     const widthParam = searchParams.get("w") || searchParams.get("width");
-    const targetWidth = Math.min(Math.max(parseInt(widthParam || "400", 10) || 400, 50), 1200);
+    const targetWidth = Math.min(
+      Math.max(parseInt(widthParam || "400", 10) || 400, 50),
+      1200
+    );
 
     if (!targetUrl) {
-      return NextResponse.json({ error: "Missing image url parameter" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Missing image url parameter" },
+        { status: 400 }
+      );
     }
 
-    let parsedUrl: URL;
+    let validatedUrl: URL;
     try {
-      parsedUrl = new URL(targetUrl);
-    } catch {
-      return NextResponse.json({ error: "Invalid target URL" }, { status: 400 });
+      validatedUrl = await validatePublicExternalUrl(targetUrl, {
+        allowedHosts: ALLOWED_IMAGE_HOSTS,
+      });
+    } catch (err) {
+      await logSecurityEvent({
+        eventType: "SSRF_BLOCKED_THUMB_PROXY",
+        severity: "high",
+        request,
+        details: {
+          targetUrl: targetUrl.slice(0, 200),
+          reason: err instanceof Error ? err.message : "validation_failed",
+        },
+      });
+      return NextResponse.json(
+        { error: "Forbidden or untrusted image host" },
+        { status: 403 }
+      );
     }
 
-    if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
-      return NextResponse.json({ error: "Only http and https protocols are supported" }, { status: 400 });
-    }
-
-    if (isPrivateIpOrHost(parsedUrl.hostname)) {
-      return NextResponse.json({ error: "Forbidden target host" }, { status: 403 });
-    }
-
-    // Fetch original image with timeout
     let res: Response;
     try {
-      res = await fetch(parsedUrl.toString(), {
+      res = await fetch(validatedUrl.toString(), {
+        method: "GET",
+        redirect: "manual",
         signal: AbortSignal.timeout(6000),
         headers: {
           "User-Agent": "SK-Tocok-ImageOptimizer/1.0",
-          Accept: "image/webp,image/png,image/jpeg,*/*",
+          Accept: "image/webp,image/png,image/jpeg,image/gif,*/*",
         },
       });
     } catch {
-      // On connection blip, redirect to original URL
-      return NextResponse.redirect(targetUrl, 302);
+      return NextResponse.json(
+        { error: "Unable to fetch upstream image" },
+        { status: 502 }
+      );
+    }
+
+    // Do not blindly follow redirects to untrusted or internal targets
+    if (res.status >= 300 && res.status < 400) {
+      return NextResponse.json(
+        { error: "Upstream redirects are not permitted" },
+        { status: 403 }
+      );
     }
 
     if (!res.ok) {
-      return NextResponse.redirect(targetUrl, 302);
+      return NextResponse.json(
+        { error: "Upstream image could not be loaded" },
+        { status: 404 }
+      );
     }
 
-    const rawBuffer = Buffer.from(await res.arrayBuffer());
-    const rawType = res.headers.get("content-type") || "";
+    const declaredLength = parseInt(res.headers.get("content-length") || "0", 10);
+    if (Number.isFinite(declaredLength) && declaredLength > MAX_REMOTE_IMAGE_BYTES) {
+      return NextResponse.json(
+        { error: "Remote image exceeds maximum allowed size" },
+        { status: 413 }
+      );
+    }
 
-    // If SVG, return as is
-    if (rawType.includes("svg") || targetUrl.endsWith(".svg")) {
-      return new NextResponse(new Uint8Array(rawBuffer), {
-        status: 200,
-        headers: {
-          "Content-Type": "image/svg+xml",
-          "Cache-Control": "public, max-age=31536000, immutable",
-          "X-Content-Type-Options": "nosniff",
-        },
-      });
+    const rawType = (res.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+    const rawBuffer = Buffer.from(await res.arrayBuffer());
+    if (rawBuffer.length === 0 || rawBuffer.length > MAX_REMOTE_IMAGE_BYTES) {
+      return NextResponse.json(
+        { error: "Invalid or oversized remote image payload" },
+        { status: 413 }
+      );
+    }
+
+    // Never serve raw image/svg+xml (prevents stored/reflected SVG XSS).
+    if (rawType.includes("svg") || validatedUrl.pathname.toLowerCase().endsWith(".svg")) {
+      return NextResponse.json(
+        { error: "Raw SVG image proxying is disabled for security" },
+        { status: 415 }
+      );
     }
 
     try {
@@ -101,16 +123,22 @@ export async function GET(request: Request) {
         headers: {
           "Content-Type": "image/webp",
           "Content-Length": String(resized.length),
-          "Cache-Control": "public, max-age=31536000, immutable",
+          "Cache-Control": "public, max-age=86400",
           "X-Content-Type-Options": "nosniff",
+          "Content-Security-Policy": "default-src 'none'",
         },
       });
-    } catch (sharpErr) {
-      console.warn("Universal thumbnail resize fallback:", sharpErr);
-      return NextResponse.redirect(targetUrl, 302);
+    } catch {
+      return NextResponse.json(
+        { error: "Target resource is not a supported raster image" },
+        { status: 415 }
+      );
     }
   } catch (err) {
     console.error("Thumbnail proxy error:", err);
-    return NextResponse.json({ error: "Failed to process thumbnail" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Failed to process thumbnail" },
+      { status: 500 }
+    );
   }
 }

@@ -11,6 +11,8 @@ import {
   getOrAssignDeviceIdentity,
   attachDeviceCookie,
 } from "@/lib/deviceIdentity";
+import { checkRateLimit, rateLimitExceededResponse } from "@/lib/rateLimit";
+import { sanitizeText } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
 
@@ -181,10 +183,24 @@ export async function GET(request: Request) {
  */
 export async function POST(request: Request) {
   try {
+    const limit = await checkRateLimit({
+      request,
+      bucket: "messages_post",
+      max: 8,
+      windowMs: 15 * 60 * 1000,
+      persistToDb: true,
+    });
+    if (!limit.allowed) {
+      return rateLimitExceededResponse(
+        limit.retryAfterSeconds,
+        "You are posting too quickly. Please wait a few minutes before submitting another message."
+      );
+    }
+
     await ensureMessagesTable();
 
     const body = await request.json().catch(() => ({}));
-    const { category, subject, message, alias, purok, honeypot } = body;
+    const { category, subject, message, purok, honeypot } = body;
 
     // Honeypot spam trap
     if (honeypot && String(honeypot).trim() !== "") {
@@ -196,7 +212,7 @@ export async function POST(request: Request) {
     }
 
     // Validation: Message is the only required user input
-    const cleanMessage = String(message || "").trim();
+    const cleanMessage = sanitizeText(message, 3000);
     if (!cleanMessage || cleanMessage.length < 5 || cleanMessage.length > 3000) {
       return NextResponse.json(
         {
@@ -207,12 +223,12 @@ export async function POST(request: Request) {
       );
     }
 
-    // Resolve and lock permanent alias tied to device/IP
-    const deviceIdentity = await getOrAssignDeviceIdentity(request, alias);
+    // Resolve and lock permanent alias tied to cryptographically signed device session
+    const deviceIdentity = await getOrAssignDeviceIdentity(request);
     const cleanAlias = deviceIdentity.alias;
 
     // Auto-generate subject from first sentence/line if none provided
-    let cleanSubject = String(subject || "").trim();
+    let cleanSubject = sanitizeText(subject, 120);
     if (!cleanSubject) {
       const firstLine = cleanMessage.split(/[\n.!?]/)[0]?.trim() || "";
       cleanSubject =
@@ -250,6 +266,7 @@ export async function POST(request: Request) {
       INSERT INTO anonymous_messages (
         tracking_code,
         alias,
+        device_id,
         category,
         purok,
         subject,
@@ -260,6 +277,7 @@ export async function POST(request: Request) {
       ) VALUES (
         ${trackingCode},
         ${cleanAlias.slice(0, 50)},
+        ${deviceIdentity.deviceId},
         ${validCategory},
         ${validPurok},
         ${cleanSubject},
@@ -281,7 +299,7 @@ export async function POST(request: Request) {
         "Your anonymous post is live! You can use your tracking code to follow up anytime.",
     });
 
-    return attachDeviceCookie(res, deviceIdentity.deviceId);
+    return await attachDeviceCookie(res, deviceIdentity.deviceId, request);
   } catch (err: unknown) {
     console.error("POST /api/messages error:", err);
     return NextResponse.json(

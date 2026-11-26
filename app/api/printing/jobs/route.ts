@@ -3,10 +3,11 @@ import { NextResponse } from "next/server";
 import { sql, query } from "@/lib/db";
 import { getCurrentUser, isOfficialUser } from "@/lib/auth";
 import { sendPushNotificationToUser } from "@/lib/webPush";
+import { PRINT_STATUSES, sanitizeText } from "@/lib/validation";
 
 export async function GET(request: Request) {
   try {
-    const user = await getCurrentUser();
+    const user = await getCurrentUser(request);
     if (!user) {
       return NextResponse.json({ error: "Unauthorized access" }, { status: 401 });
     }
@@ -76,7 +77,7 @@ export async function GET(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const user = await getCurrentUser();
+    const user = await getCurrentUser(request);
     if (!user) {
       return NextResponse.json({ error: "Unauthorized access" }, { status: 401 });
     }
@@ -84,10 +85,18 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "Forbidden: SK Officials only." }, { status: 403 });
     }
 
-    const { id, status, admin_notes } = await request.json();
+    const body = await request.json().catch(() => ({}));
+    const id = Number(body?.id);
+    const status = sanitizeText(body?.status, 50);
+    const admin_notes =
+      body?.admin_notes !== undefined ? sanitizeText(body.admin_notes, 1000) : undefined;
 
-    if (!id || !status) {
-      return NextResponse.json({ error: "Job ID and status are required" }, { status: 400 });
+    if (!Number.isInteger(id) || id <= 0 || !status) {
+      return NextResponse.json({ error: "Valid Job ID and status are required" }, { status: 400 });
+    }
+
+    if (!PRINT_STATUSES.includes(status as (typeof PRINT_STATUSES)[number])) {
+      return NextResponse.json({ error: "Invalid print job status specified" }, { status: 400 });
     }
 
     let picked_up_at: string | null = null;
@@ -101,6 +110,9 @@ export async function PATCH(request: Request) {
       FROM print_requests
       WHERE id = ${id}
     `;
+    if (existingRows.length === 0) {
+      return NextResponse.json({ error: "Print job not found" }, { status: 404 });
+    }
     const previousJob = existingRows[0] as {
       id: number;
       tracking_code: string;
