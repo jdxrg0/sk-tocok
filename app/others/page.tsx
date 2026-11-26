@@ -13,9 +13,9 @@ interface OtherPageItem {
 const OTHER_PAGES: OtherPageItem[] = [
   {
     href: "/cse",
-    title: "Free Civil Service Exam (CSE) ₱500 Subsidy",
+    title: "Youth Exam & Licensure Fee Subsidy",
     description:
-      "₱500 examination fee reimbursement, attendance verification, and Hall of Fame recognition for Katipunan ng Kabataan examinees.",
+      "Up to ₱1,000 examination fee reimbursement for CSE, LET/PRC, PhilNITS, and TESDA examinees, with Hall of Fame recognition.",
     icon: Award,
     badge: "20 Annual Slots",
   },

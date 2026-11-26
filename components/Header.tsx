@@ -15,7 +15,7 @@ const DESKTOP_NAV_LINKS = [
   { href: "/", label: "Overview", icon: Home },
   { href: "/transparency", label: "Finances", icon: Landmark },
   { href: "/printing", label: "Printing", icon: Printer },
-  { href: "/cse", label: "CSE Subsidy", icon: Award },
+  { href: "/cse", label: "Exam Subsidy", icon: Award },
   { href: "/attendance", label: "Attendance", icon: ClipboardCheck },
   { href: "/messages", label: "Bumo-Boses", icon: MessageSquareQuote },
 ];
@@ -28,7 +28,7 @@ const MOBILE_NAV_LINKS = [
 ];
 
 const OTHERS_POPUP_OPTIONS = [
-  { href: "/cse", label: "Free CSE Subsidy", icon: Award },
+  { href: "/cse", label: "Exam Fee Subsidy", icon: Award },
   { href: "/messages", label: "Bumo-Boses", icon: MessageSquareQuote },
   { href: "/printing", label: "Student Printing", icon: Printer },
 ];

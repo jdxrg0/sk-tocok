@@ -548,6 +548,11 @@ function TransparencyContent() {
   const [isDescriptionClamped, setIsDescriptionClamped] = useState<boolean>(false);
   const descriptionRef = useRef<HTMLParagraphElement | null>(null);
 
+  const openExpenseDetails = (exp: Expense) => {
+    setSelectedReceipt(exp);
+    setCopiedVoucher(false);
+  };
+
   // Sorting
   const [expenseSort, setExpenseSort] = useState<{ field: "date" | "amount"; order: "asc" | "desc" }>({
     field: "date",
@@ -1525,7 +1530,16 @@ function TransparencyContent() {
                     return (
                       <div
                         key={exp.id}
-                        className={`rounded-xl border px-2.5 py-1.5 transition-all h-[112px] flex flex-col justify-between overflow-hidden shadow-2xs ${rowStyle.cardBg}`}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => openExpenseDetails(exp)}
+                        onKeyDown={(e) => {
+                          if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
+                            e.preventDefault();
+                            openExpenseDetails(exp);
+                          }
+                        }}
+                        className={`rounded-xl border px-2.5 py-1.5 transition-all h-[112px] flex flex-col justify-between overflow-hidden shadow-2xs cursor-pointer active:scale-[0.99] ${rowStyle.cardBg}`}
                       >
                         {/* Top: Category Badge + Date */}
                         <div className="flex items-center justify-between gap-2 shrink-0 min-w-0">
@@ -1581,7 +1595,10 @@ function TransparencyContent() {
                                 <>
                                   <button
                                     type="button"
-                                    onClick={() => openEditExpense(exp)}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      openEditExpense(exp);
+                                    }}
                                     className="inline-flex items-center justify-center w-6 h-6 rounded-lg bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition-all cursor-pointer active:scale-95 shadow-2xs"
                                     title="Edit Expenditure Record"
                                     aria-label="Edit Expenditure Record"
@@ -1590,7 +1607,10 @@ function TransparencyContent() {
                                   </button>
                                   <button
                                     type="button"
-                                    onClick={() => handleDeleteExpense(exp.id)}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDeleteExpense(exp.id);
+                                    }}
                                     className="inline-flex items-center justify-center w-6 h-6 rounded-lg bg-white dark:bg-slate-900 hover:bg-rose-50 dark:hover:bg-rose-950/60 text-slate-600 dark:text-slate-300 hover:text-rose-600 dark:hover:text-rose-400 border border-slate-200 dark:border-slate-700 transition-all cursor-pointer active:scale-95 shadow-2xs"
                                     title="Delete Expenditure Record"
                                     aria-label="Delete Expenditure Record"
@@ -1601,9 +1621,9 @@ function TransparencyContent() {
                               )}
                               <button
                                 type="button"
-                                onClick={() => {
-                                  setSelectedReceipt(exp);
-                                  setCopiedVoucher(false);
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openExpenseDetails(exp);
                                 }}
                                 className="inline-flex items-center gap-1 h-6 px-2 rounded-lg bg-white dark:bg-slate-900 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700/80 transition-all cursor-pointer active:scale-95 shadow-2xs text-[11px] font-bold"
                                 title="View Full Details & Itemized Breakdown"
@@ -1750,8 +1770,16 @@ function TransparencyContent() {
                         const breakdownItems = getExpenseBreakdown(exp.voucher_no, exp.title, exp.amount, exp.description, exp.line_items);
                         return (
                           <tr 
-                            key={exp.id} 
-                            className={`transition-colors group h-1/3 ${rowStyle.rowBg}`}
+                            key={exp.id}
+                            tabIndex={0}
+                            onClick={() => openExpenseDetails(exp)}
+                            onKeyDown={(e) => {
+                              if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
+                                e.preventDefault();
+                                openExpenseDetails(exp);
+                              }
+                            }}
+                            className={`transition-colors group h-1/3 cursor-pointer ${rowStyle.rowBg}`}
                           >
                             {/* Date */}
                             <td className="py-2.5 pl-4 sm:pl-6 pr-2 align-middle min-w-0">
@@ -1815,7 +1843,10 @@ function TransparencyContent() {
                                   <>
                                     <button
                                       type="button"
-                                      onClick={() => openEditExpense(exp)}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        openEditExpense(exp);
+                                      }}
                                       className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition-all shadow-2xs hover:shadow-xs active:scale-95 cursor-pointer"
                                       title="Edit Expenditure Record"
                                       aria-label="Edit Expenditure Record"
@@ -1824,7 +1855,10 @@ function TransparencyContent() {
                                     </button>
                                     <button
                                       type="button"
-                                      onClick={() => handleDeleteExpense(exp.id)}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleDeleteExpense(exp.id);
+                                      }}
                                       className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-white dark:bg-slate-900 hover:bg-rose-50 dark:hover:bg-rose-950/60 text-slate-600 dark:text-slate-300 hover:text-rose-600 dark:hover:text-rose-400 border border-slate-200 dark:border-slate-700 transition-all shadow-2xs hover:shadow-xs active:scale-95 cursor-pointer"
                                       title="Delete Expenditure Record"
                                       aria-label="Delete Expenditure Record"
@@ -1835,9 +1869,9 @@ function TransparencyContent() {
                                 )}
                                 <button
                                   type="button"
-                                  onClick={() => {
-                                    setSelectedReceipt(exp);
-                                    setCopiedVoucher(false);
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openExpenseDetails(exp);
                                   }}
                                   className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-white dark:bg-slate-900 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 hover:text-emerald-950 dark:hover:text-emerald-200 border border-emerald-300 dark:border-emerald-700/80 transition-all shadow-2xs hover:shadow-xs active:scale-95 cursor-pointer"
                                   title="View Full Details & Itemized Breakdown"

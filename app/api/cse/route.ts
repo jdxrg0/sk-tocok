@@ -300,7 +300,13 @@ export async function POST(request: Request) {
 
     const rawCategory = sanitizeText(formData.get("examCategory") || "Civil Service Exam (CSE)", 80);
     const matchedCategory = EXAM_CATEGORY_OPTIONS.find((c) => c.id === rawCategory);
-    const examCategory: ExamCategory = matchedCategory ? matchedCategory.id : "Civil Service Exam (CSE)";
+    if (!matchedCategory) {
+      return NextResponse.json(
+        { error: "Selected examination program is not supported." },
+        { status: 400 }
+      );
+    }
+    const examCategory: ExamCategory = matchedCategory.id;
 
     const rawExamLevel = sanitizeText(formData.get("examLevel") || "Professional", 100);
     const examLevel = (rawExamLevel || "Professional") as ExamLevel;
@@ -428,7 +434,7 @@ export async function POST(request: Request) {
 
     if (settingsMap.get("cse_program_active") === "false") {
       return NextResponse.json(
-        { error: "The CSE Subsidy Program is currently closed or has reached its program deadline." },
+        { error: "The Exam Fee Subsidy Program is currently closed or has reached its program deadline." },
         { status: 400 }
       );
     }
@@ -458,7 +464,7 @@ export async function POST(request: Request) {
     if (sameBatch) {
       return NextResponse.json(
         {
-          error: `You already have an existing CSE subsidy application (${sameBatch.tracking_code}) submitted for ${examDate}. Please track your application status instead.`,
+          error: `You already have an existing exam subsidy application (${sameBatch.tracking_code}) submitted for ${examDate}. Please track your application status instead.`,
         },
         { status: 400 }
       );

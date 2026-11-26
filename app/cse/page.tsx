@@ -412,7 +412,25 @@ const MOCK_PREVIEW_PASSERS: CsePublicPasser[] = [
 ];
 
 function parsePasserName(rawName: string): { firstName: string; lastName: string; initials: string } {
-  const parts = String(rawName || "").trim().split(/\s+/).filter(Boolean);
+  const trimmed = String(rawName || "").trim();
+  if (!trimmed) {
+    return { firstName: "", lastName: "PASSER", initials: "PR" };
+  }
+
+  // Handle "Last, First Middle" format
+  if (trimmed.includes(",")) {
+    const [rawLast, ...rest] = trimmed.split(",");
+    const lastParts = rawLast.trim().split(/\s+/).filter(Boolean);
+    const firstParts = rest.join(" ").trim().split(/\s+/).filter(Boolean);
+    if (lastParts.length > 0 && firstParts.length > 0) {
+      const lastName = lastParts.join(" ").toUpperCase();
+      const firstName = firstParts.join(" ");
+      const initials = (firstParts[0][0] + lastParts[0][0]).toUpperCase();
+      return { firstName, lastName, initials };
+    }
+  }
+
+  const parts = trimmed.split(/\s+/).filter(Boolean);
   if (parts.length === 0) {
     return { firstName: "", lastName: "PASSER", initials: "PR" };
   }
@@ -2014,7 +2032,7 @@ function CseContent() {
                             Min age {minAgeRequired}+
                           </span>
                         </div>
-                        <div className="grid grid-cols-6 gap-1.5">
+                        <div className="grid grid-cols-2 gap-1.5">
                           {EXAM_CATEGORY_OPTIONS.map((cat, idx) => {
                             const selected = examCategory === cat.id;
                             return (
@@ -2043,8 +2061,6 @@ function CseContent() {
                                   }
                                 }}
                                 className={`h-[34px] px-2 rounded-xl border text-center transition-all duration-200 active:scale-[0.98] touch-manipulation cursor-pointer flex items-center justify-center ${
-                                  idx < 2 ? "col-span-3" : "col-span-2"
-                                } ${
                                   selected
                                     ? "border-brand-500 bg-brand-50/70 dark:bg-brand-950/40 text-brand-900 dark:text-brand-200 ring-1 ring-brand-500/30 font-bold"
                                     : "border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/40 font-semibold"
@@ -3018,11 +3034,12 @@ function CseContent() {
                                       <span className="block font-black text-[10.5px] sm:text-xs text-slate-900 dark:text-slate-100 tracking-wider uppercase leading-tight truncate w-full">
                                         {nameParts.lastName}
                                       </span>
-                                      {nameParts.firstName && (
-                                        <span className="block font-semibold text-[9px] sm:text-[10.5px] text-slate-500 dark:text-slate-400 leading-tight truncate w-full mt-0.5">
-                                          {nameParts.firstName}
-                                        </span>
-                                      )}
+                                      <span
+                                        aria-hidden={!nameParts.firstName}
+                                        className="block font-semibold text-[9px] sm:text-[10.5px] text-slate-500 dark:text-slate-400 leading-tight truncate w-full mt-0.5 min-h-[11.5px] sm:min-h-[13.5px]"
+                                      >
+                                        {nameParts.firstName || "\u00A0"}
+                                      </span>
                                     </div>
 
                                     {/* Key Info Under Surname */}
@@ -3033,7 +3050,7 @@ function CseContent() {
                                         {badge.short}
                                       </span>
                                       <span className="text-[9px] sm:text-[10.5px] font-bold text-slate-600 dark:text-slate-300 truncate max-w-full">
-                                        {passer.rating ? (
+                                        {passer.rating !== null && passer.rating !== undefined ? (
                                           <span className="text-emerald-600 dark:text-emerald-400 font-black">
                                             {passer.rating}%
                                           </span>
@@ -3543,7 +3560,7 @@ function CseContent() {
                 onClick={() => setShowInfoModal(false)}
                 className="w-full sm:w-auto min-h-[46px] px-6 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs sm:text-sm shadow-sm transition-colors cursor-pointer"
               >
-                Got It, Return to CSE Portal
+                Got It, Return to Exam Portal
               </button>
             </div>
           </div>
@@ -3798,7 +3815,7 @@ function CseContent() {
 
 export default function CsePage() {
   return (
-    <Suspense fallback={<div className="p-12 text-center text-sm text-slate-400">Loading CSE Program Hub...</div>}>
+    <Suspense fallback={<div className="p-12 text-center text-sm text-slate-400">Loading Exam Subsidy Hub...</div>}>
       <CseContent />
     </Suspense>
   );

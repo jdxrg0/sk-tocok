@@ -1905,7 +1905,7 @@ function UnifiedPrintingContent() {
             <Lock className="w-4 h-4" />
           </span>
           <h2 className="text-base sm:text-xl font-extrabold text-slate-900 dark:text-slate-100 tracking-tight">
-            Student Login Required
+            Account Login Required
           </h2>
         </div>
         <p className="text-[11.5px] sm:text-xs text-slate-500 dark:text-slate-400">

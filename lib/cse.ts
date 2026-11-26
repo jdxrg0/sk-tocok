@@ -5,8 +5,7 @@ export type ExamCategory =
   | "Civil Service Exam (CSE)"
   | "LET / PRC Board Exam"
   | "PhilNITS Certification"
-  | "TESDA NC Assessment"
-  | "Other Licensure / Certification";
+  | "TESDA NC Assessment";
 
 export type ExamLevel = string;
 export type PayoutPreference = "Barangay Hall Cash Pickup" | "GCash";
@@ -156,18 +155,6 @@ export const EXAM_CATEGORY_OPTIONS: ReadonlyArray<{
     isFixedFee: false,
     minAge: 15,
     agencyHint: "TESDA Assessment Receipt & Admission Slip",
-  },
-  {
-    id: "Other Licensure / Certification",
-    shortLabel: "Other Exam",
-    levelLabel: "Specific Exam / Qualification Title *",
-    defaultLevel: "",
-    levelOptions: [],
-    batchOptions: [],
-    defaultFee: 1000,
-    isFixedFee: false,
-    minAge: 15,
-    agencyHint: "Official Receipt (OR/e-OR) & Exam Permit",
   },
 ];
 

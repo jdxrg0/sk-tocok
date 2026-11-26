@@ -43,8 +43,8 @@ const SERVICES = [
   },
   {
     href: "/cse",
-    title: "CSE Subsidy",
-    description: "Civil Service exam subsidy grant",
+    title: "Exam Subsidy",
+    description: "CSE, LET, PhilNITS & TESDA",
     icon: GraduationCap,
     circleClass:
       "bg-amber-500 shadow-amber-500/20 ring-amber-100 dark:ring-amber-950/70",
