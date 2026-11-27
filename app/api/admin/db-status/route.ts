@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
-import { getCurrentUser, isOfficialUser } from "@/lib/auth";
+import { getCurrentUser, isSuperAdminUser } from "@/lib/auth";
 import { ensureStoredFilesTable } from "@/lib/storage";
 import { ensureAttendanceTables } from "@/lib/attendance";
 
@@ -57,8 +57,8 @@ export async function GET() {
     if (!user) {
       return NextResponse.json({ error: "Unauthorized access" }, { status: 401 });
     }
-    if (!isOfficialUser(user)) {
-      return NextResponse.json({ error: "Forbidden: SK Officials only" }, { status: 403 });
+    if (!isSuperAdminUser(user)) {
+      return NextResponse.json({ error: "Forbidden: SK Chairperson privileges required" }, { status: 403 });
     }
 
     await Promise.all([ensureStoredFilesTable(), ensureAttendanceTables()]);

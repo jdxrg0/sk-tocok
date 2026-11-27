@@ -11,16 +11,20 @@ import { sanitizeText } from "@/lib/validation";
 export const dynamic = "force-dynamic";
 
 function isApplicationOwnerOrOfficial(
-  user: { id: number; email: string; role: string } | null,
+  user: { id: number; email: string; role: string; email_verified?: boolean } | null,
   row: { user_id?: number | null; user_email?: string | null; email?: string | null }
 ): boolean {
   if (!user) return false;
   if (isOfficialUser(user)) return true;
-  if (row.user_id !== null && row.user_id !== undefined && Number(row.user_id) === user.id) {
-    return true;
+  if (row.user_id !== null && row.user_id !== undefined) {
+    return Number(row.user_id) === user.id;
   }
   const normalizedUserEmail = user.email.trim().toLowerCase();
-  if (row.user_email && String(row.user_email).trim().toLowerCase() === normalizedUserEmail) {
+  if (
+    user.email_verified &&
+    row.user_email &&
+    String(row.user_email).trim().toLowerCase() === normalizedUserEmail
+  ) {
     return true;
   }
   return false;
@@ -172,7 +176,7 @@ export async function PATCH(
     const cleanCode = sanitizeText(code, 40).toUpperCase();
 
     const existingRows = await sql`
-      SELECT id, tracking_code, birthdate, contact_number, exam_date, attendance_status, exam_result_status, reimbursement_status, result_verified_at, user_id, user_email
+      SELECT id, tracking_code, birthdate, contact_number, exam_category, exam_date, attendance_status, exam_result_status, reimbursement_status, result_verified_at, user_id, user_email
       FROM cse_applications
       WHERE UPPER(tracking_code) = ${cleanCode}
       LIMIT 1
@@ -190,6 +194,7 @@ export async function PATCH(
       tracking_code: string;
       birthdate: string;
       contact_number: string;
+      exam_category?: string | null;
       exam_date: string;
       attendance_status: string;
       exam_result_status: string;
@@ -221,7 +226,7 @@ export async function PATCH(
       );
     }
 
-    const examGate = getExamCycleGate(app.exam_date);
+    const examGate = getExamCycleGate(app.exam_date, new Date(), app.exam_category);
     const formData = await request.formData();
     const action = sanitizeText(formData.get("action"), 40);
 

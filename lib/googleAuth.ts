@@ -6,8 +6,10 @@ import {
   COOKIE_NAME,
   ensureUserAppearanceColumns,
   isOfficialUser,
+  isRequestSecure,
   getAuthCookieOptions,
 } from "@/lib/auth";
+import { attachFreshCsrfCookie } from "@/lib/csrf";
 
 export interface VerifiedGoogleProfile {
   email: string;
@@ -187,7 +189,8 @@ export async function upsertGoogleStudentUser(
 
   const existing = await sql`
     SELECT id, name, email, role, avatar_url, auth_provider, password_hash,
-           theme_preference, accent_preference, COALESCE(token_version, 1) AS token_version
+           theme_preference, accent_preference, COALESCE(token_version, 1) AS token_version,
+           COALESCE(email_verified, FALSE) AS email_verified
     FROM users WHERE LOWER(email) = LOWER(${profile.email})
   `;
 
@@ -197,6 +200,7 @@ export async function upsertGoogleStudentUser(
     const found = existing[0] as AuthenticatedStudentUser & {
       auth_provider?: string | null;
       password_hash?: string | null;
+      email_verified?: boolean;
     };
 
     // Never allow Google sign-in to hijack SK Official accounts
@@ -208,20 +212,41 @@ export async function upsertGoogleStudentUser(
       throw err;
     }
 
-    const updated = await sql`
-      UPDATE users
-      SET avatar_url    = COALESCE(${profile.avatarUrl || null}, avatar_url),
-          google_id     = COALESCE(${profile.googleId || null}, google_id),
-          auth_provider = COALESCE(auth_provider, 'google')
-      WHERE id = ${found.id}
-      RETURNING id, name, email, role, avatar_url, theme_preference, accent_preference,
-                COALESCE(token_version, 1) AS token_version
-    `;
+    // Prevent pre-hijacking: if an attacker squatted on an unverified email/password row before
+    // the legitimate Google user signed in, wipe password credentials and increment token_version.
+    const isUnverifiedPasswordSquat =
+      !found.email_verified && found.auth_provider !== "google";
+
+    const updated = isUnverifiedPasswordSquat
+      ? await sql`
+          UPDATE users
+          SET name           = ${profile.name},
+              password_hash  = '',
+              auth_provider  = 'google',
+              email_verified = TRUE,
+              must_change_password = FALSE,
+              token_version  = COALESCE(token_version, 1) + 1,
+              avatar_url     = COALESCE(${profile.avatarUrl || null}, avatar_url),
+              google_id      = ${profile.googleId || null}
+          WHERE id = ${found.id}
+          RETURNING id, name, email, role, avatar_url, theme_preference, accent_preference,
+                    COALESCE(token_version, 1) AS token_version
+        `
+      : await sql`
+          UPDATE users
+          SET avatar_url     = COALESCE(${profile.avatarUrl || null}, avatar_url),
+              google_id      = COALESCE(${profile.googleId || null}, google_id),
+              email_verified = TRUE,
+              auth_provider  = COALESCE(auth_provider, 'google')
+          WHERE id = ${found.id}
+          RETURNING id, name, email, role, avatar_url, theme_preference, accent_preference,
+                    COALESCE(token_version, 1) AS token_version
+        `;
     user = (updated[0] as AuthenticatedStudentUser) || found;
   } else {
     const inserted = await sql`
-      INSERT INTO users (name, email, password_hash, role, auth_provider, avatar_url, google_id)
-      VALUES (${profile.name}, ${profile.email}, '', 'Student', 'google', ${profile.avatarUrl || null}, ${profile.googleId || null})
+      INSERT INTO users (name, email, password_hash, role, auth_provider, avatar_url, google_id, email_verified)
+      VALUES (${profile.name}, ${profile.email}, '', 'Student', 'google', ${profile.avatarUrl || null}, ${profile.googleId || null}, TRUE)
       RETURNING id, name, email, role, avatar_url, theme_preference, accent_preference,
                 COALESCE(token_version, 1) AS token_version
     `;
@@ -240,9 +265,14 @@ export async function upsertGoogleStudentUser(
   return { user, token };
 }
 
-export function attachAuthCookie(response: NextResponse, token: string, request?: Request): void {
+export async function attachAuthCookie(
+  response: NextResponse,
+  token: string,
+  request?: Request
+): Promise<void> {
   response.cookies.set({
     ...getAuthCookieOptions(request),
     value: token,
   });
+  await attachFreshCsrfCookie(response, isRequestSecure(request));
 }

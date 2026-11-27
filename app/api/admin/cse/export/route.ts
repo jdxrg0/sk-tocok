@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
-import { getCurrentOfficial } from "@/lib/auth";
+import { getCurrentUser, isTreasuryUser } from "@/lib/auth";
 import { ensureCseTable } from "@/lib/cse";
 import { logSecurityEvent } from "@/lib/securityLogger";
 
@@ -11,9 +11,15 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(request: Request) {
   try {
-    const official = await getCurrentOfficial(request);
+    const official = await getCurrentUser(request);
     if (!official) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    }
+    if (!isTreasuryUser(official)) {
+      return NextResponse.json(
+        { error: "Forbidden: SK Chairperson or SK Treasurer privileges required." },
+        { status: 403 }
+      );
     }
 
     await logSecurityEvent({
@@ -91,7 +97,7 @@ export async function GET(request: Request) {
     const escapeCsv = (val: unknown) => {
       if (val === null || val === undefined) return '""';
       const raw = String(val);
-      const neutralized = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw;
+      const neutralized = /^[\s\r\n]*[=+\-@]|^[\t\r\n]/.test(raw) ? `'${raw}` : raw;
       const str = neutralized.replace(/"/g, '""');
       return `"${str}"`;
     };

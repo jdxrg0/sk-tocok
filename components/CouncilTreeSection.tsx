@@ -23,9 +23,10 @@ import {
   ShieldCheck,
   UserCheck,
 } from "lucide-react";
-import { useAuth, isOfficialRole } from "@/components/AuthProvider";
+import { useAuth, isSuperAdminRole } from "@/components/AuthProvider";
 import OfficialModal, { type OfficialModalData } from "@/components/OfficialModal";
 import { useRouter } from "next/navigation";
+import { sanitizeEmailHref, sanitizePhoneHref } from "@/lib/clientUrlSafety";
 
 export interface OfficialSummary {
   id?: number;
@@ -383,7 +384,7 @@ export default function CouncilTreeSection({
   councilors,
 }: CouncilTreeSectionProps) {
   const { user } = useAuth();
-  const canManage = Boolean(user && isOfficialRole(user.role));
+  const canManage = Boolean(user && isSuperAdminRole(user.role));
   const router = useRouter();
 
   // Local state for instant reflection of edits/adds/deletions
@@ -869,7 +870,7 @@ export default function CouncilTreeSection({
                 {selectedOfficial.contact_number && (
                   <div className="flex items-center justify-between py-2.5 gap-2">
                     <a
-                      href={`tel:${selectedOfficial.contact_number}`}
+                      href={sanitizePhoneHref(selectedOfficial.contact_number)}
                       className="flex items-center gap-2.5 font-mono text-slate-700 dark:text-slate-300 hover:text-brand-600 dark:hover:text-brand-400 transition-colors min-w-0 truncate"
                     >
                       <Phone className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 shrink-0" />
@@ -892,7 +893,7 @@ export default function CouncilTreeSection({
                       </button>
 
                       <a
-                        href={`tel:${selectedOfficial.contact_number}`}
+                        href={sanitizePhoneHref(selectedOfficial.contact_number)}
                         className="p-1.5 rounded-lg text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 transition-colors cursor-pointer"
                         title="Call mobile number"
                         aria-label="Call mobile number"
@@ -907,7 +908,7 @@ export default function CouncilTreeSection({
                 {selectedOfficial.email && (
                   <div className="flex items-center justify-between py-2.5 gap-2">
                     <a
-                      href={`mailto:${selectedOfficial.email}`}
+                      href={sanitizeEmailHref(selectedOfficial.email)}
                       className="flex items-center gap-2.5 text-slate-600 dark:text-slate-400 hover:text-brand-600 dark:hover:text-brand-400 transition-colors truncate min-w-0"
                     >
                       <Mail className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 shrink-0" />
@@ -930,7 +931,7 @@ export default function CouncilTreeSection({
                       </button>
 
                       <a
-                        href={`mailto:${selectedOfficial.email}`}
+                        href={sanitizeEmailHref(selectedOfficial.email)}
                         className="p-1.5 rounded-lg text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 hover:bg-brand-50 dark:hover:bg-brand-950/60 transition-colors cursor-pointer"
                         title="Send email"
                         aria-label="Send email"

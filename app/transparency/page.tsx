@@ -36,7 +36,7 @@ import { sanitizeSafeUrl } from "@/lib/clientUrlSafety";
 const ExpenseCharts = dynamic(() => import("@/components/ExpenseCharts"), { ssr: false });
 import SearchModal from "@/components/SearchModal";
 import { getExpenseBreakdown, type ExpenseLineItem } from "@/lib/expenseBreakdown";
-import { useAuth, isOfficialRole } from "@/components/AuthProvider";
+import { useAuth, isTreasuryRole } from "@/components/AuthProvider";
 import ExpenseModal, { type ExpenseModalData } from "@/components/ExpenseModal";
 import DepositModal, { type DepositModalData } from "@/components/DepositModal";
 import CategoryModal, { type CategoryModalData } from "@/components/CategoryModal";
@@ -470,7 +470,7 @@ function TransparencyContent() {
   const [tempSearch, setTempSearch] = useState<string>("");
 
   const { user } = useAuth();
-  const canManage = Boolean(user && isOfficialRole(user.role));
+  const canManage = Boolean(user && isTreasuryRole(user.role));
 
   const [categoriesList, setCategoriesList] = useState<CategoryModalData[]>([]);
 

@@ -4,6 +4,7 @@ import { getCurrentUser, isOfficialUser } from "@/lib/auth";
 import {
   ensureCseTable,
   generateCseTrackingCode,
+  isRecognizedExamSchedule,
   DEFAULT_ANNUAL_SLOTS,
   DEFAULT_ANNUAL_BUDGET,
   DEFAULT_REIMBURSEMENT_AMOUNT,
@@ -16,7 +17,7 @@ import {
   type ExamLevel,
   type PayoutPreference,
 } from "@/lib/cse";
-import { saveUploadedFile } from "@/lib/storage";
+import { saveUploadedFile, deleteStoredFileByUrl } from "@/lib/storage";
 import { validateUploadedFile } from "@/lib/fileValidation";
 import { checkRateLimit, rateLimitExceededResponse } from "@/lib/rateLimit";
 import { logSecurityEvent } from "@/lib/securityLogger";
@@ -158,6 +159,7 @@ export async function GET(request: Request) {
     }));
 
     const user = await getCurrentUser(request);
+    const isVerifiedLegacyOwner = Boolean(user?.email_verified);
     let myApplications: Record<string, unknown>[] = [];
     if (user) {
       myApplications = (await sql`
@@ -209,7 +211,7 @@ export async function GET(request: Request) {
           updated_at
         FROM cse_applications 
         WHERE user_id = ${user.id}
-           OR (user_id IS NULL AND user_email IS NOT NULL AND LOWER(user_email) = LOWER(${user.email}))
+           OR (${isVerifiedLegacyOwner} AND user_id IS NULL AND user_email IS NOT NULL AND LOWER(user_email) = LOWER(${user.email}))
         ORDER BY created_at DESC
       `) as Record<string, unknown>[];
     }
@@ -426,11 +428,26 @@ export async function POST(request: Request) {
 
     // Check program active & quota status
     const settingsRows = await sql`
-      SELECT key, value FROM settings WHERE key IN ('cse_program_active', 'cse_slot_quota')
+      SELECT key, value FROM settings WHERE key IN ('cse_program_active', 'cse_slot_quota', 'cse_target_exam_batch')
     `;
     const settingsMap = new Map<string, string>();
     for (const r of settingsRows as { key: string; value: string }[]) {
       settingsMap.set(r.key, r.value);
+    }
+
+    const configuredTargetBatch = settingsMap.get("cse_target_exam_batch")?.trim() || "";
+    const isAllowedBatch =
+      matchedCategory.batchOptions.includes(examDate) ||
+      (configuredTargetBatch !== "" && examDate === configuredTargetBatch) ||
+      isRecognizedExamSchedule(examDate, examCategory);
+    if (!isAllowedBatch) {
+      return NextResponse.json(
+        {
+          error:
+            "Please select a listed exam batch or provide a valid scheduled date (e.g., March 2027 CSE-PPT or YYYY-MM-DD).",
+        },
+        { status: 400 }
+      );
     }
 
     if (settingsMap.get("cse_program_active") === "false") {
@@ -443,13 +460,14 @@ export async function POST(request: Request) {
     const quotaSlots = parseInt(settingsMap.get("cse_slot_quota") || String(DEFAULT_ANNUAL_SLOTS), 10);
 
     // Enforce 3-year SK term cap: 1st-time attempt + hard limit of 1 retake (max 2 active slots per person)
+    const isVerifiedUserEmail = Boolean(currentUser.email_verified);
     const priorPersonApps = (await sql`
       SELECT id, tracking_code, exam_date, attendance_status, exam_result_status
       FROM cse_applications
       WHERE reimbursement_status != 'Disapproved'
         AND (
           user_id = ${currentUser.id}
-          OR (user_email IS NOT NULL AND LOWER(user_email) = LOWER(${currentUser.email}))
+          OR (${isVerifiedUserEmail} AND user_email IS NOT NULL AND LOWER(user_email) = LOWER(${currentUser.email}))
           OR (LOWER(TRIM(full_name)) = LOWER(TRIM(${fullName})) AND birthdate = ${birthdate})
         )
       ORDER BY created_at DESC
@@ -545,85 +563,96 @@ export async function POST(request: Request) {
         : Promise.resolve(null),
     ]);
 
-    // Generate unique tracking code
-    let trackingCode = generateCseTrackingCode();
-    // Check for collision just in case
-    for (let attempts = 0; attempts < 5; attempts++) {
-      const existing = await sql`SELECT id FROM cse_applications WHERE tracking_code = ${trackingCode}`;
-      if (existing.length === 0) break;
-      trackingCode = generateCseTrackingCode();
+    // Generate unique tracking code & persist application (clean up uploaded files on failure)
+    let inserted: Array<{ id: number; tracking_code: string }>;
+    try {
+      let trackingCode = generateCseTrackingCode();
+      // Check for collision just in case
+      for (let attempts = 0; attempts < 5; attempts++) {
+        const existing = await sql`SELECT id FROM cse_applications WHERE tracking_code = ${trackingCode}`;
+        if (existing.length === 0) break;
+        trackingCode = generateCseTrackingCode();
+      }
+
+      const isWaitlisted = approvedCount >= quotaSlots;
+      const initialStatus = isWaitlisted ? "Pending Review" : "Pending Review";
+      const initialNote = isWaitlisted
+        ? "Submitted under waitlist (quota reached); pending council review."
+        : null;
+
+      const applicantEmail = email || currentUser.email;
+
+      inserted = (await sql`
+        INSERT INTO cse_applications (
+          tracking_code,
+          full_name,
+          contact_number,
+          email,
+          facebook_name,
+          purok,
+          birthdate,
+          age,
+          school_or_employment,
+          exam_category,
+          exam_level,
+          exam_date,
+          exam_fee_paid,
+          is_first_time,
+          prior_sitting_proof_url,
+          peer_review_attended,
+          payout_preference,
+          gcash_number,
+          gcash_account_name,
+          valid_id_url,
+          csc_receipt_url,
+          csc_receipt_no,
+          exam_schedule_proof_url,
+          reimbursement_status,
+          reimbursement_amount,
+          admin_notes,
+          user_id,
+          user_email
+        ) VALUES (
+          ${trackingCode},
+          ${fullName},
+          ${contactNumber},
+          ${applicantEmail},
+          ${facebookName},
+          ${purok},
+          ${birthdate},
+          ${age},
+          ${schoolOrEmployment},
+          ${examCategory},
+          ${examLevel},
+          ${examDate},
+          ${examFeePaid},
+          ${isFirstTime},
+          ${priorSittingSaved ? priorSittingSaved.filePath : null},
+          ${false},
+          ${payoutPreference},
+          ${gcashNumber},
+          ${gcashAccountName},
+          ${validIdSaved.filePath},
+          ${cscReceiptSaved.filePath},
+          ${cscReceiptNo},
+          ${examScheduleSaved.filePath},
+          ${initialStatus},
+          ${subsidyAmount},
+          ${initialNote},
+          ${currentUser.id},
+          ${currentUser.email}
+        )
+        RETURNING id, tracking_code
+      `) as Array<{ id: number; tracking_code: string }>;
+    } catch (dbErr) {
+      await Promise.all([
+        deleteStoredFileByUrl(validIdSaved.filePath),
+        deleteStoredFileByUrl(cscReceiptSaved.filePath),
+        deleteStoredFileByUrl(examScheduleSaved.filePath),
+        deleteStoredFileByUrl(priorSittingSaved?.filePath),
+      ]);
+      throw dbErr;
     }
-
-    const isWaitlisted = approvedCount >= quotaSlots;
-    const initialStatus = isWaitlisted ? "Pending Review" : "Pending Review";
-    const initialNote = isWaitlisted
-      ? "Submitted under waitlist (quota reached); pending council review."
-      : null;
-
-    const applicantEmail = email || currentUser.email;
-
-    const inserted = await sql`
-      INSERT INTO cse_applications (
-        tracking_code,
-        full_name,
-        contact_number,
-        email,
-        facebook_name,
-        purok,
-        birthdate,
-        age,
-        school_or_employment,
-        exam_category,
-        exam_level,
-        exam_date,
-        exam_fee_paid,
-        is_first_time,
-        prior_sitting_proof_url,
-        peer_review_attended,
-        payout_preference,
-        gcash_number,
-        gcash_account_name,
-        valid_id_url,
-        csc_receipt_url,
-        csc_receipt_no,
-        exam_schedule_proof_url,
-        reimbursement_status,
-        reimbursement_amount,
-        admin_notes,
-        user_id,
-        user_email
-      ) VALUES (
-        ${trackingCode},
-        ${fullName},
-        ${contactNumber},
-        ${applicantEmail},
-        ${facebookName},
-        ${purok},
-        ${birthdate},
-        ${age},
-        ${schoolOrEmployment},
-        ${examCategory},
-        ${examLevel},
-        ${examDate},
-        ${examFeePaid},
-        ${isFirstTime},
-        ${priorSittingSaved ? priorSittingSaved.filePath : null},
-        ${false},
-        ${payoutPreference},
-        ${gcashNumber},
-        ${gcashAccountName},
-        ${validIdSaved.filePath},
-        ${cscReceiptSaved.filePath},
-        ${cscReceiptNo},
-        ${examScheduleSaved.filePath},
-        ${initialStatus},
-        ${subsidyAmount},
-        ${initialNote},
-        ${currentUser.id},
-        ${currentUser.email}
-      )
-      RETURNING id, tracking_code
-    `;
 
     return NextResponse.json({
       success: true,

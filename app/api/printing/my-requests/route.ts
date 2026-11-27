@@ -10,6 +10,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ authenticated: false, jobs: [] }, { status: 401 });
     }
 
+    const isVerifiedLegacyOwner = Boolean(user.email_verified);
     const jobs = await sql`
       SELECT
         id, tracking_code, student_name, school, grade_level, purok,
@@ -18,7 +19,7 @@ export async function GET(request: Request) {
         picked_up_at, created_at, updated_at
       FROM print_requests
       WHERE user_id = ${user.id}
-         OR (user_id IS NULL AND LOWER(user_email) = LOWER(${user.email}))
+         OR (${isVerifiedLegacyOwner} AND user_id IS NULL AND LOWER(user_email) = LOWER(${user.email}))
       ORDER BY id DESC
     `;
 

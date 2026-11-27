@@ -53,6 +53,7 @@ export async function GET(request: Request) {
         bucket: "attendance_search",
         max: 60,
         windowMs: 60 * 1000,
+        persistToDb: true,
       });
       if (!searchLimit.allowed) {
         return rateLimitExceededResponse(searchLimit.retryAfterSeconds);

@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { sql } from "@/lib/db";
-import { getCurrentUser, isOfficialUser } from "@/lib/auth";
+import { getCurrentUser, isSuperAdminUser } from "@/lib/auth";
 import { deleteStoredFileByUrl } from "@/lib/storage";
 import {
   isValidEmail,
   OFFICIAL_ROLES,
+  parsePositiveIntId,
   sanitizeText,
   validatePasswordStrength,
 } from "@/lib/validation";
@@ -24,8 +25,8 @@ export async function GET(request: Request) {
     if (!user) {
       return NextResponse.json({ error: "Unauthorized access" }, { status: 401 });
     }
-    if (!isOfficialUser(user)) {
-      return NextResponse.json({ error: "Forbidden: SK Officials only" }, { status: 403 });
+    if (!isSuperAdminUser(user)) {
+      return NextResponse.json({ error: "Forbidden: SK Chairperson privileges required" }, { status: 403 });
     }
 
     const users = await sql`
@@ -48,8 +49,8 @@ export async function POST(request: Request) {
     if (!currentUser) {
       return NextResponse.json({ error: "Unauthorized access" }, { status: 401 });
     }
-    if (!isOfficialUser(currentUser)) {
-      return NextResponse.json({ error: "Forbidden: SK Officials only" }, { status: 403 });
+    if (!isSuperAdminUser(currentUser)) {
+      return NextResponse.json({ error: "Forbidden: SK Chairperson privileges required" }, { status: 403 });
     }
 
     const body = await request.json().catch(() => ({}));
@@ -121,12 +122,12 @@ export async function PUT(request: Request) {
     if (!currentUser) {
       return NextResponse.json({ error: "Unauthorized access" }, { status: 401 });
     }
-    if (!isOfficialUser(currentUser)) {
-      return NextResponse.json({ error: "Forbidden: SK Officials only" }, { status: 403 });
+    if (!isSuperAdminUser(currentUser)) {
+      return NextResponse.json({ error: "Forbidden: SK Chairperson privileges required" }, { status: 403 });
     }
 
     const body = await request.json().catch(() => ({}));
-    const id = Number(body?.id);
+    const id = parsePositiveIntId(body?.id);
     const cleanName = sanitizeText(body?.name, 100);
     const cleanEmail = sanitizeText(body?.email, 254).toLowerCase();
     const cleanRole = sanitizeText(body?.role, 80);
@@ -134,7 +135,7 @@ export async function PUT(request: Request) {
     const rawAvatar = typeof body?.avatar_url === "string" ? body.avatar_url.trim() : "";
     const password = typeof body?.password === "string" ? body.password : "";
 
-    if (!Number.isInteger(id) || id <= 0 || !cleanName || !cleanEmail || !cleanRole) {
+    if (!id || !cleanName || !cleanEmail || !cleanRole) {
       return NextResponse.json({ error: "ID, name, email, and role are required" }, { status: 400 });
     }
     if (!isValidEmail(cleanEmail)) {
@@ -221,13 +222,13 @@ export async function PATCH(request: Request) {
     if (!currentUser) {
       return NextResponse.json({ error: "Unauthorized access" }, { status: 401 });
     }
-    if (!isOfficialUser(currentUser)) {
-      return NextResponse.json({ error: "Forbidden: SK Officials only" }, { status: 403 });
+    if (!isSuperAdminUser(currentUser)) {
+      return NextResponse.json({ error: "Forbidden: SK Chairperson privileges required" }, { status: 403 });
     }
 
     const body = await request.json().catch(() => ({}));
-    const id = Number(body?.id);
-    if (!Number.isInteger(id) || id <= 0) {
+    const id = parsePositiveIntId(body?.id);
+    if (!id) {
       return NextResponse.json({ error: "Valid user ID is required" }, { status: 400 });
     }
 
@@ -245,20 +246,57 @@ export async function PATCH(request: Request) {
     const origin = getTrustedSiteOrigin(request);
     const resetUrl = `${origin}/reset-password?token=${encodeURIComponent(rawToken)}`;
 
+    let emailed = false;
+    const resendKey = process.env.RESEND_API_KEY?.trim();
+    if (resendKey) {
+      const fromEmail =
+        process.env.EMAIL_FROM?.trim() || "SK Tocok Portal <onboarding@resend.dev>";
+      try {
+        const mailRes = await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${resendKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            from: fromEmail,
+            to: [target.email],
+            subject: "SK Tocok Portal - Password Reset (Expires in 15 minutes)",
+            text: [
+              `Hello ${target.name},`,
+              "",
+              "An SK Chairperson issued a password reset link for your SK Barangay Tocok Transparency Portal account.",
+              `Open this link within ${RESET_TOKEN_TTL_MINUTES} minutes to set a new password:`,
+              resetUrl,
+              "",
+              "This link can only be used once.",
+            ].join("\n"),
+          }),
+        });
+        emailed = mailRes.ok;
+      } catch {
+        emailed = false;
+      }
+    }
+
     await logSecurityEvent({
       eventType: "ADMIN_ISSUED_PASSWORD_RESET",
       severity: "info",
       request,
       userId: currentUser.id,
       email: currentUser.email,
-      details: { targetUserId: target.id, expiresAt },
+      details: { targetUserId: target.id, expiresAt, emailed },
     });
 
     return NextResponse.json({
       success: true,
-      resetUrl,
+      emailed,
+      ...(emailed ? {} : { resetUrl }),
       expiresAt,
       expiresInMinutes: RESET_TOKEN_TTL_MINUTES,
+      message: emailed
+        ? "Password reset link emailed to the user."
+        : "No mailer configured — share this temporary 15-minute link securely with the user.",
     });
   } catch (error) {
     console.error("Generate reset link error:", error);
@@ -272,13 +310,13 @@ export async function DELETE(request: Request) {
     if (!currentUser) {
       return NextResponse.json({ error: "Unauthorized access" }, { status: 401 });
     }
-    if (!isOfficialUser(currentUser)) {
-      return NextResponse.json({ error: "Forbidden: SK Officials only" }, { status: 403 });
+    if (!isSuperAdminUser(currentUser)) {
+      return NextResponse.json({ error: "Forbidden: SK Chairperson privileges required" }, { status: 403 });
     }
 
     const body = await request.json().catch(() => ({}));
-    const id = Number(body?.id);
-    if (!Number.isInteger(id) || id <= 0) {
+    const id = parsePositiveIntId(body?.id);
+    if (!id) {
       return NextResponse.json({ error: "Official ID is required" }, { status: 400 });
     }
     if (currentUser.id === id) {

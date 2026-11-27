@@ -83,7 +83,7 @@ export async function POST(request: Request) {
       },
     });
 
-    attachAuthCookie(response, token, request);
+    await attachAuthCookie(response, token, request);
     return response;
   } catch (error: unknown) {
     console.error("Google auth error:", error);

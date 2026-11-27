@@ -76,7 +76,8 @@ export function extractClientIp(request?: Request): string {
     if (forwarded) {
       const parts = forwarded.split(",").map((p) => sanitizeIpToken(p)).filter(Boolean);
       if (parts.length > 0) {
-        return parts[0]!;
+        // Use the rightmost proxy-appended hop rather than client-spoofable leftmost entries
+        return parts[parts.length - 1]!;
       }
     }
   }

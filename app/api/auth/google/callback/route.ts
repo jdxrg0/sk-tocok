@@ -153,7 +153,7 @@ export async function GET(request: Request) {
 
     const response = NextResponse.redirect(new URL(returnTo, origin));
     response.cookies.delete(GOOGLE_OAUTH_STATE_COOKIE);
-    attachAuthCookie(response, token, request);
+    await attachAuthCookie(response, token, request);
     return response;
   } catch (error: unknown) {
     console.error("Google OAuth callback error:", error);

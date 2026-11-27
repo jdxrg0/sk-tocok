@@ -7,7 +7,10 @@ import {
   getAuthCookieOptions,
   ensureUserAppearanceColumns,
   isOfficialUser,
+  isRequestSecure,
 } from "@/lib/auth";
+import { attachFreshCsrfCookie } from "@/lib/csrf";
+import { isEmailVerificationEnforced } from "@/lib/emailVerification";
 import { checkRateLimit, rateLimitExceededResponse } from "@/lib/rateLimit";
 import { logSecurityEvent } from "@/lib/securityLogger";
 import { isValidEmail, sanitizeText } from "@/lib/validation";
@@ -67,7 +70,8 @@ export async function POST(request: Request) {
       SELECT id, name, email, password_hash, role, contact_number, avatar_url,
              auth_provider, theme_preference, accent_preference,
              COALESCE(token_version, 1) AS token_version,
-             COALESCE(must_change_password, FALSE) AS must_change_password
+             COALESCE(must_change_password, FALSE) AS must_change_password,
+             COALESCE(email_verified, FALSE) AS email_verified
       FROM users
       WHERE LOWER(email) = LOWER(${rawEmail})
       LIMIT 1
@@ -87,6 +91,7 @@ export async function POST(request: Request) {
           accent_preference?: string | null;
           token_version?: number;
           must_change_password?: boolean;
+          email_verified?: boolean;
         }
       | undefined;
 
@@ -118,6 +123,29 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: "Invalid email or password" },
         { status: 401 }
+      );
+    }
+
+    if (
+      !isOfficialUser(user) &&
+      !user.email_verified &&
+      isEmailVerificationEnforced()
+    ) {
+      await logSecurityEvent({
+        eventType: "LOGIN_BLOCKED_UNVERIFIED_EMAIL",
+        severity: "info",
+        request,
+        userId: user.id,
+        email: user.email,
+      });
+      return NextResponse.json(
+        {
+          error:
+            "Please verify your email address before signing in. Check your inbox or request a fresh verification link.",
+          requiresVerification: true,
+          email: user.email,
+        },
+        { status: 403 }
       );
     }
 
@@ -169,6 +197,7 @@ export async function POST(request: Request) {
         avatar_url: user.avatar_url,
         theme_preference: user.theme_preference ?? null,
         accent_preference: user.accent_preference ?? null,
+        email_verified: Boolean(user.email_verified),
       },
     });
 
@@ -176,6 +205,7 @@ export async function POST(request: Request) {
       ...getAuthCookieOptions(request),
       value: token,
     });
+    await attachFreshCsrfCookie(response, isRequestSecure(request));
 
     return response;
   } catch (error) {

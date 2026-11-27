@@ -4,6 +4,7 @@ import { uploadToCloudStorage } from "@/lib/googleDrive";
 import { sql } from "@/lib/db";
 import { validateUploadedFile } from "@/lib/fileValidation";
 import { logSecurityEvent } from "@/lib/securityLogger";
+import { parsePositiveIntId } from "@/lib/validation";
 import sharp from "sharp";
 
 export const dynamic = "force-dynamic";
@@ -98,11 +99,11 @@ export async function POST(request: Request) {
 
     // Optional direct attachment to existing session
     const sessionIdRaw = formData.get("sessionId");
-    const sessionId = sessionIdRaw ? parseInt(String(sessionIdRaw), 10) : null;
+    const sessionId = sessionIdRaw ? parsePositiveIntId(String(sessionIdRaw)) : null;
 
     let updatedProofPhotos: string[] = newUrls;
 
-    if (sessionId && !Number.isNaN(sessionId)) {
+    if (sessionId) {
       const existing = await sql`
         SELECT proof_photos FROM attendance_sessions WHERE id = ${sessionId}
       `;

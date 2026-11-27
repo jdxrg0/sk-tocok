@@ -1,5 +1,6 @@
 import * as webpush from "web-push";
 import { sql } from "@/lib/db";
+import { ALLOWED_PUSH_HOSTS, validatePublicExternalUrl } from "@/lib/urlSafety";
 
 // Ensure VAPID keys are configured
 const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
@@ -57,14 +58,7 @@ export async function sendPushNotificationToUser(
   let subs: PushSubscriptionRow[] = [];
 
   try {
-    if (userId && userEmail) {
-      const rows = await sql`
-        SELECT id, endpoint, p256dh, auth
-        FROM push_subscriptions
-        WHERE user_id = ${userId} OR user_email = ${userEmail}
-      `;
-      subs = rows as PushSubscriptionRow[];
-    } else if (userId) {
+    if (userId) {
       const rows = await sql`
         SELECT id, endpoint, p256dh, auth
         FROM push_subscriptions
@@ -73,9 +67,11 @@ export async function sendPushNotificationToUser(
       subs = rows as PushSubscriptionRow[];
     } else if (userEmail) {
       const rows = await sql`
-        SELECT id, endpoint, p256dh, auth
-        FROM push_subscriptions
-        WHERE user_email = ${userEmail}
+        SELECT ps.id, ps.endpoint, ps.p256dh, ps.auth
+        FROM push_subscriptions ps
+        JOIN users u ON u.id = ps.user_id
+        WHERE LOWER(ps.user_email) = LOWER(${userEmail})
+          AND COALESCE(u.email_verified, FALSE) = TRUE
       `;
       subs = rows as PushSubscriptionRow[];
     }
@@ -104,6 +100,17 @@ export async function sendPushNotificationToUser(
 
   await Promise.allSettled(
     subs.map(async (sub) => {
+      try {
+        await validatePublicExternalUrl(sub.endpoint, {
+          requireHttps: true,
+          allowedHosts: ALLOWED_PUSH_HOSTS,
+        });
+      } catch {
+        failureCount++;
+        expiredIds.push(sub.id);
+        return;
+      }
+
       const pushConfig = {
         endpoint: sub.endpoint,
         keys: {

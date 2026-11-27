@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
-import { getCurrentUser, isOfficialUser } from "@/lib/auth";
+import { getCurrentUser, isOfficialUser, isSuperAdminUser } from "@/lib/auth";
 import { invalidateAllTransparencyCache } from "@/lib/transparencyCache";
 import { logSecurityEvent } from "@/lib/securityLogger";
 import { ALLOWED_SETTINGS_KEYS, PUBLIC_SETTINGS_KEYS, sanitizeText } from "@/lib/validation";
@@ -45,8 +45,8 @@ export async function POST(request: Request) {
     if (!user) {
       return NextResponse.json({ error: "Unauthorized access" }, { status: 401 });
     }
-    if (!isOfficialUser(user)) {
-      return NextResponse.json({ error: "Forbidden: SK Officials only" }, { status: 403 });
+    if (!isSuperAdminUser(user)) {
+      return NextResponse.json({ error: "Forbidden: SK Chairperson privileges required" }, { status: 403 });
     }
 
     const body = await request.json().catch(() => null);

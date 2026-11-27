@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { sql } from "@/lib/db";
 
 export const MESSAGE_CATEGORIES = [
   "Suggestion",
@@ -143,9 +144,9 @@ const ALIAS_NOUNS = [
  */
 export function generateRandomAlias(): string {
   const adj =
-    ALIAS_ADJECTIVES[Math.floor(Math.random() * ALIAS_ADJECTIVES.length)];
-  const noun = ALIAS_NOUNS[Math.floor(Math.random() * ALIAS_NOUNS.length)];
-  const num = Math.floor(100 + Math.random() * 900);
+    ALIAS_ADJECTIVES[crypto.randomInt(0, ALIAS_ADJECTIVES.length)];
+  const noun = ALIAS_NOUNS[crypto.randomInt(0, ALIAS_NOUNS.length)];
+  const num = crypto.randomInt(100, 1000);
   return `${adj} ${noun} #${num}`;
 }
 
@@ -239,6 +240,33 @@ export function formatTimeAgo(dateString: string): string {
   }
 }
 
-export async function ensureMessagesTable(): Promise<void> {
-  // Table schema and indexes are initialized by init-db.mjs
+let messagesLikesTablesPromise: Promise<void> | null = null;
+
+export function ensureMessagesTable(): Promise<void> {
+  if (!messagesLikesTablesPromise) {
+    messagesLikesTablesPromise = (async () => {
+      try {
+        await sql`
+          CREATE TABLE IF NOT EXISTS anonymous_message_likes (
+            message_id INTEGER NOT NULL REFERENCES anonymous_messages(id) ON DELETE CASCADE,
+            device_id  VARCHAR(100) NOT NULL,
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            PRIMARY KEY (message_id, device_id)
+          )
+        `;
+        await sql`
+          CREATE TABLE IF NOT EXISTS anonymous_reply_likes (
+            reply_id   INTEGER NOT NULL REFERENCES anonymous_message_replies(id) ON DELETE CASCADE,
+            device_id  VARCHAR(100) NOT NULL,
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            PRIMARY KEY (reply_id, device_id)
+          )
+        `;
+      } catch (err) {
+        messagesLikesTablesPromise = null;
+        console.error("Failed to ensure message like deduplication tables:", err);
+      }
+    })();
+  }
+  return messagesLikesTablesPromise;
 }

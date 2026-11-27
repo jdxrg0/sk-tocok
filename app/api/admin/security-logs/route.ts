@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getCurrentUser, isOfficialUser } from "@/lib/auth";
+import { getCurrentUser, isSuperAdminUser } from "@/lib/auth";
 import { sql } from "@/lib/db";
 import { auditEnvironmentConfig } from "@/lib/env";
 import { ensureSecurityTables } from "@/lib/securityLogger";
@@ -10,9 +10,9 @@ export async function GET(request: Request) {
     if (!currentUser) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    if (!isOfficialUser(currentUser)) {
+    if (!isSuperAdminUser(currentUser)) {
       return NextResponse.json(
-        { error: "Forbidden: SK Official access required" },
+        { error: "Forbidden: SK Chairperson privileges required" },
         { status: 403 }
       );
     }

@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { sql, query } from "@/lib/db";
 import { getCurrentUser, isOfficialUser } from "@/lib/auth";
 import { sendPushNotificationToUser } from "@/lib/webPush";
-import { PRINT_STATUSES, sanitizeText } from "@/lib/validation";
+import { PRINT_STATUSES, parsePositiveIntId, sanitizeText } from "@/lib/validation";
 
 export async function GET(request: Request) {
   try {
@@ -36,8 +36,20 @@ export async function GET(request: Request) {
       paramIdx += 5;
     }
 
+    const rawLimit = parseInt(searchParams.get("limit") || "500", 10);
+    const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 1000) : 500;
+    params.push(limit);
+
     const jobs = await query(
-      `SELECT * FROM print_requests WHERE ${conditions.join(" AND ")} ORDER BY created_at DESC`,
+      `SELECT
+        id, tracking_code, student_name, contact_number, facebook_name, purok,
+        school, grade_level, file_name, file_path, file_size, print_type,
+        paper_size, copies, page_range, notes, pickup_station, is_urgent,
+        status, admin_notes, picked_up_at, user_id, user_email, created_at, updated_at
+       FROM print_requests
+       WHERE ${conditions.join(" AND ")}
+       ORDER BY created_at DESC
+       LIMIT $${paramIdx}`,
       params
     );
 
@@ -86,12 +98,12 @@ export async function PATCH(request: Request) {
     }
 
     const body = await request.json().catch(() => ({}));
-    const id = Number(body?.id);
+    const id = parsePositiveIntId(body?.id);
     const status = sanitizeText(body?.status, 50);
     const admin_notes =
       body?.admin_notes !== undefined ? sanitizeText(body.admin_notes, 1000) : undefined;
 
-    if (!Number.isInteger(id) || id <= 0 || !status) {
+    if (!id || !status) {
       return NextResponse.json({ error: "Valid Job ID and status are required" }, { status: 400 });
     }
 

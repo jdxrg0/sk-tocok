@@ -143,7 +143,7 @@ export async function attachDeviceCookie(
   const signed = await signHmacToken(deviceId, getJwtSecret());
   response.cookies.set(DEVICE_SESSION_COOKIE, signed, {
     path: "/",
-    maxAge: 60 * 60 * 24 * 365 * 5,
+    maxAge: 60 * 60 * 24 * 365,
     httpOnly: true,
     sameSite: "lax",
     secure: isRequestSecure(request),

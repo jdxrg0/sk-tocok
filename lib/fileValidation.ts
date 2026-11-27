@@ -285,9 +285,21 @@ export async function validateUploadedFile(
     };
   }
 
-  const headerSlice = file.slice(0, 8192);
-  const headerBuffer = Buffer.from(await headerSlice.arrayBuffer());
-  const detectedMime = sniffMagicBytes(headerBuffer, ext);
+  const scanBuffer =
+    ext === ".txt"
+      ? Buffer.from(await file.arrayBuffer())
+      : Buffer.from(await file.slice(0, 8192).arrayBuffer());
+  const detectedMime =
+    ext === ".txt"
+      ? (() => {
+          if (scanBuffer.includes(0x00)) return null;
+          const fullText = scanBuffer.toString("utf8").toLowerCase();
+          if (/<script[\s>]|<iframe[\s>]|<svg[\s>]|javascript:/i.test(fullText)) {
+            return "DANGEROUS_MARKUP";
+          }
+          return "text/plain";
+        })()
+      : sniffMagicBytes(scanBuffer, ext);
 
   if (detectedMime === "DANGEROUS_MARKUP") {
     return {

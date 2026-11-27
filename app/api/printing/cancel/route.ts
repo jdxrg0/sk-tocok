@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { sql, query } from "@/lib/db";
 import { getCurrentUser, isOfficialUser } from "@/lib/auth";
 import { logSecurityEvent } from "@/lib/securityLogger";
+import { parsePositiveIntId } from "@/lib/validation";
 
 export async function POST(request: Request) {
   try {
@@ -24,11 +25,10 @@ export async function POST(request: Request) {
     const cleanNumber = trackingCode.replace(/^[#\s]+/, "").replace(/^(ticket|no\.?)\s*/i, "").trim();
     const withoutHyphen = cleanNumber.replace(/[\s-]+/g, "");
     const skPrefixed = `SK${cleanNumber}`;
-    const num = parseInt(cleanNumber, 10);
-    const isNum = !isNaN(num) && String(num) === cleanNumber;
+    const num = parsePositiveIntId(cleanNumber);
 
     let jobs: Record<string, unknown>[];
-    if (isNum) {
+    if (num) {
       jobs = await query<Record<string, unknown>>(
         `SELECT id, tracking_code, student_name, status, user_id, user_email, file_name 
          FROM print_requests 
@@ -58,11 +58,12 @@ export async function POST(request: Request) {
 
     const job = jobs[0];
 
-    // Check ownership strictly via authenticated user ID (or legacy unlinked matching email)
+    // Check ownership strictly via authenticated user ID (or verified legacy unlinked email)
     const isOfficial = isOfficialUser(currentUser);
     const isOwner = Boolean(
       (job.user_id && Number(job.user_id) === currentUser.id) ||
         (!job.user_id &&
+          currentUser.email_verified &&
           job.user_email &&
           String(job.user_email).toLowerCase() === currentUser.email.toLowerCase())
     );

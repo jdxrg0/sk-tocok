@@ -1,6 +1,16 @@
 import dns from "dns/promises";
 import net from "net";
 
+export const ALLOWED_PUSH_HOSTS = [
+  "fcm.googleapis.com",
+  "updates.push.services.mozilla.com",
+  "push.services.mozilla.com",
+  "notify.windows.com",
+  "wns.windows.com",
+  "web.push.apple.com",
+  "push.apple.com",
+] as const;
+
 /**
  * Sanitizes a URL before rendering it in <a href> or storing in DB.
  * Blocks javascript:, data:, vbscript:, file:, protocol-relative //, and control characters.

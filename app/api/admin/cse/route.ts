@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
-import { getCurrentOfficial } from "@/lib/auth";
+import { getCurrentOfficial, isTreasuryUser } from "@/lib/auth";
 import { DEFAULT_REIMBURSEMENT_AMOUNT, MAX_EXAM_SUBSIDY_CAP, ensureCseTable } from "@/lib/cse";
 import { logSecurityEvent } from "@/lib/securityLogger";
 import {
   CSE_ATTENDANCE_STATUSES,
   CSE_REIMBURSEMENT_STATUSES,
   CSE_RESULT_STATUSES,
+  parsePositiveIntId,
   sanitizeText,
 } from "@/lib/validation";
 
@@ -31,7 +32,10 @@ export async function GET(request: Request) {
     const resultStatus = searchParams.get("resultStatus");
     const purok = searchParams.get("purok");
 
-    // Fetch all for in-memory or DB filtering
+    const rawLimit = parseInt(searchParams.get("limit") || "500", 10);
+    const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 1000) : 500;
+
+    // Bounded query with multi-criteria search
     const rows = await sql`
       SELECT 
         id,
@@ -78,6 +82,7 @@ export async function GET(request: Request) {
         updated_at
       FROM cse_applications
       ORDER BY created_at DESC
+      LIMIT ${limit}
     `;
 
     // Filter in-memory for flexible multi-criteria search
@@ -142,18 +147,27 @@ export async function PATCH(request: Request) {
     }
 
     await ensureCseTable();
-    const body = await request.json();
-    const numericId = Number(body?.id);
+    const body = await request.json().catch(() => ({}));
+    const numericId = parsePositiveIntId(body?.id);
     const action = sanitizeText(body?.action, 50);
 
-    if (!Number.isInteger(numericId) || numericId <= 0 || !action) {
+    if (!numericId || !action) {
       return NextResponse.json({ error: "Valid Application ID and action are required." }, { status: 400 });
     }
 
     if (action === "update_status") {
+      if (!isTreasuryUser(official)) {
+        return NextResponse.json(
+          { error: "Forbidden: SK Chairperson or SK Treasurer privileges required for subsidy status changes." },
+          { status: 403 }
+        );
+      }
       const reimbursementStatus = sanitizeText(body?.reimbursementStatus, 60);
       const adminNotes = sanitizeText(body?.adminNotes, 1000) || null;
-      if (!CSE_REIMBURSEMENT_STATUSES.includes(reimbursementStatus as (typeof CSE_REIMBURSEMENT_STATUSES)[number])) {
+      if (
+        reimbursementStatus === "Reimbursed" ||
+        !CSE_REIMBURSEMENT_STATUSES.includes(reimbursementStatus as (typeof CSE_REIMBURSEMENT_STATUSES)[number])
+      ) {
         return NextResponse.json({ error: "Invalid reimbursement status." }, { status: 400 });
       }
       const updated = await sql`
@@ -172,6 +186,12 @@ export async function PATCH(request: Request) {
     }
 
     if (action === "record_reimbursement") {
+      if (!isTreasuryUser(official)) {
+        return NextResponse.json(
+          { error: "Forbidden: SK Chairperson or SK Treasurer privileges required to record payouts." },
+          { status: 403 }
+        );
+      }
       const voucherNo = sanitizeText(body?.voucherNo, 64);
       const payoutMethod = sanitizeText(body?.payoutMethod, 100) || "Barangay Hall";
       const adminNotes = sanitizeText(body?.adminNotes, 1000) || null;
@@ -336,11 +356,17 @@ export async function DELETE(request: Request) {
     if (!official) {
       return NextResponse.json({ error: "Unauthorized. SK Official access required." }, { status: 401 });
     }
+    if (!isTreasuryUser(official)) {
+      return NextResponse.json(
+        { error: "Forbidden: SK Chairperson or SK Treasurer privileges required." },
+        { status: 403 }
+      );
+    }
 
     const { searchParams } = new URL(request.url);
-    const id = parseInt(searchParams.get("id") || "", 10);
+    const id = parsePositiveIntId(searchParams.get("id"));
 
-    if (!Number.isInteger(id) || id <= 0) {
+    if (!id) {
       return NextResponse.json({ error: "Valid Application ID is required." }, { status: 400 });
     }
 

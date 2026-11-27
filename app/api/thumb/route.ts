@@ -24,6 +24,7 @@ export async function GET(request: Request) {
       bucket: "thumb_proxy",
       max: 60,
       windowMs: 60 * 1000,
+      persistToDb: true,
     });
     if (!limit.allowed) {
       return rateLimitExceededResponse(limit.retryAfterSeconds);

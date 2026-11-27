@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
-import { getCurrentUser, isOfficialUser } from "@/lib/auth";
+import { getCurrentUser, isTreasuryUser } from "@/lib/auth";
 import { deleteStoredFileByUrl } from "@/lib/storage";
 import { uploadToCloudStorage } from "@/lib/googleDrive";
 import { invalidateAllTransparencyCache } from "@/lib/transparencyCache";
@@ -16,7 +16,7 @@ export async function DELETE(
   try {
     const user = await getCurrentUser(request);
     if (!user) return NextResponse.json({ error: "Unauthorized access" }, { status: 401 });
-    if (!isOfficialUser(user)) return NextResponse.json({ error: "Forbidden: SK Officials only" }, { status: 403 });
+    if (!isTreasuryUser(user)) return NextResponse.json({ error: "Forbidden: SK Chairperson or SK Treasurer privileges required" }, { status: 403 });
 
     const { id } = await params;
     const depositId = parsePositiveIntId(id);
@@ -56,7 +56,7 @@ export async function PUT(
   try {
     const user = await getCurrentUser(request);
     if (!user) return NextResponse.json({ error: "Unauthorized access" }, { status: 401 });
-    if (!isOfficialUser(user)) return NextResponse.json({ error: "Forbidden: SK Officials only" }, { status: 403 });
+    if (!isTreasuryUser(user)) return NextResponse.json({ error: "Forbidden: SK Chairperson or SK Treasurer privileges required" }, { status: 403 });
 
     const { id } = await params;
     const depositId = parsePositiveIntId(id);

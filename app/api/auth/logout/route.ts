@@ -1,7 +1,13 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
-import { COOKIE_NAME, getAuthCookieOptions, getCurrentUser } from "@/lib/auth";
+import {
+  COOKIE_NAME,
+  getAuthCookieOptions,
+  getCurrentUser,
+  isRequestSecure,
+} from "@/lib/auth";
+import { attachFreshCsrfCookie } from "@/lib/csrf";
 
 export async function POST(request: Request) {
   try {
@@ -25,5 +31,6 @@ export async function POST(request: Request) {
     maxAge: 0,
     expires: new Date(0),
   });
+  await attachFreshCsrfCookie(response, isRequestSecure(request));
   return response;
 }

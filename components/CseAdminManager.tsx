@@ -21,8 +21,11 @@ import {
   type CseApplication,
 } from "@/lib/cse";
 import { sanitizeSafeUrl } from "@/lib/clientUrlSafety";
+import { useAuth, isTreasuryRole } from "@/components/AuthProvider";
 
 export default function CseAdminManager() {
+  const { user: currentUser } = useAuth();
+  const canDisburse = isTreasuryRole(currentUser?.role);
   const [applications, setApplications] = useState<CseApplication[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
@@ -229,14 +232,16 @@ export default function CseAdminManager() {
           </p>
         </div>
 
-        <a
-          href="/api/admin/cse/export"
-          download
-          className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-900 text-xs font-bold transition-all shadow-xs shrink-0"
-        >
-          <Download className="w-4 h-4" />
-          <span>Export COA Liquidation CSV</span>
-        </a>
+        {canDisburse && (
+          <a
+            href="/api/admin/cse/export"
+            download
+            className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-900 text-xs font-bold transition-all shadow-xs shrink-0"
+          >
+            <Download className="w-4 h-4" />
+            <span>Export COA Liquidation CSV</span>
+          </a>
+        )}
       </div>
 
       {/* Metrics Row */}
@@ -495,33 +500,35 @@ export default function CseAdminManager() {
                     {/* Action buttons */}
                     <td className="py-3 px-4 text-right whitespace-nowrap">
                       <div className="flex items-center justify-end gap-1.5">
-                        {/* Payout Action (Strictly post-exam: requires Verified Attended) */}
+                        {/* Payout Action (Strictly post-exam & Chairperson/Treasurer only) */}
                         {app.reimbursement_status !== "Reimbursed" ? (
-                          <button
-                            onClick={() => {
-                              setSelectedApp(app);
-                              setVoucherNo(app.disbursement_voucher_no || "");
-                              setPayoutMethod(app.payout_preference);
-                              setPayoutNotes(app.admin_notes || "");
-                              setModalError(null);
-                              setRecordPayoutModal(true);
-                            }}
-                            disabled={app.attendance_status !== "Verified Attended"}
-                            className={`px-2.5 py-1 rounded-lg font-bold text-[11px] ${
-                              app.attendance_status === "Verified Attended"
-                                ? "bg-emerald-600 hover:bg-emerald-700 text-white"
-                                : "bg-slate-100 dark:bg-slate-800 text-slate-400 cursor-not-allowed"
-                            }`}
-                            title={
-                              app.attendance_status === "Verified Attended"
-                                ? `Record ₱${Number(app.reimbursement_amount || 500).toLocaleString()} Payout`
-                                : "Verify exam attendance first (no pre-exam cash release)"
-                            }
-                          >
-                            {app.attendance_status === "Verified Attended"
-                              ? `Disburse ₱${Number(app.reimbursement_amount || 500).toLocaleString()}`
-                              : "Verify Exam First"}
-                          </button>
+                          canDisburse ? (
+                            <button
+                              onClick={() => {
+                                setSelectedApp(app);
+                                setVoucherNo(app.disbursement_voucher_no || "");
+                                setPayoutMethod(app.payout_preference);
+                                setPayoutNotes(app.admin_notes || "");
+                                setModalError(null);
+                                setRecordPayoutModal(true);
+                              }}
+                              disabled={app.attendance_status !== "Verified Attended"}
+                              className={`px-2.5 py-1 rounded-lg font-bold text-[11px] ${
+                                app.attendance_status === "Verified Attended"
+                                  ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                                  : "bg-slate-100 dark:bg-slate-800 text-slate-400 cursor-not-allowed"
+                              }`}
+                              title={
+                                app.attendance_status === "Verified Attended"
+                                  ? `Record ₱${Number(app.reimbursement_amount || 500).toLocaleString()} Payout`
+                                  : "Verify exam attendance first (no pre-exam cash release)"
+                              }
+                            >
+                              {app.attendance_status === "Verified Attended"
+                                ? `Disburse ₱${Number(app.reimbursement_amount || 500).toLocaleString()}`
+                                : "Verify Exam First"}
+                            </button>
+                          ) : null
                         ) : (
                           <span className="text-[11px] font-bold text-emerald-600 px-2 py-0.5 bg-emerald-50 dark:bg-emerald-950/60 rounded">
                             Disbursed
@@ -565,13 +572,15 @@ export default function CseAdminManager() {
                         </button>
 
                         {/* Delete */}
-                        <button
-                          onClick={() => handleDelete(app.id, app.full_name)}
-                          className="p-1 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-slate-100 dark:hover:bg-slate-800"
-                          title="Delete Application"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {canDisburse && (
+                          <button
+                            onClick={() => handleDelete(app.id, app.full_name)}
+                            className="p-1 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+                            title="Delete Application"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

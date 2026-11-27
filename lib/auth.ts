@@ -2,13 +2,15 @@ import jwt from "jsonwebtoken";
 import { cookies } from "next/headers";
 import { sql } from "./db";
 import { getJwtSecret } from "./env";
-import { OFFICIAL_ROLES } from "./validation";
+import { OFFICIAL_ROLES, SUPER_ADMIN_ROLES, TREASURY_ROLES } from "./validation";
 
 export const JWT_ISSUER = "sk-tocok-portal";
 export const JWT_AUDIENCE = "sk-tocok-portal";
 const COOKIE_NAME = "sk_tocok_admin_token";
 
 const OFFICIAL_ROLE_SET = new Set(OFFICIAL_ROLES.map((r) => r.toLowerCase()));
+const SUPER_ADMIN_ROLE_SET = new Set(SUPER_ADMIN_ROLES.map((r) => r.toLowerCase()));
+const TREASURY_ROLE_SET = new Set(TREASURY_ROLES.map((r) => r.toLowerCase()));
 
 export interface AdminUser {
   id: number;
@@ -22,6 +24,7 @@ export interface AdminUser {
   accent_preference?: string | null;
   token_version?: number;
   must_change_password?: boolean;
+  email_verified?: boolean;
 }
 
 export type AuthUser = AdminUser;
@@ -37,9 +40,33 @@ export function isOfficialUser(
   return OFFICIAL_ROLE_SET.has(normalizedRole);
 }
 
+export function isSuperAdminUser(
+  user: Pick<AdminUser, "role"> | null | undefined
+): boolean {
+  if (!user || typeof user.role !== "string") return false;
+  return SUPER_ADMIN_ROLE_SET.has(user.role.trim().toLowerCase());
+}
+
+export function isTreasuryUser(
+  user: Pick<AdminUser, "role"> | null | undefined
+): boolean {
+  if (!user || typeof user.role !== "string") return false;
+  return TREASURY_ROLE_SET.has(user.role.trim().toLowerCase());
+}
+
 export async function getCurrentOfficial(request?: Request): Promise<AdminUser | null> {
   const user = await getCurrentUser(request);
   return isOfficialUser(user) ? user : null;
+}
+
+export async function getCurrentSuperAdmin(request?: Request): Promise<AdminUser | null> {
+  const user = await getCurrentUser(request);
+  return isSuperAdminUser(user) ? user : null;
+}
+
+export async function getCurrentTreasuryOfficial(request?: Request): Promise<AdminUser | null> {
+  const user = await getCurrentUser(request);
+  return isTreasuryUser(user) ? user : null;
 }
 
 let appearanceColumnsPromise: Promise<void> | null = null;
@@ -52,6 +79,16 @@ export function ensureUserAppearanceColumns(): Promise<void> {
         await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS accent_preference TEXT`;
         await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 1`;
         await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE`;
+        await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE`;
+        await sql`
+          UPDATE users
+          SET email_verified = TRUE
+          WHERE email_verified = FALSE
+            AND (
+              auth_provider = 'google'
+              OR LOWER(TRIM(COALESCE(role, ''))) NOT IN ('student', 'guest', '')
+            )
+        `;
       } catch (err) {
         appearanceColumnsPromise = null;
         console.error("Failed to ensure user security/appearance columns:", err);
@@ -168,7 +205,8 @@ export async function getCurrentUser(request?: Request): Promise<AdminUser | nul
   // Confirm user still exists in DB and token_version has not been revoked
   const rows = await sql`
     SELECT id, name, email, role, contact_number, avatar_url, auth_provider,
-           theme_preference, accent_preference, token_version, must_change_password
+           theme_preference, accent_preference, token_version, must_change_password,
+           COALESCE(email_verified, FALSE) AS email_verified
     FROM users WHERE id = ${decoded.id}
   `;
   const dbUser = rows[0] as AdminUser | undefined;
@@ -177,6 +215,18 @@ export async function getCurrentUser(request?: Request): Promise<AdminUser | nul
   const dbVersion = Number(dbUser.token_version ?? 1);
   const tokenVersion = Number(decoded.token_version ?? 1);
   if (dbVersion !== tokenVersion) {
+    return null;
+  }
+
+  if (dbUser.must_change_password) {
+    return null;
+  }
+
+  if (
+    Boolean(process.env.RESEND_API_KEY?.trim()) &&
+    !isOfficialUser(dbUser) &&
+    !dbUser.email_verified
+  ) {
     return null;
   }
 

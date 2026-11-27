@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
-import { getCurrentUser, isOfficialUser } from "@/lib/auth";
+import { getCurrentUser, isTreasuryUser } from "@/lib/auth";
 import { deleteStoredFileByUrl } from "@/lib/storage";
 import { uploadToCloudStorage } from "@/lib/googleDrive";
 import { parseExpenseLineItems } from "@/lib/expenseBreakdown";
@@ -20,8 +20,8 @@ export async function PUT(
     if (!user) {
       return NextResponse.json({ error: "Unauthorized access" }, { status: 401 });
     }
-    if (!isOfficialUser(user)) {
-      return NextResponse.json({ error: "Forbidden: SK Officials only" }, { status: 403 });
+    if (!isTreasuryUser(user)) {
+      return NextResponse.json({ error: "Forbidden: SK Chairperson or SK Treasurer privileges required" }, { status: 403 });
     }
 
     await ensureExpenseLineItemsColumn();
@@ -63,6 +63,17 @@ export async function PUT(
       return NextResponse.json({ error: "Invalid expense date format (expected YYYY-MM-DD)." }, { status: 400 });
     }
 
+    const validCategoryRows = await sql`
+      SELECT name FROM categories WHERE LOWER(name) = LOWER(${category}) LIMIT 1
+    `;
+    if (validCategoryRows.length === 0) {
+      return NextResponse.json(
+        { error: "Selected budget category does not exist." },
+        { status: 400 }
+      );
+    }
+    const authoritativeCategory = String((validCategoryRows[0] as { name: string }).name);
+
     let receipt_url = existing.receipt_url;
     let replacedOldReceipt = false;
     if (receiptFile && receiptFile.size > 0 && typeof receiptFile.name === "string") {
@@ -85,7 +96,7 @@ export async function PUT(
     if (hasLineItemsField) {
       await sql`
         UPDATE expenses
-        SET title = ${title}, description = ${description}, category = ${category},
+        SET title = ${title}, description = ${description}, category = ${authoritativeCategory},
             amount = ${amount}, date = ${date}, receipt_url = ${receipt_url},
             voucher_no = ${voucher_no}, payee = ${payee},
             line_items = ${lineItemsJson}::jsonb
@@ -94,7 +105,7 @@ export async function PUT(
     } else {
       await sql`
         UPDATE expenses
-        SET title = ${title}, description = ${description}, category = ${category},
+        SET title = ${title}, description = ${description}, category = ${authoritativeCategory},
             amount = ${amount}, date = ${date}, receipt_url = ${receipt_url},
             voucher_no = ${voucher_no}, payee = ${payee}
         WHERE id = ${expenseId}
@@ -129,8 +140,8 @@ export async function DELETE(
     if (!user) {
       return NextResponse.json({ error: "Unauthorized access" }, { status: 401 });
     }
-    if (!isOfficialUser(user)) {
-      return NextResponse.json({ error: "Forbidden: SK Officials only" }, { status: 403 });
+    if (!isTreasuryUser(user)) {
+      return NextResponse.json({ error: "Forbidden: SK Chairperson or SK Treasurer privileges required" }, { status: 403 });
     }
 
     const { id } = await params;

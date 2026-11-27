@@ -7,13 +7,23 @@ import {
   isAllowedCrossOrigin,
   verifyRequestOrigin,
 } from "@/lib/csrf";
-import { OFFICIAL_ROLES } from "@/lib/validation";
+import { OFFICIAL_ROLES, SUPER_ADMIN_ROLES } from "@/lib/validation";
 
 const AUTH_COOKIE_NAME = "sk_tocok_admin_token";
+const DEVICE_COOKIE_NAME = "sk_device_session";
 const JWT_ISSUER = "sk-tocok-portal";
 const JWT_AUDIENCE = "sk-tocok-portal";
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const OFFICIAL_ROLE_SET = new Set(OFFICIAL_ROLES.map((r) => r.toLowerCase()));
+const SUPER_ADMIN_ROLE_SET = new Set(SUPER_ADMIN_ROLES.map((r) => r.toLowerCase()));
+const SUPER_ADMIN_API_PREFIXES = [
+  "/api/admin/users",
+  "/api/admin/security-logs",
+  "/api/admin/db-status",
+  "/api/admin/drive-status",
+  "/api/admin/blob-status",
+  "/api/admin/upload-avatar",
+] as const;
 
 function isSecureRequest(request: NextRequest): boolean {
   if (process.env.COOKIE_SECURE === "true") return true;
@@ -136,7 +146,10 @@ export async function middleware(request: NextRequest) {
         return applySecurityHeaders(forbidden, isHttps);
       }
 
-      const hasSessionCookie = Boolean(request.cookies.get(AUTH_COOKIE_NAME)?.value);
+      const hasSessionCookie = Boolean(
+        request.cookies.get(AUTH_COOKIE_NAME)?.value ||
+          request.cookies.get(DEVICE_COOKIE_NAME)?.value
+      );
       if (hasSessionCookie && secret.length >= 32) {
         const csrfCookie = request.cookies.get(CSRF_COOKIE_NAME)?.value;
         const csrfHeader = request.headers.get(CSRF_HEADER_NAME);
@@ -194,6 +207,17 @@ export async function middleware(request: NextRequest) {
         return applySecurityHeaders(forbidden, isHttps);
       }
       return NextResponse.redirect(new URL("/", request.url));
+    }
+
+    const requiresSuperAdmin =
+      SUPER_ADMIN_API_PREFIXES.some((prefix) => pathname.startsWith(prefix)) ||
+      (pathname === "/api/admin/settings" && request.method !== "GET");
+    if (requiresSuperAdmin && !SUPER_ADMIN_ROLE_SET.has(role)) {
+      const forbidden = NextResponse.json(
+        { error: "Forbidden: SK Chairperson privileges required." },
+        { status: 403 }
+      );
+      return applySecurityHeaders(forbidden, isHttps);
     }
   }
 

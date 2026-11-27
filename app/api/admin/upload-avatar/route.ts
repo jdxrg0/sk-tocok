@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getCurrentUser, isOfficialUser } from "@/lib/auth";
+import { getCurrentUser, isSuperAdminUser } from "@/lib/auth";
 import { uploadToCloudStorage } from "@/lib/googleDrive";
 import { validateUploadedFile } from "@/lib/fileValidation";
 import { logSecurityEvent } from "@/lib/securityLogger";
@@ -12,8 +12,8 @@ export async function POST(request: Request) {
     if (!currentUser) {
       return NextResponse.json({ error: "Unauthorized access" }, { status: 401 });
     }
-    if (!isOfficialUser(currentUser)) {
-      return NextResponse.json({ error: "Forbidden: SK Officials only" }, { status: 403 });
+    if (!isSuperAdminUser(currentUser)) {
+      return NextResponse.json({ error: "Forbidden: SK Chairperson privileges required" }, { status: 403 });
     }
 
     const formData = await request.formData();

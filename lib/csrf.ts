@@ -11,6 +11,36 @@ export async function createCsrfToken(secret: string): Promise<string> {
   return signHmacToken(nonce, secret);
 }
 
+export async function attachFreshCsrfCookie(
+  response: {
+    cookies: {
+      set: (
+        name: string,
+        value: string,
+        options: {
+          path: string;
+          httpOnly: boolean;
+          sameSite: "strict";
+          secure: boolean;
+          maxAge: number;
+        }
+      ) => void;
+    };
+  },
+  isSecure: boolean
+): Promise<void> {
+  const secret = process.env.JWT_SECRET?.trim() || "";
+  if (secret.length < 32) return;
+  const freshCsrf = await createCsrfToken(secret);
+  response.cookies.set(CSRF_COOKIE_NAME, freshCsrf, {
+    path: "/",
+    httpOnly: false,
+    sameSite: "strict",
+    secure: isSecure,
+    maxAge: 60 * 60 * 24 * 7,
+  });
+}
+
 export async function verifyCsrfTokenPair(
   cookieToken: string | undefined | null,
   headerToken: string | undefined | null,
@@ -112,9 +142,14 @@ export function verifyRequestOrigin(request: Request): { ok: boolean; reason?: s
       if (!isAllowedCrossOrigin(refOrigin, request)) {
         return { ok: false, reason: `Untrusted Referer: ${refOrigin}` };
       }
+      return { ok: true };
     } catch {
       return { ok: false, reason: "Malformed Referer header" };
     }
+  }
+
+  if (secFetchSite !== "same-origin") {
+    return { ok: false, reason: "Missing Origin/Referer on mutating request" };
   }
 
   return { ok: true };

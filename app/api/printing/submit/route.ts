@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
-import { savePrintDocument } from "@/lib/googleDrive";
+import { savePrintDocument, cleanupUploadedAsset } from "@/lib/googleDrive";
 import { getCurrentUser } from "@/lib/auth";
 import { validateUploadedFile } from "@/lib/fileValidation";
 import { checkRateLimit, rateLimitExceededResponse } from "@/lib/rateLimit";
@@ -117,42 +117,48 @@ export async function POST(request: Request) {
 
     const { filePath, fileName, fileSize } = await savePrintDocument(file!);
 
-    let trackingCode = await generateTrackingCode();
-    let codeExists = await sql`SELECT id FROM print_requests WHERE UPPER(tracking_code) = ${trackingCode.toUpperCase()}`;
-    while (codeExists.length > 0) {
+    let trackingCode = "";
+    try {
       trackingCode = await generateTrackingCode();
-      codeExists = await sql`SELECT id FROM print_requests WHERE UPPER(tracking_code) = ${trackingCode.toUpperCase()}`;
-    }
+      let codeExists = await sql`SELECT id FROM print_requests WHERE UPPER(tracking_code) = ${trackingCode.toUpperCase()}`;
+      while (codeExists.length > 0) {
+        trackingCode = await generateTrackingCode();
+        codeExists = await sql`SELECT id FROM print_requests WHERE UPPER(tracking_code) = ${trackingCode.toUpperCase()}`;
+      }
 
-    await sql`
-      INSERT INTO print_requests (
-        tracking_code, student_name, contact_number, facebook_name, purok,
-        school, grade_level, file_name, file_path, file_size, print_type,
-        paper_size, copies, page_range, notes, pickup_station, is_urgent, status,
-        user_id, user_email
-      ) VALUES (
-        ${trackingCode},
-        ${student_name},
-        ${contact_number},
-        ${facebook_name},
-        ${purok},
-        ${school},
-        ${grade_level},
-        ${fileName},
-        ${filePath},
-        ${fileSize},
-        ${print_type},
-        ${paper_size},
-        ${rawCopies},
-        ${page_range},
-        ${notes},
-        ${pickup_station},
-        ${is_urgent},
-        'Pending Review',
-        ${currentUser.id},
-        ${currentUser.email}
-      )
-    `;
+      await sql`
+        INSERT INTO print_requests (
+          tracking_code, student_name, contact_number, facebook_name, purok,
+          school, grade_level, file_name, file_path, file_size, print_type,
+          paper_size, copies, page_range, notes, pickup_station, is_urgent, status,
+          user_id, user_email
+        ) VALUES (
+          ${trackingCode},
+          ${student_name},
+          ${contact_number},
+          ${facebook_name},
+          ${purok},
+          ${school},
+          ${grade_level},
+          ${fileName},
+          ${filePath},
+          ${fileSize},
+          ${print_type},
+          ${paper_size},
+          ${rawCopies},
+          ${page_range},
+          ${notes},
+          ${pickup_station},
+          ${is_urgent},
+          'Pending Review',
+          ${currentUser.id},
+          ${currentUser.email}
+        )
+      `;
+    } catch (dbErr) {
+      await cleanupUploadedAsset(filePath);
+      throw dbErr;
+    }
 
     return NextResponse.json({
       success: true,

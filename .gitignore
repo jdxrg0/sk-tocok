@@ -40,6 +40,7 @@ yarn-error.log*
 *.sqlite
 *.sqlite3
 data/*.db*
+scripts/attendance_backup.json
 scratch/
 
 # env files and credentials (never commit secrets)

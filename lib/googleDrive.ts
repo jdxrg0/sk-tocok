@@ -2,7 +2,7 @@ import { google, type drive_v3 } from "googleapis";
 import { Readable } from "stream";
 import fs from "fs";
 import path from "path";
-import { saveUploadedFile, inferMimeType } from "./storage";
+import { saveUploadedFile, inferMimeType, deleteStoredFileByUrl } from "./storage";
 import { getAppsScriptWebhookSecret } from "./env";
 import { sanitizeFileName } from "./fileValidation";
 
@@ -82,7 +82,7 @@ const CATEGORY_CONFIG: Record<
     prefix: "[SK-Tocok]",
     driveFolderName: "Prints",
     envFolderIdKey: "GOOGLE_DRIVE_PRINTS_FOLDER_ID",
-    defaultSubfolderId: "1GSRv3exdbMpJv39o5NZAUkRCQ-5qUgPw",
+    defaultSubfolderId: "",
     blobFolder: "prints",
     dbFolder: "prints",
     useInlineProxy: true, // Always served via authenticated /api/drive/<id> proxy
@@ -91,7 +91,7 @@ const CATEGORY_CONFIG: Record<
     prefix: "[SK-Tocok Voucher]",
     driveFolderName: "Vouchers",
     envFolderIdKey: "GOOGLE_DRIVE_VOUCHERS_FOLDER_ID",
-    defaultSubfolderId: "18AqjvmmTPUT8CPZNPzMWtlhnT4jlB8ta",
+    defaultSubfolderId: "",
     blobFolder: "receipts",
     dbFolder: "receipts",
     useInlineProxy: true, // Served via /api/drive/<id> so <img> & PDF tabs work seamlessly
@@ -100,7 +100,7 @@ const CATEGORY_CONFIG: Record<
     prefix: "[SK-Tocok Deposit]",
     driveFolderName: "Deposits",
     envFolderIdKey: "GOOGLE_DRIVE_DEPOSITS_FOLDER_ID",
-    defaultSubfolderId: "1xGURWqpsVz6cCQYa_Yi5mf9z6XTF556N",
+    defaultSubfolderId: "",
     blobFolder: "receipts",
     dbFolder: "receipts",
     useInlineProxy: true,
@@ -109,7 +109,7 @@ const CATEGORY_CONFIG: Record<
     prefix: "[SK-Tocok Official]",
     driveFolderName: "Officials",
     envFolderIdKey: "GOOGLE_DRIVE_OFFICIALS_FOLDER_ID",
-    defaultSubfolderId: "16W6W6wLGzYKByKqUwsZecUBrPHe4Thz5",
+    defaultSubfolderId: "",
     blobFolder: "officials",
     dbFolder: "officials",
     useInlineProxy: true,
@@ -161,7 +161,10 @@ export function getDriveClient(): DriveClientResult | null {
     const auth = new google.auth.JWT({
       email: clientEmail,
       key: privateKey,
-      scopes: ["https://www.googleapis.com/auth/drive"],
+      scopes: [
+        "https://www.googleapis.com/auth/drive.file",
+        "https://www.googleapis.com/auth/drive.readonly",
+      ],
     });
     cachedDriveClient = { drive: google.drive({ version: "v3", auth }), folderId, clientEmail };
     return cachedDriveClient;
@@ -181,7 +184,10 @@ export function getDriveClient(): DriveClientResult | null {
         const auth = new google.auth.JWT({
           email: creds.client_email,
           key: creds.private_key,
-          scopes: ["https://www.googleapis.com/auth/drive"],
+          scopes: [
+            "https://www.googleapis.com/auth/drive.file",
+            "https://www.googleapis.com/auth/drive.readonly",
+          ],
         });
         cachedDriveClient = { drive: google.drive({ version: "v3", auth }), folderId, clientEmail: creds.client_email };
         return cachedDriveClient;
@@ -328,7 +334,8 @@ export async function uploadToCloudStorage(
             base64,
             folder: cfg.driveFolderName,
             folderId: targetFolderId,
-            isPrivate: category === "prints",
+            // Keep files private whenever Service Account proxy reads are configured (or always for student prints)
+            isPrivate: category === "prints" || Boolean(driveInfo),
           }),
           redirect: "follow",
         },
@@ -398,20 +405,6 @@ export async function uploadToCloudStorage(
 
       const fileId = uploadResponse.data.id;
       if (fileId) {
-        if (category !== "prints") {
-          try {
-            await drive.permissions.create({
-              fileId,
-              requestBody: {
-                role: "reader",
-                type: "anyone",
-              },
-            });
-          } catch {
-            // Ignore permission errors if folder already grants public read
-          }
-        }
-
         const webViewLink =
           uploadResponse.data.webViewLink ||
           uploadResponse.data.webContentLink ||
@@ -473,6 +466,38 @@ export async function uploadToCloudStorage(
  */
 export async function savePrintDocument(file: File): Promise<UploadResult> {
   return uploadToCloudStorage(file, "prints");
+}
+
+/**
+ * Best-effort orphan cleanup when a DB insert fails after cloud/DB upload succeeded.
+ */
+export async function cleanupUploadedAsset(filePath?: string | null): Promise<void> {
+  if (!filePath || typeof filePath !== "string") return;
+
+  if (filePath.startsWith("/api/files/")) {
+    await deleteStoredFileByUrl(filePath);
+    return;
+  }
+
+  if (filePath.startsWith("/api/drive/")) {
+    const fileId = extractDriveFileId(filePath.slice("/api/drive/".length).split("?")[0]);
+    const driveInfo = getDriveClient();
+    if (fileId && driveInfo) {
+      await driveInfo.drive.files.delete({ fileId }).catch((err) => {
+        console.warn("Failed to delete orphaned Google Drive file:", fileId, err);
+      });
+    }
+    return;
+  }
+
+  if (filePath.includes(".public.blob.vercel-storage.com") && process.env.BLOB_READ_WRITE_TOKEN) {
+    try {
+      const { del } = await import("@vercel/blob");
+      await del(filePath);
+    } catch (err) {
+      console.warn("Failed to delete orphaned Vercel Blob asset:", err);
+    }
+  }
 }
 
 const CATEGORY_LABELS: Record<CloudUploadCategory, string> = {

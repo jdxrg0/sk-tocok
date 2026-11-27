@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getCurrentUser, isOfficialUser } from "@/lib/auth";
+import { getCurrentUser, isSuperAdminUser } from "@/lib/auth";
 import { getGoogleDriveStatus } from "@/lib/googleDrive";
 
 export const dynamic = "force-dynamic";
@@ -10,8 +10,8 @@ export async function GET() {
     if (!user) {
       return NextResponse.json({ error: "Unauthorized access" }, { status: 401 });
     }
-    if (!isOfficialUser(user)) {
-      return NextResponse.json({ error: "Forbidden: SK Officials only" }, { status: 403 });
+    if (!isSuperAdminUser(user)) {
+      return NextResponse.json({ error: "Forbidden: SK Chairperson privileges required" }, { status: 403 });
     }
 
     const data = await getGoogleDriveStatus();

@@ -19,12 +19,24 @@ export interface AuthUser {
   auth_provider?: string;
   theme_preference?: string | null;
   accent_preference?: string | null;
+  email_verified?: boolean;
 }
 
 export function isOfficialRole(role?: string | null): boolean {
   if (!role || typeof role !== "string") return false;
   const normalized = role.trim().toLowerCase();
   return normalized !== "" && normalized !== "student" && normalized !== "guest";
+}
+
+export function isSuperAdminRole(role?: string | null): boolean {
+  if (!role || typeof role !== "string") return false;
+  return role.trim().toLowerCase() === "sk chairperson";
+}
+
+export function isTreasuryRole(role?: string | null): boolean {
+  if (!role || typeof role !== "string") return false;
+  const normalized = role.trim().toLowerCase();
+  return normalized === "sk chairperson" || normalized === "sk treasurer";
 }
 
 export type GuardedAction =
@@ -237,6 +249,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     setLoggingOut(true);
     try {
+      // Unbind & remove browser Web Push subscription on logout so shared devices do not receive the previous user's alerts
+      if (typeof window !== "undefined" && "serviceWorker" in navigator) {
+        try {
+          const registration = await navigator.serviceWorker.getRegistration();
+          const subscription = registration
+            ? await registration.pushManager.getSubscription()
+            : null;
+          if (subscription) {
+            const endpoint = subscription.endpoint;
+            await fetch("/api/notifications/subscribe", {
+              method: "DELETE",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ endpoint }),
+            }).catch(() => {});
+            await subscription.unsubscribe().catch(() => {});
+          }
+        } catch {
+          // ignore push cleanup failures on logout
+        }
+      }
       await fetch("/api/auth/logout", { method: "POST" });
       setUserState(null);
       return true;

@@ -130,39 +130,80 @@ type DriveAuthResult =
 
 async function authorizeDriveFile(cleanId: string, request: Request): Promise<DriveAuthResult> {
   const proxyPath = `/api/drive/${cleanId}`;
-  const proxyPrefix = `/api/drive/${cleanId}?`;
+  const escapedProxyPath = proxyPath.replace(/_/g, "\\_");
+  const escapedCleanId = cleanId.replace(/_/g, "\\_");
+  const proxyPrefixLike = `${escapedProxyPath}?%`;
+  const jsonProxyExact = `%"${escapedProxyPath}"%`;
+  const jsonProxyQuery = `%"${escapedProxyPath}?%`;
+  const driveFilePathMid = `%/d/${escapedCleanId}/%`;
+  const driveFilePathEnd = `%/d/${escapedCleanId}`;
+  const driveUcIdEnd = `%id=${escapedCleanId}`;
+  const driveUcIdMid = `%id=${escapedCleanId}&%`;
 
-  // 1. Check public transparency & official portal tables first
+  // 1. Check public transparency & official portal tables first using bounded delimiter matches
   const publicMatch = await sql`
     SELECT 1
     WHERE EXISTS (
       SELECT 1 FROM expenses
       WHERE receipt_url = ${proxyPath}
-         OR LEFT(COALESCE(receipt_url, ''), ${proxyPrefix.length}) = ${proxyPrefix}
-         OR (POSITION('drive.google.com' IN COALESCE(receipt_url, '')) > 0 AND POSITION(${cleanId} IN COALESCE(receipt_url, '')) > 0)
+         OR receipt_url LIKE ${proxyPrefixLike} ESCAPE '\\'
+         OR (
+           COALESCE(receipt_url, '') LIKE '%drive.google.com%' ESCAPE '\\'
+           AND (
+             receipt_url LIKE ${driveFilePathMid} ESCAPE '\\'
+             OR receipt_url LIKE ${driveFilePathEnd} ESCAPE '\\'
+             OR receipt_url LIKE ${driveUcIdEnd} ESCAPE '\\'
+             OR receipt_url LIKE ${driveUcIdMid} ESCAPE '\\'
+           )
+         )
     )
     OR EXISTS (
       SELECT 1 FROM deposits
       WHERE attachment_url = ${proxyPath}
-         OR LEFT(COALESCE(attachment_url, ''), ${proxyPrefix.length}) = ${proxyPrefix}
-         OR (POSITION('drive.google.com' IN COALESCE(attachment_url, '')) > 0 AND POSITION(${cleanId} IN COALESCE(attachment_url, '')) > 0)
+         OR attachment_url LIKE ${proxyPrefixLike} ESCAPE '\\'
+         OR (
+           COALESCE(attachment_url, '') LIKE '%drive.google.com%' ESCAPE '\\'
+           AND (
+             attachment_url LIKE ${driveFilePathMid} ESCAPE '\\'
+             OR attachment_url LIKE ${driveFilePathEnd} ESCAPE '\\'
+             OR attachment_url LIKE ${driveUcIdEnd} ESCAPE '\\'
+             OR attachment_url LIKE ${driveUcIdMid} ESCAPE '\\'
+           )
+         )
     )
     OR EXISTS (
       SELECT 1 FROM users
       WHERE avatar_url = ${proxyPath}
-         OR LEFT(COALESCE(avatar_url, ''), ${proxyPrefix.length}) = ${proxyPrefix}
-         OR (POSITION('drive.google.com' IN COALESCE(avatar_url, '')) > 0 AND POSITION(${cleanId} IN COALESCE(avatar_url, '')) > 0)
+         OR avatar_url LIKE ${proxyPrefixLike} ESCAPE '\\'
+         OR (
+           COALESCE(avatar_url, '') LIKE '%drive.google.com%' ESCAPE '\\'
+           AND (
+             avatar_url LIKE ${driveFilePathMid} ESCAPE '\\'
+             OR avatar_url LIKE ${driveFilePathEnd} ESCAPE '\\'
+             OR avatar_url LIKE ${driveUcIdEnd} ESCAPE '\\'
+             OR avatar_url LIKE ${driveUcIdMid} ESCAPE '\\'
+           )
+         )
     )
     OR EXISTS (
       SELECT 1 FROM attendance_sessions
-      WHERE POSITION(${proxyPath} IN COALESCE(proof_photos, '')) > 0
-         OR (POSITION('drive.google.com' IN COALESCE(proof_photos, '')) > 0 AND POSITION(${cleanId} IN COALESCE(proof_photos, '')) > 0)
+      WHERE COALESCE(proof_photos, '') LIKE ${jsonProxyExact} ESCAPE '\\'
+         OR COALESCE(proof_photos, '') LIKE ${jsonProxyQuery} ESCAPE '\\'
+         OR (
+           COALESCE(proof_photos, '') LIKE '%drive.google.com%' ESCAPE '\\'
+           AND (
+             proof_photos LIKE ${driveFilePathMid} ESCAPE '\\'
+             OR proof_photos LIKE ${`%/d/${escapedCleanId}"%`} ESCAPE '\\'
+             OR proof_photos LIKE ${`%id=${escapedCleanId}"%`} ESCAPE '\\'
+             OR proof_photos LIKE ${driveUcIdMid} ESCAPE '\\'
+           )
+         )
     )
     OR EXISTS (
       SELECT 1 FROM cse_applications
       WHERE (
         passer_avatar_url = ${proxyPath}
-        OR LEFT(COALESCE(passer_avatar_url, ''), ${proxyPrefix.length}) = ${proxyPrefix}
+        OR passer_avatar_url LIKE ${proxyPrefixLike} ESCAPE '\\'
       )
       AND exam_result_status = 'Passed'
       AND result_verified_at IS NOT NULL
@@ -180,8 +221,16 @@ async function authorizeDriveFile(cleanId: string, request: Request): Promise<Dr
     SELECT id, user_id, user_email
     FROM print_requests
     WHERE file_path = ${proxyPath}
-       OR LEFT(COALESCE(file_path, ''), ${proxyPrefix.length}) = ${proxyPrefix}
-       OR (POSITION('drive.google.com' IN COALESCE(file_path, '')) > 0 AND POSITION(${cleanId} IN COALESCE(file_path, '')) > 0)
+       OR file_path LIKE ${proxyPrefixLike} ESCAPE '\\'
+       OR (
+         COALESCE(file_path, '') LIKE '%drive.google.com%' ESCAPE '\\'
+         AND (
+           file_path LIKE ${driveFilePathMid} ESCAPE '\\'
+           OR file_path LIKE ${driveFilePathEnd} ESCAPE '\\'
+           OR file_path LIKE ${driveUcIdEnd} ESCAPE '\\'
+           OR file_path LIKE ${driveUcIdMid} ESCAPE '\\'
+         )
+       )
     LIMIT 1
   `;
 
@@ -190,13 +239,13 @@ async function authorizeDriveFile(cleanId: string, request: Request): Promise<Dr
       ? await sql`
           SELECT id, user_id, user_email
           FROM cse_applications
-          WHERE POSITION(${proxyPath} IN COALESCE(valid_id_url, '')) > 0
-             OR POSITION(${proxyPath} IN COALESCE(csc_receipt_url, '')) > 0
-             OR POSITION(${proxyPath} IN COALESCE(exam_schedule_proof_url, '')) > 0
-             OR POSITION(${proxyPath} IN COALESCE(prior_sitting_proof_url, '')) > 0
-             OR POSITION(${proxyPath} IN COALESCE(exam_attendance_proof_url, '')) > 0
-             OR POSITION(${proxyPath} IN COALESCE(result_proof_url, '')) > 0
-             OR POSITION(${proxyPath} IN COALESCE(passer_avatar_url, '')) > 0
+          WHERE (valid_id_url = ${proxyPath} OR valid_id_url LIKE ${proxyPrefixLike} ESCAPE '\\')
+             OR (csc_receipt_url = ${proxyPath} OR csc_receipt_url LIKE ${proxyPrefixLike} ESCAPE '\\')
+             OR (exam_schedule_proof_url = ${proxyPath} OR exam_schedule_proof_url LIKE ${proxyPrefixLike} ESCAPE '\\')
+             OR (prior_sitting_proof_url = ${proxyPath} OR prior_sitting_proof_url LIKE ${proxyPrefixLike} ESCAPE '\\')
+             OR (exam_attendance_proof_url = ${proxyPath} OR exam_attendance_proof_url LIKE ${proxyPrefixLike} ESCAPE '\\')
+             OR (result_proof_url = ${proxyPath} OR result_proof_url LIKE ${proxyPrefixLike} ESCAPE '\\')
+             OR (passer_avatar_url = ${proxyPath} OR passer_avatar_url LIKE ${proxyPrefixLike} ESCAPE '\\')
           LIMIT 1
         `
       : [];
@@ -227,6 +276,7 @@ async function authorizeDriveFile(cleanId: string, request: Request): Promise<Dr
       record.user_id !== undefined &&
       Number(record.user_id) === currentUser.id) ||
       (!record.user_id &&
+        currentUser.email_verified &&
         record.user_email &&
         String(record.user_email).trim().toLowerCase() === currentUser.email.trim().toLowerCase())
   );
@@ -264,13 +314,19 @@ export async function GET(
       bucket: "drive_proxy",
       max: 120,
       windowMs: 60 * 1000,
+      persistToDb: true,
     });
     if (!limit.allowed) {
       return rateLimitExceededResponse(limit.retryAfterSeconds);
     }
 
     const { fileId } = await params;
-    const cleanId = decodeURIComponent(fileId || "").trim();
+    let cleanId = "";
+    try {
+      cleanId = decodeURIComponent(fileId || "").trim();
+    } catch {
+      return NextResponse.json({ error: "Malformed Google Drive file ID" }, { status: 400 });
+    }
 
     if (!FILE_ID_PATTERN.test(cleanId)) {
       return NextResponse.json({ error: "Invalid Google Drive file ID" }, { status: 400 });

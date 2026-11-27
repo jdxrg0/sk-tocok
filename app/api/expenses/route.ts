@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { sql, query } from "@/lib/db";
-import { getCurrentUser, isOfficialUser } from "@/lib/auth";
+import { getCurrentUser, isTreasuryUser } from "@/lib/auth";
 import { uploadToCloudStorage } from "@/lib/googleDrive";
 import { parseExpenseLineItems } from "@/lib/expenseBreakdown";
 import { ensureExpenseLineItemsColumn } from "@/lib/expenseSchema";
@@ -31,6 +31,7 @@ export async function GET(request: Request) {
         bucket: "expenses_search",
         max: 60,
         windowMs: 60 * 1000,
+        persistToDb: true,
       });
       if (!searchLimit.allowed) {
         return rateLimitExceededResponse(searchLimit.retryAfterSeconds);
@@ -42,7 +43,9 @@ export async function GET(request: Request) {
     if (isUnfiltered) {
       const cached = getCachedExpenses();
       if (cached) {
-        console.log(`[/api/expenses] Cache hit! Response ready in ${(performance.now() - t0).toFixed(1)}ms`);
+        if (process.env.NODE_ENV !== "production") {
+          console.log(`[/api/expenses] Cache hit! Response ready in ${(performance.now() - t0).toFixed(1)}ms`);
+        }
         return NextResponse.json(cached);
       }
     }
@@ -166,7 +169,9 @@ export async function GET(request: Request) {
       setCachedExpenses(payload);
     }
 
-    console.log(`[/api/expenses] DB query + format finished in ${(performance.now() - t0).toFixed(1)}ms`);
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`[/api/expenses] DB query + format finished in ${(performance.now() - t0).toFixed(1)}ms`);
+    }
 
     return NextResponse.json(payload);
   } catch (error) {
@@ -179,7 +184,7 @@ export async function POST(request: Request) {
   try {
     const user = await getCurrentUser(request);
     if (!user) return NextResponse.json({ error: "Unauthorized access. Please log in as an SK Official." }, { status: 401 });
-    if (!isOfficialUser(user)) return NextResponse.json({ error: "Forbidden: SK Officials only." }, { status: 403 });
+    if (!isTreasuryUser(user)) return NextResponse.json({ error: "Forbidden: SK Chairperson or SK Treasurer privileges required." }, { status: 403 });
 
     await ensureExpenseLineItemsColumn();
 
@@ -203,6 +208,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Invalid expense date format (expected YYYY-MM-DD)." }, { status: 400 });
     }
 
+    const validCategoryRows = await sql`
+      SELECT name FROM categories WHERE LOWER(name) = LOWER(${category}) LIMIT 1
+    `;
+    if (validCategoryRows.length === 0) {
+      return NextResponse.json(
+        { error: "Selected budget category does not exist. Please create the category first." },
+        { status: 400 }
+      );
+    }
+    const authoritativeCategory = String((validCategoryRows[0] as { name: string }).name);
+
     let receipt_url: string | null = null;
     if (receiptFile && receiptFile.size > 0) {
       const fileCheck = await validateUploadedFile(receiptFile, "financial_doc");
@@ -223,7 +239,7 @@ export async function POST(request: Request) {
     await sql`
       INSERT INTO expenses (title, description, category, amount, date, receipt_url, voucher_no, payee, line_items, created_by)
       VALUES (
-        ${title}, ${description}, ${category}, ${amount}, ${date},
+        ${title}, ${description}, ${authoritativeCategory}, ${amount}, ${date},
         ${receipt_url}, ${voucher_no || null}, ${payee || null},
         ${lineItemsJson}::jsonb,
         ${`${user.name} (${user.role})`}

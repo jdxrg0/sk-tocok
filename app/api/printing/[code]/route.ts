@@ -26,7 +26,13 @@ export async function GET(
       return NextResponse.json({ error: "Tracking code is required" }, { status: 400 });
     }
 
-    const rawCode = decodeURIComponent(code).trim().slice(0, 60);
+    let decodedCode = "";
+    try {
+      decodedCode = decodeURIComponent(code);
+    } catch {
+      return NextResponse.json({ error: "Malformed tracking code" }, { status: 400 });
+    }
+    const rawCode = decodedCode.trim().slice(0, 60);
     const cleanNumber = rawCode.replace(/^[#\s]+/, "").replace(/^(ticket|no\.?)\s*/i, "").trim();
     const withoutHyphen = cleanNumber.replace(/[\s-]+/g, "");
     const skPrefixed = `SK${cleanNumber}`;
@@ -63,6 +69,7 @@ export async function GET(
         (isOfficialUser(currentUser) ||
           (job.user_id && Number(job.user_id) === currentUser.id) ||
           (!job.user_id &&
+            currentUser.email_verified &&
             job.user_email &&
             String(job.user_email).toLowerCase() === currentUser.email.toLowerCase()))
     );

@@ -24,8 +24,10 @@ export async function GET(request: Request) {
     const statusFilter = (searchParams.get("status") || "all").trim();
     const categoryFilter = (searchParams.get("category") || "all").trim();
     const q = (searchParams.get("q") || "").trim();
+    const rawLimit = parseInt(searchParams.get("limit") || "500", 10);
+    const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 1000) : 500;
 
-    // Fetch summary stats & all messages
+    // Fetch summary stats & bounded messages list
     const [countsRows, messagesRows] = await Promise.all([
       sql`
         SELECT status, is_public, COUNT(*) as count
@@ -52,6 +54,7 @@ export async function GET(request: Request) {
           updated_at
         FROM anonymous_messages
         ORDER BY is_pinned DESC, created_at DESC
+        LIMIT ${limit}
       `,
     ]);
 

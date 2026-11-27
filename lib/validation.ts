@@ -13,6 +13,10 @@ export const OFFICIAL_ROLES = [
   "SK Staff / Custodian",
 ] as const;
 
+export const SUPER_ADMIN_ROLES = ["SK Chairperson"] as const;
+
+export const TREASURY_ROLES = ["SK Chairperson", "SK Treasurer"] as const;
+
 export const ALLOWED_CATEGORY_COLORS = [
   "blue",
   "orange",

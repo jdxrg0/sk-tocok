@@ -188,6 +188,12 @@ export default function PushNotificationManager({
     setLoading(true);
 
     try {
+      if (!user) {
+        throw new Error(
+          "Please sign in to your student account before enabling ticket notifications."
+        );
+      }
+
       if (!isSecure) {
         throw new Error(
           "Web Push requires HTTPS when accessing from mobile devices or external network."

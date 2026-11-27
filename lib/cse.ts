@@ -506,15 +506,64 @@ function getManilaTodayParts(now: Date): { year: number; month: number; day: num
 }
 
 /**
+ * Validates whether an exam schedule string has a parseable cycle date or is an explicit rolling/COMEX track.
+ */
+export function isRecognizedExamSchedule(
+  examDateStr: string | null | undefined,
+  examCategory?: string | null
+): boolean {
+  const raw = String(examDateStr || "").trim();
+  if (!raw) return false;
+  if (
+    raw === "Rolling / School-Based Batch" &&
+    (!examCategory || examCategory === "TESDA NC Assessment")
+  ) {
+    return true;
+  }
+  if (
+    raw === "CSC Computerized Examination (COMEX)" &&
+    (!examCategory || examCategory === "Civil Service Exam (CSE)")
+  ) {
+    return true;
+  }
+  if (/\bQ([1-4])\s+(20\d{2})\b/i.test(raw)) return true;
+  if (/\b(20\d{2})-(\d{2})-(\d{2})\b/.test(raw)) return true;
+  if (
+    /\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(?:(\d{1,2}),?\s+)?(20\d{2})\b/i.test(
+      raw
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * Checks whether an exam batch / schedule date is still in the future (Asia/Manila time).
- * Conservative: unparseable or rolling batches remain unlocked.
+ * Fails closed on unparseable custom schedules unless matching an explicit rolling/COMEX track.
  */
 export function getExamCycleGate(
   examDateStr: string | null | undefined,
-  now: Date = new Date()
+  now: Date = new Date(),
+  examCategory?: string | null
 ): { locked: boolean; opensLabel?: string; reason?: string } {
   const raw = String(examDateStr || "").trim();
-  if (!raw || /\brolling\b/i.test(raw)) {
+  if (!raw) {
+    return {
+      locked: true,
+      reason: "Scheduled exam batch is missing.",
+    };
+  }
+  if (
+    raw === "Rolling / School-Based Batch" &&
+    (!examCategory || examCategory === "TESDA NC Assessment")
+  ) {
+    return { locked: false };
+  }
+  if (
+    raw === "CSC Computerized Examination (COMEX)" &&
+    (!examCategory || examCategory === "Civil Service Exam (CSE)")
+  ) {
     return { locked: false };
   }
 
@@ -564,7 +613,10 @@ export function getExamCycleGate(
   }
 
   if (targetYear === null || targetMonth === null) {
-    return { locked: false };
+    return {
+      locked: true,
+      reason: `Unable to verify exam schedule (${raw}). Please contact an SK Official before uploading post-exam proofs.`,
+    };
   }
 
   const today = getManilaTodayParts(now);

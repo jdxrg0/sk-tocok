@@ -54,19 +54,8 @@ export async function DELETE(
     let isOwner = false;
     if (!isAdmin) {
       const verifiedDeviceId = await getVerifiedDeviceId(request);
-      if (verifiedDeviceId) {
-        if (post.device_id) {
-          isOwner = constantTimeEqual(String(post.device_id), verifiedDeviceId);
-        } else if (post.alias) {
-          // Fallback for legacy pre-migration rows without device_id column populated
-          const devRows = await sql`
-            SELECT alias FROM anonymous_device_identities WHERE device_id = ${verifiedDeviceId} LIMIT 1
-          `;
-          const ownedAlias = (devRows[0] as { alias?: string } | undefined)?.alias;
-          if (ownedAlias && ownedAlias.toLowerCase() === post.alias.toLowerCase()) {
-            isOwner = true;
-          }
-        }
+      if (verifiedDeviceId && post.device_id) {
+        isOwner = constantTimeEqual(String(post.device_id), verifiedDeviceId);
       }
     }
 

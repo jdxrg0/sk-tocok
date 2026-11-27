@@ -24,7 +24,12 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const cleanId = decodeURIComponent(id || "").trim();
+    let cleanId = "";
+    try {
+      cleanId = decodeURIComponent(id || "").trim();
+    } catch {
+      return NextResponse.json({ error: "Malformed file identifier" }, { status: 400 });
+    }
 
     if (!cleanId || cleanId.includes("/") || cleanId.includes("..") || !/^[a-zA-Z0-9._-]+$/.test(cleanId)) {
       return NextResponse.json({ error: "Invalid file identifier" }, { status: 400 });
@@ -92,11 +97,16 @@ export async function GET(
       if (!isOfficialUser(currentUser)) {
         let isOwner = false;
 
+        const isVerifiedLegacyOwner = Boolean(currentUser.email_verified);
+
         if (folder === "cse") {
           const matches = await sql`
             SELECT id
             FROM cse_applications
-            WHERE (user_id = ${currentUser.id} OR LOWER(user_email) = LOWER(${currentUser.email}))
+            WHERE (
+              user_id = ${currentUser.id}
+              OR (${isVerifiedLegacyOwner} AND user_id IS NULL AND LOWER(user_email) = LOWER(${currentUser.email}))
+            )
               AND (
                 valid_id_url = ${exactFilePath} OR valid_id_url LIKE ${queryPrefix}
                 OR csc_receipt_url = ${exactFilePath} OR csc_receipt_url LIKE ${queryPrefix}
@@ -113,7 +123,10 @@ export async function GET(
           const matches = await sql`
             SELECT id
             FROM print_requests
-            WHERE (user_id = ${currentUser.id} OR (user_id IS NULL AND LOWER(user_email) = LOWER(${currentUser.email})))
+            WHERE (
+              user_id = ${currentUser.id}
+              OR (${isVerifiedLegacyOwner} AND user_id IS NULL AND LOWER(user_email) = LOWER(${currentUser.email}))
+            )
               AND (file_path = ${exactFilePath} OR file_path LIKE ${queryPrefix})
             LIMIT 1
           `;

@@ -127,9 +127,14 @@ export async function POST(
     const deviceIdentity = await getOrAssignDeviceIdentity(request);
     const cleanAlias = deviceIdentity.alias;
 
-    // Verify post exists and is public
+    // Verify post exists, is public, and is active
     const postCheck = await sql`
-      SELECT id FROM anonymous_messages WHERE id = ${messageId} AND is_public = TRUE LIMIT 1
+      SELECT id
+      FROM anonymous_messages
+      WHERE id = ${messageId}
+        AND is_public = TRUE
+        AND status NOT IN ('rejected', 'archived')
+      LIMIT 1
     `;
     if (postCheck.length === 0) {
       return NextResponse.json(
@@ -140,8 +145,8 @@ export async function POST(
 
     let validParentId: number | null = null;
     if (parent_id) {
-      const pId = parseInt(String(parent_id), 10);
-      if (!isNaN(pId) && pId > 0) {
+      const pId = parsePositiveIntId(parent_id);
+      if (pId) {
         const parentCheck = await sql`
           SELECT id FROM anonymous_message_replies
           WHERE id = ${pId} AND message_id = ${messageId}

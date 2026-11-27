@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { cleanupExpiredBlobs } from "@/lib/blobCleanup";
-import { getCurrentUser, isOfficialUser } from "@/lib/auth";
+import { getCurrentUser, isSuperAdminUser } from "@/lib/auth";
 import { getCronSecret } from "@/lib/env";
 import { constantTimeEqual } from "@/lib/edgeCrypto";
 import { logSecurityEvent } from "@/lib/securityLogger";
@@ -15,7 +15,7 @@ export async function GET(request: Request) {
     constantTimeEqual(authHeader, `Bearer ${cronSecret}`);
 
   const currentUser = await getCurrentUser(request);
-  const isAdmin = isOfficialUser(currentUser);
+  const isAdmin = isSuperAdminUser(currentUser);
 
   if (!isVercelCron && !isAdmin) {
     await logSecurityEvent({
@@ -42,8 +42,8 @@ export async function POST(request: Request) {
   if (!currentUser) {
     return NextResponse.json({ error: "Unauthorized access." }, { status: 401 });
   }
-  if (!isOfficialUser(currentUser)) {
-    return NextResponse.json({ error: "Forbidden: SK Officials only." }, { status: 403 });
+  if (!isSuperAdminUser(currentUser)) {
+    return NextResponse.json({ error: "Forbidden: SK Chairperson privileges required." }, { status: 403 });
   }
 
   try {

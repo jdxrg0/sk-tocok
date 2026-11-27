@@ -125,6 +125,9 @@ export default function AccountMenu({ className = "" }: AccountMenuProps) {
 
   // Statuses
   const [authError, setAuthError] = useState<string | null>(null);
+  const [verifyPendingEmail, setVerifyPendingEmail] = useState<string | null>(null);
+  const [verifyNotice, setVerifyNotice] = useState<string | null>(null);
+  const [resendBusy, setResendBusy] = useState(false);
   const [authSubmitting, setAuthSubmitting] = useState(false);
   const [googleSubmitting, setGoogleSubmitting] = useState(false);
   const [avatarError, setAvatarError] = useState(false);
@@ -347,6 +350,8 @@ export default function AccountMenu({ className = "" }: AccountMenuProps) {
     try {
       setAuthSubmitting(true);
       setAuthError(null);
+      setVerifyPendingEmail(null);
+      setVerifyNotice(null);
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -356,13 +361,16 @@ export default function AccountMenu({ className = "" }: AccountMenuProps) {
         }),
       });
       const text = await res.text();
-      let data: { error?: string; user?: AuthUser } = {};
+      let data: { error?: string; user?: AuthUser; requiresVerification?: boolean; email?: string } = {};
       try {
         data = JSON.parse(text);
       } catch {
         data = { error: text || "Server returned an unexpected response." };
       }
       if (!res.ok) {
+        if (data.requiresVerification) {
+          setVerifyPendingEmail(data.email || signInEmail.trim());
+        }
         throw new Error(data.error || "Sign in failed");
       }
 
@@ -405,6 +413,8 @@ export default function AccountMenu({ className = "" }: AccountMenuProps) {
 
     try {
       setAuthSubmitting(true);
+      setVerifyPendingEmail(null);
+      setVerifyNotice(null);
       const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -415,7 +425,13 @@ export default function AccountMenu({ className = "" }: AccountMenuProps) {
         }),
       });
       const text = await res.text();
-      let data: { error?: string; user?: AuthUser } = {};
+      let data: {
+        error?: string;
+        user?: AuthUser;
+        requiresVerification?: boolean;
+        email?: string;
+        message?: string;
+      } = {};
       try {
         data = JSON.parse(text);
       } catch {
@@ -423,6 +439,20 @@ export default function AccountMenu({ className = "" }: AccountMenuProps) {
       }
       if (!res.ok) {
         throw new Error(data.error || "Failed to create account");
+      }
+
+      if (data.requiresVerification) {
+        const pendingTarget = data.email || registerEmail.trim();
+        setVerifyPendingEmail(pendingTarget);
+        setVerifyNotice(
+          data.message ||
+            "Account created! Check your email for the verification link before signing in."
+        );
+        setAuthMode("signin");
+        setSignInEmail(pendingTarget);
+        setRegisterPassword("");
+        setRegisterConfirmPassword("");
+        return;
       }
 
       setUser(data.user ?? null);
@@ -870,10 +900,46 @@ export default function AccountMenu({ className = "" }: AccountMenuProps) {
                 </button>
               </div>
 
-              {authError && (
-                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800/70 text-rose-800 dark:text-rose-300 text-xs flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
-                  <span>{authError}</span>
+              {(authError || verifyNotice || verifyPendingEmail) && (
+                <div className="space-y-2">
+                  {authError && (
+                    <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800/70 text-rose-800 dark:text-rose-300 text-xs flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+                      <span>{authError}</span>
+                    </div>
+                  )}
+                  {verifyNotice && (
+                    <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800/70 text-emerald-800 dark:text-emerald-300 text-xs">
+                      {verifyNotice}
+                    </div>
+                  )}
+                  {verifyPendingEmail && (
+                    <button
+                      type="button"
+                      disabled={resendBusy}
+                      onClick={async () => {
+                        setResendBusy(true);
+                        try {
+                          const r = await fetch("/api/auth/resend-verification", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ email: verifyPendingEmail }),
+                          });
+                          const d = await r.json();
+                          setVerifyNotice(
+                            d.message || d.error || "Verification email requested."
+                          );
+                        } catch {
+                          setVerifyNotice("Unable to resend verification link right now.");
+                        } finally {
+                          setResendBusy(false);
+                        }
+                      }}
+                      className="w-full py-2 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-bold transition cursor-pointer disabled:opacity-50"
+                    >
+                      {resendBusy ? "Sending..." : `Resend verification link to ${verifyPendingEmail}`}
+                    </button>
+                  )}
                 </div>
               )}
 

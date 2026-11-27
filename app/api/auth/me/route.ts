@@ -20,6 +20,7 @@ export async function GET(request: Request) {
     avatar_url: user.avatar_url ?? null,
     theme_preference: user.theme_preference ?? null,
     accent_preference: user.accent_preference ?? null,
+    email_verified: Boolean(user.email_verified),
   };
 
   return NextResponse.json(

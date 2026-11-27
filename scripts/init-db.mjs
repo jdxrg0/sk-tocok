@@ -62,6 +62,7 @@ async function main() {
       avatar_url        TEXT,
       auth_provider     TEXT DEFAULT 'email',
       google_id         TEXT,
+      email_verified    BOOLEAN NOT NULL DEFAULT FALSE,
       theme_preference  TEXT,
       accent_preference TEXT,
       created_at        TIMESTAMPTZ DEFAULT NOW()
@@ -70,6 +71,18 @@ async function main() {
 
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS theme_preference TEXT`;
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS accent_preference TEXT`;
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE`;
+  await sql`
+    CREATE TABLE IF NOT EXISTS email_verification_tokens (
+      id         SERIAL PRIMARY KEY,
+      user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token_hash TEXT UNIQUE NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      used_at    TIMESTAMPTZ,
+      created_ip TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
 
   await sql`
     CREATE TABLE IF NOT EXISTS settings (
@@ -259,6 +272,24 @@ async function main() {
   await sql`
     CREATE INDEX IF NOT EXISTS idx_device_identities_alias
     ON anonymous_device_identities (alias)
+  `;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS anonymous_message_likes (
+      message_id INTEGER NOT NULL REFERENCES anonymous_messages(id) ON DELETE CASCADE,
+      device_id  VARCHAR(100) NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (message_id, device_id)
+    )
+  `;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS anonymous_reply_likes (
+      reply_id   INTEGER NOT NULL REFERENCES anonymous_message_replies(id) ON DELETE CASCADE,
+      device_id  VARCHAR(100) NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (reply_id, device_id)
+    )
   `;
 
   await sql`

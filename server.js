@@ -8,6 +8,10 @@ const hostname = 'localhost';
 
 const hasBuild = fs.existsSync(path.join(__dirname, '.next', 'BUILD_ID'));
 const dev = process.argv.includes('--dev') || process.env.NODE_ENV === 'development' || (!hasBuild && process.env.NODE_ENV !== 'production');
+if (dev && process.env.NODE_ENV === 'production') {
+  console.error('[Server] Missing .next/BUILD_ID in production mode. Refusing to start in dev mode.');
+  process.exit(1);
+}
 
 console.log(`[Server] Starting Next.js (mode: ${dev ? 'DEVELOPMENT' : 'PRODUCTION'}, port: ${port})...`);
 
@@ -38,6 +42,11 @@ app.prepare().then(() => {
       if (!res.headersSent) {
         res.statusCode = 500;
         res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.setHeader('X-Frame-Options', 'DENY');
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+        res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=()');
+        res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'");
         res.end(`<!DOCTYPE html><html><head><title>500 - Server Error</title><meta name="viewport" content="width=device-width, initial-scale=1"></head><body style="font-family:system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#0f172a;color:#f8fafc"><div style="text-align:center;padding:2rem"><h1 style="font-size:2rem;margin-bottom:0.5rem">500 - Server Error</h1><p style="color:#94a3b8">The server encountered an error processing your request. Please try refreshing.</p></div></body></html>`);
       }
     }

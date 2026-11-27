@@ -10,9 +10,18 @@ import VercelBlobStatusCard, { type BlobStatusData } from "@/components/VercelBl
 import AttendanceTracker from "@/components/AttendanceTracker";
 import CseAdminManager from "@/components/CseAdminManager";
 import SearchModal from "@/components/SearchModal";
-import { useAuth, isOfficialRole } from "@/components/AuthProvider";
+import {
+  useAuth,
+  isOfficialRole,
+  isSuperAdminRole,
+  isTreasuryRole,
+} from "@/components/AuthProvider";
 import { STANDARD_CSE_BATCHES } from "@/lib/cse";
-import { sanitizeSafeUrl } from "@/lib/clientUrlSafety";
+import {
+  sanitizeEmailHref,
+  sanitizePhoneHref,
+  sanitizeSafeUrl,
+} from "@/lib/clientUrlSafety";
 import {
   getVerticalRailPillStyle,
   useTabPanelDirection,
@@ -346,10 +355,19 @@ export default function AdminDashboardClient() {
     registerNavigationGuard,
   } = useAuth();
   const isOfficial = isOfficialRole(currentUser?.role);
+  const isSuperAdmin = isSuperAdminRole(currentUser?.role);
+  const isTreasury = isTreasuryRole(currentUser?.role);
 
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<AdminTabId>("queue");
-  const tabAnimClass = useTabPanelDirection(activeTab, ADMIN_TAB_ORDER);
+  const visibleTabOrder = useMemo(
+    () =>
+      ADMIN_TAB_ORDER.filter((id) =>
+        id === "accounts" || id === "settings" ? isSuperAdmin : true
+      ),
+    [isSuperAdmin]
+  );
+  const tabAnimClass = useTabPanelDirection(activeTab, visibleTabOrder);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -365,8 +383,12 @@ export default function AdminDashboardClient() {
   const tabs = [
     { id: 'queue', label: 'Print Queue', shortLabel: 'Queue', icon: Printer },
     { id: 'cse', label: 'Exam Subsidies', shortLabel: 'Exam Grant', icon: GraduationCap },
-    { id: 'accounts', label: 'Student Accounts', shortLabel: 'Accounts', icon: KeyRound },
-    { id: 'settings', label: 'System Settings', shortLabel: 'Settings', icon: Settings },
+    ...(isSuperAdmin
+      ? ([
+          { id: 'accounts', label: 'Student Accounts', shortLabel: 'Accounts', icon: KeyRound },
+          { id: 'settings', label: 'System Settings', shortLabel: 'Settings', icon: Settings },
+        ] as const)
+      : []),
   ] as const;
   const [activeLedger, setActiveLedger] = useState<"expenses" | "deposits">("expenses");
 
@@ -692,16 +714,20 @@ export default function AdminDashboardClient() {
   useEffect(() => {
     if (isOfficial) {
       loadQueueData();
-      loadExpenseData();
-      loadDepositsData();
-      loadCategoriesData();
-      loadSettingsData();
-      loadDbStatus();
-      loadDriveStatus();
-      loadBlobStatus();
-      loadOfficialsData();
+      if (isTreasury) {
+        loadExpenseData();
+        loadDepositsData();
+        loadCategoriesData();
+      }
+      if (isSuperAdmin) {
+        loadSettingsData();
+        loadDbStatus();
+        loadDriveStatus();
+        loadBlobStatus();
+        loadOfficialsData();
+      }
     }
-  }, [currentUser?.id, isOfficial]);
+  }, [currentUser?.id, isOfficial, isSuperAdmin, isTreasury]);
 
   const loadQueueData = async (silent = false) => {
     try {
@@ -1524,7 +1550,7 @@ export default function AdminDashboardClient() {
     }
     setActiveTab(tabId);
     resetTabScroll();
-    if (tabId === "settings") {
+    if (tabId === "settings" && isSuperAdmin) {
       loadDbStatus();
       loadDriveStatus();
       loadBlobStatus();
@@ -4213,7 +4239,7 @@ export default function AdminDashboardClient() {
                 </div>
 
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  <a href={`mailto:${user.email}`} className="hover:text-brand-700 dark:hover:text-brand-300 transition-colors">
+                  <a href={sanitizeEmailHref(user.email)} className="hover:text-brand-700 dark:hover:text-brand-300 transition-colors">
                     {user.email}
                   </a>
                 </p>
@@ -4221,7 +4247,7 @@ export default function AdminDashboardClient() {
                 {user.contact_number && (
                   <p className="text-xs text-slate-400 dark:text-slate-500">
                     Contact:{" "}
-                    <a href={`tel:${user.contact_number}`} className="hover:text-brand-700 dark:hover:text-brand-300 font-mono transition-colors">
+                    <a href={sanitizePhoneHref(user.contact_number)} className="hover:text-brand-700 dark:hover:text-brand-300 font-mono transition-colors">
                       {user.contact_number}
                     </a>
                   </p>
@@ -4283,14 +4309,14 @@ export default function AdminDashboardClient() {
                   </div>
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400 truncate" title={user.email}>
-                  <a href={`mailto:${user.email}`} className="hover:text-brand-700 dark:hover:text-brand-300 transition-colors">
+                  <a href={sanitizeEmailHref(user.email)} className="hover:text-brand-700 dark:hover:text-brand-300 transition-colors">
                     {user.email}
                   </a>
                 </p>
                 {user.contact_number && (
                   <p className="text-xs text-slate-400 dark:text-slate-500 truncate">
                     Contact:{" "}
-                    <a href={`tel:${user.contact_number}`} className="hover:text-brand-700 dark:hover:text-brand-300 font-mono transition-colors">
+                    <a href={sanitizePhoneHref(user.contact_number)} className="hover:text-brand-700 dark:hover:text-brand-300 font-mono transition-colors">
                       {user.contact_number}
                     </a>
                   </p>
@@ -4556,7 +4582,7 @@ export default function AdminDashboardClient() {
                             <div className="flex items-center gap-1.5 min-w-0">
                               <Mail className="w-3 h-3 text-slate-400 shrink-0" />
                               <a
-                                href={`mailto:${user.email}`}
+                                href={sanitizeEmailHref(user.email)}
                                 className="font-mono truncate hover:text-brand-700 dark:hover:text-brand-300"
                                 title={user.email}
                               >
@@ -4566,7 +4592,7 @@ export default function AdminDashboardClient() {
                                 <>
                                   <span className="text-slate-300 dark:text-slate-600 shrink-0">•</span>
                                   <a
-                                    href={`tel:${user.contact_number}`}
+                                    href={sanitizePhoneHref(user.contact_number)}
                                     className="font-mono truncate hover:text-brand-700 dark:hover:text-brand-300 shrink-0"
                                   >
                                     {user.contact_number}
@@ -4766,7 +4792,7 @@ export default function AdminDashboardClient() {
                                     <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium flex items-center gap-1 mt-0.5 truncate">
                                       <Phone className="w-2.5 h-2.5 text-slate-400 shrink-0" />
                                       <a
-                                        href={`tel:${user.contact_number}`}
+                                        href={sanitizePhoneHref(user.contact_number)}
                                         className="hover:text-brand-700 dark:hover:text-brand-300 font-mono transition-colors"
                                       >
                                         {user.contact_number}
@@ -4784,7 +4810,7 @@ export default function AdminDashboardClient() {
                             {/* Email Address */}
                             <td className="py-3.5 px-3 sm:px-4 min-w-0">
                               <a
-                                href={`mailto:${user.email}`}
+                                href={sanitizeEmailHref(user.email)}
                                 className="text-xs text-slate-700 dark:text-slate-300 hover:text-brand-700 dark:hover:text-brand-300 font-mono transition-colors truncate block"
                                 title={user.email}
                               >
@@ -5030,7 +5056,7 @@ export default function AdminDashboardClient() {
                           <span className="text-slate-400 dark:text-slate-500 text-[10px] block">Contact Number</span>
                           {selectedJob.contact_number ? (
                             <a
-                              href={`tel:${selectedJob.contact_number}`}
+                              href={sanitizePhoneHref(selectedJob.contact_number)}
                               className="font-semibold text-brand-700 dark:text-brand-400 hover:underline"
                             >
                               {selectedJob.contact_number}
@@ -6699,7 +6725,7 @@ export default function AdminDashboardClient() {
                   {selectedDepositSlip.attachment_url ? (
                     /* eslint-disable-next-line @next/next/no-img-element */
                     <img
-                      src={selectedDepositSlip.attachment_url}
+                      src={sanitizeSafeUrl(selectedDepositSlip.attachment_url)}
                       alt="Official Bank Deposit Slip"
                       className="w-full max-w-xl h-auto rounded-lg shadow-xs bg-white mx-auto block"
                     />

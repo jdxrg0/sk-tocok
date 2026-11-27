@@ -224,8 +224,21 @@ export function auditEnvironmentConfig(): {
     note: googleId && googleSecret ? "OAuth client ID + secret configured" : "Partial or unconfigured",
   });
 
+  const proxyTrusted =
+    process.env.VERCEL === "1" ||
+    process.env.TRUST_PROXY === "true" ||
+    process.env.TRUST_CLOUDFLARE === "true";
+  items.push({
+    key: "PROXY_IP_TRUST",
+    configured: proxyTrusted,
+    valid: process.env.NODE_ENV !== "production" || proxyTrusted,
+    note: proxyTrusted
+      ? "Trusted reverse-proxy IP headers configured"
+      : "Unconfigured in production (rate limits and security logs collapse to 127.0.0.1)",
+  });
+
   return {
-    healthy: items.slice(0, 2).every((i) => i.configured && i.valid),
+    healthy: items.slice(0, 2).every((i) => i.configured && i.valid) && (process.env.NODE_ENV !== "production" || proxyTrusted),
     items,
   };
 }

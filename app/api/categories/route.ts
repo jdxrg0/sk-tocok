@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
-import { getCurrentUser, isOfficialUser } from "@/lib/auth";
-import { ALLOWED_CATEGORY_COLORS, parseMoney, sanitizeText } from "@/lib/validation";
+import { getCurrentUser, isTreasuryUser } from "@/lib/auth";
+import { ALLOWED_CATEGORY_COLORS, parseMoney, parsePositiveIntId, sanitizeText } from "@/lib/validation";
 import { invalidateAllTransparencyCache } from "@/lib/transparencyCache";
 
 export const dynamic = "force-dynamic";
@@ -35,7 +35,7 @@ export async function POST(request: Request) {
   try {
     const user = await getCurrentUser(request);
     if (!user) return NextResponse.json({ error: "Unauthorized access. Please log in." }, { status: 401 });
-    if (!isOfficialUser(user)) return NextResponse.json({ error: "Forbidden: SK Officials only." }, { status: 403 });
+    if (!isTreasuryUser(user)) return NextResponse.json({ error: "Forbidden: SK Chairperson or SK Treasurer privileges required." }, { status: 403 });
 
     const body = await request.json().catch(() => ({}));
     const name = sanitizeText(body?.name, 100);
@@ -70,17 +70,17 @@ export async function PUT(request: Request) {
   try {
     const user = await getCurrentUser(request);
     if (!user) return NextResponse.json({ error: "Unauthorized access. Please log in." }, { status: 401 });
-    if (!isOfficialUser(user)) return NextResponse.json({ error: "Forbidden: SK Officials only." }, { status: 403 });
+    if (!isTreasuryUser(user)) return NextResponse.json({ error: "Forbidden: SK Chairperson or SK Treasurer privileges required." }, { status: 403 });
 
     const body = await request.json().catch(() => ({}));
-    const id = Number(body?.id);
+    const id = parsePositiveIntId(body?.id);
     const newName = sanitizeText(body?.name, 100);
     const description = sanitizeText(body?.description, 500);
     const rawColor = sanitizeText(body?.color || "blue", 30).toLowerCase();
     const color = COLOR_SET.has(rawColor) ? rawColor : "blue";
     const allocated_budget = parseMoney(body?.allocated_budget ?? 0, { min: 0 }) ?? 0;
 
-    if (!Number.isInteger(id) || id <= 0 || !newName || newName.length < 2) {
+    if (!id || !newName || newName.length < 2) {
       return NextResponse.json({ error: "Valid Category ID and name are required." }, { status: 400 });
     }
 
@@ -114,11 +114,11 @@ export async function DELETE(request: Request) {
   try {
     const user = await getCurrentUser(request);
     if (!user) return NextResponse.json({ error: "Unauthorized access. Please log in." }, { status: 401 });
-    if (!isOfficialUser(user)) return NextResponse.json({ error: "Forbidden: SK Officials only." }, { status: 403 });
+    if (!isTreasuryUser(user)) return NextResponse.json({ error: "Forbidden: SK Chairperson or SK Treasurer privileges required." }, { status: 403 });
 
     const { searchParams } = new URL(request.url);
-    const id = Number(searchParams.get("id"));
-    if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: "Valid Category ID is required." }, { status: 400 });
+    const id = parsePositiveIntId(searchParams.get("id"));
+    if (!id) return NextResponse.json({ error: "Valid Category ID is required." }, { status: 400 });
 
     const catRows = await sql`SELECT id, name FROM categories WHERE id = ${id}`;
     if (catRows.length === 0) return NextResponse.json({ error: "Category not found." }, { status: 404 });

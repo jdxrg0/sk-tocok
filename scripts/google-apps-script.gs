@@ -9,9 +9,17 @@
  * - Also includes `organizeExistingFiles()` — select it in the toolbar and click Run
  *   once to move all existing files in the root folder into their matching subfolders
  *   (file IDs and website links stay 100% intact!).
+ * - Set Script Properties `APPS_SCRIPT_WEBHOOK_SECRET` and
+ *   `GOOGLE_DRIVE_ROOT_FOLDER_ID` under Project Settings -> Script Properties.
  */
 
-const ROOT_FOLDER_ID = "19FqYtuc2xCR2K9KQi9lsoRf_Ei8oJAVc";
+function getRootFolderId_() {
+  const folderId = PropertiesService.getScriptProperties().getProperty("GOOGLE_DRIVE_ROOT_FOLDER_ID");
+  if (!folderId) {
+    throw new Error("Missing Script Property: GOOGLE_DRIVE_ROOT_FOLDER_ID");
+  }
+  return folderId.trim();
+}
 
 function getOrCreateSubfolder_(rootFolder, subfolderName) {
   const cleanName = String(subfolderName || "").trim();
@@ -42,7 +50,7 @@ function doPost(e) {
       throw new Error("Missing base64 file content");
     }
 
-    const rootFolder = DriveApp.getFolderById(ROOT_FOLDER_ID);
+    const rootFolder = DriveApp.getFolderById(getRootFolderId_());
     let targetFolder = rootFolder;
 
     // Priority 1: Use explicit subfolder name ("Vouchers", "Deposits", "Officials", "Prints")
@@ -62,10 +70,10 @@ function doPost(e) {
     const file = targetFolder.createFile(blob);
 
     const isPrivate =
-      payload.isPrivate === true ||
+      payload.isPrivate !== false ||
       String(payload.folder || "").trim().toLowerCase() === "prints";
 
-    // Keep private student print uploads restricted; share public transparency assets by link
+    // Keep Drive uploads restricted and stream via /api/drive/<fileId> unless explicitly public-legacy
     if (isPrivate) {
       try {
         file.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE);
@@ -98,7 +106,7 @@ function doPost(e) {
  * Officials/, and Prints/ without changing any file IDs or breaking links.
  */
 function organizeExistingFiles() {
-  const rootFolder = DriveApp.getFolderById(ROOT_FOLDER_ID);
+  const rootFolder = DriveApp.getFolderById(getRootFolderId_());
   const folders = {
     Vouchers: getOrCreateSubfolder_(rootFolder, "Vouchers"),
     Deposits: getOrCreateSubfolder_(rootFolder, "Deposits"),

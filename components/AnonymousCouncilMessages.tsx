@@ -972,14 +972,13 @@ export default function AnonymousCouncilMessages({
     }
   }, []);
 
-  // Retrieve or initialize persistent anonymous alias from localStorage so it doesn't change every time
+  // Resolve and initialize persistent alias bound to the server's signed HttpOnly device session cookie
   useEffect(() => {
     if (typeof window !== "undefined") {
       let storedAlias = "";
-      let storedDeviceId = "";
       try {
+        localStorage.removeItem("sk_tocok_device_id");
         storedAlias = localStorage.getItem("sk_tocok_anon_alias") || "";
-        storedDeviceId = localStorage.getItem("sk_tocok_device_id") || "";
         if (storedAlias.trim()) {
           setFormAlias(storedAlias.trim());
         }
@@ -987,22 +986,13 @@ export default function AnonymousCouncilMessages({
         // ignore
       }
 
-      // Query server to verify and lock permanent device-bound alias
-      fetch("/api/messages/alias", {
-        headers: {
-          ...(storedDeviceId ? { "x-device-id": storedDeviceId } : {}),
-          ...(storedAlias ? { "x-stored-alias": storedAlias } : {}),
-        },
-      })
+      fetch("/api/messages/alias")
         .then((res) => res.json())
         .then((data) => {
           if (data && data.success && data.alias) {
             setFormAlias(data.alias);
             try {
               localStorage.setItem("sk_tocok_anon_alias", data.alias);
-              if (data.device_id) {
-                localStorage.setItem("sk_tocok_device_id", data.device_id);
-              }
             } catch {
               // ignore
             }
@@ -1330,12 +1320,10 @@ export default function AnonymousCouncilMessages({
     setSubmittingReply((prev) => ({ ...prev, [messageId]: true }));
 
     try {
-      const storedDeviceId = typeof window !== "undefined" ? localStorage.getItem("sk_tocok_device_id") || "" : "";
       const res = await fetch(`/api/messages/${messageId}/replies`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(storedDeviceId ? { "x-device-id": storedDeviceId } : {}),
         },
         body: JSON.stringify({
           alias: currentAlias,
@@ -1351,11 +1339,6 @@ export default function AnonymousCouncilMessages({
           setFormAlias(data.reply.alias);
           try {
             localStorage.setItem("sk_tocok_anon_alias", data.reply.alias);
-          } catch {}
-        }
-        if (data.device_id) {
-          try {
-            localStorage.setItem("sk_tocok_device_id", data.device_id);
           } catch {}
         }
         setNewlyAddedReplyId(data.reply.id);
@@ -1600,12 +1583,10 @@ export default function AnonymousCouncilMessages({
             : firstLine
           : "Community Suggestion";
 
-      const storedDeviceId = typeof window !== "undefined" ? localStorage.getItem("sk_tocok_device_id") || "" : "";
       const res = await fetch("/api/messages", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(storedDeviceId ? { "x-device-id": storedDeviceId } : {}),
         },
         body: JSON.stringify({
           category: "Suggestion",
@@ -1626,10 +1607,11 @@ export default function AnonymousCouncilMessages({
             localStorage.setItem("sk_tocok_anon_alias", data.alias);
           } catch {}
         }
-        if (data.device_id) {
-          try {
-            localStorage.setItem("sk_tocok_device_id", data.device_id);
-          } catch {}
+        if (data.is_public === false && data.tracking_code) {
+          setToast({
+            type: "success",
+            message: `Received privately for SK Council review (Code: ${data.tracking_code})`,
+          });
         }
         handleCloseAddModal();
         setFormMessage("");

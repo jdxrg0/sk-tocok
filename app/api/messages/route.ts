@@ -34,6 +34,7 @@ export async function GET(request: Request) {
         bucket: "messages_search",
         max: 60,
         windowMs: 60 * 1000,
+        persistToDb: true,
       });
       if (!searchLimit.allowed) {
         return rateLimitExceededResponse(searchLimit.retryAfterSeconds);
@@ -43,6 +44,8 @@ export async function GET(request: Request) {
     const isPopular = sort === "popular" || sort === "top";
     const isDiscussed = sort === "discussed";
     const isOldest = sort === "oldest";
+    const rawLimit = parseInt(searchParams.get("limit") || "500", 10);
+    const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 1000) : 500;
 
     // Fetch category counts for approved public messages
     const [countsRows, messagesRows] = await Promise.all([
@@ -74,6 +77,7 @@ export async function GET(request: Request) {
             WHERE m.is_public = TRUE AND m.status != 'rejected' AND m.status != 'archived'
             GROUP BY m.id
             ORDER BY m.is_pinned DESC, m.likes_count DESC, m.created_at DESC
+            LIMIT ${limit}
           `
         : isDiscussed
         ? sql`
@@ -97,6 +101,7 @@ export async function GET(request: Request) {
             WHERE m.is_public = TRUE AND m.status != 'rejected' AND m.status != 'archived'
             GROUP BY m.id
             ORDER BY m.is_pinned DESC, COUNT(r.id) DESC, m.created_at DESC
+            LIMIT ${limit}
           `
         : isOldest
         ? sql`
@@ -120,6 +125,7 @@ export async function GET(request: Request) {
             WHERE m.is_public = TRUE AND m.status != 'rejected' AND m.status != 'archived'
             GROUP BY m.id
             ORDER BY m.is_pinned DESC, m.created_at ASC
+            LIMIT ${limit}
           `
         : sql`
             SELECT 
@@ -142,6 +148,7 @@ export async function GET(request: Request) {
             WHERE m.is_public = TRUE AND m.status != 'rejected' AND m.status != 'archived'
             GROUP BY m.id
             ORDER BY m.is_pinned DESC, m.created_at DESC
+            LIMIT ${limit}
           `,
     ]);
 
@@ -274,6 +281,10 @@ export async function POST(request: Request) {
       trackingCode = generateTrackingCode();
     }
 
+    const requiresModeration = validCategory === "Concern / Grievance";
+    const initialStatus = requiresModeration ? "pending" : "approved";
+    const initialIsPublic = !requiresModeration;
+
     const rows = await sql`
       INSERT INTO anonymous_messages (
         tracking_code,
@@ -294,8 +305,8 @@ export async function POST(request: Request) {
         ${validPurok},
         ${cleanSubject},
         ${cleanMessage},
-        'approved',
-        TRUE,
+        ${initialStatus},
+        ${initialIsPublic},
         FALSE
       )
       RETURNING id, tracking_code, created_at
@@ -306,8 +317,11 @@ export async function POST(request: Request) {
       id: rows[0].id,
       tracking_code: rows[0].tracking_code,
       alias: cleanAlias,
-      message:
-        "Your anonymous post is live! You can use your tracking code to follow up anytime.",
+      status: initialStatus,
+      is_public: initialIsPublic,
+      message: requiresModeration
+        ? "Your concern was submitted privately to the SK Council for review. Save your tracking code to view responses."
+        : "Your anonymous post is live! You can use your tracking code to follow up anytime.",
     });
 
     return await attachDeviceCookie(res, deviceIdentity.deviceId, request);

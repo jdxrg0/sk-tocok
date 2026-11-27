@@ -30,3 +30,17 @@ export function sanitizeSafeUrl(
     return "#";
   }
 }
+
+export function sanitizeEmailHref(email: string | null | undefined): string {
+  if (!email || typeof email !== "string") return "#";
+  const clean = email.replace(/[\x00-\x1F\x7F?#\s]/g, "").trim();
+  if (!clean || !clean.includes("@")) return "#";
+  return `mailto:${clean}`;
+}
+
+export function sanitizePhoneHref(phone: string | null | undefined): string {
+  if (!phone || typeof phone !== "string") return "#";
+  const clean = phone.replace(/[^+\d()\-\s]/g, "").trim();
+  if (!clean) return "#";
+  return `tel:${clean}`;
+}

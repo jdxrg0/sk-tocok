@@ -5,7 +5,7 @@ const isProd = process.env.NODE_ENV === "production";
 
 const cspDirectives = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline'${isProd ? "" : " 'unsafe-eval'"} https://accounts.google.com/gsi/client`,
+  `script-src 'self'${isProd ? "" : " 'unsafe-eval'"} https://accounts.google.com/gsi/client`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https://api.dicebear.com https://lh3.googleusercontent.com https://*.googleusercontent.com https://drive.google.com https://*.public.blob.vercel-storage.com",
   "font-src 'self' data:",
@@ -41,7 +41,7 @@ const securityHeaders = [
 const nextConfig = {
   ...(process.env.NEXT_DIST_DIR ? { distDir: process.env.NEXT_DIST_DIR } : {}),
   devIndicators: false,
-  reactStrictMode: false,
+  reactStrictMode: true,
   poweredByHeader: false,
   productionBrowserSourceMaps: false,
   images: {
@@ -60,7 +60,7 @@ const nextConfig = {
         ],
       }),
   eslint: {
-    ignoreDuringBuilds: true,
+    ignoreDuringBuilds: false,
   },
   typescript: {
     ignoreBuildErrors: false,
