@@ -12,6 +12,7 @@ export async function GET(request: Request) {
       bucket: "messages_track",
       max: 30,
       windowMs: 15 * 60 * 1000,
+      persistToDb: true,
     });
     if (!limit.allowed) {
       return rateLimitExceededResponse(limit.retryAfterSeconds);

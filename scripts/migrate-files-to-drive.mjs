@@ -17,6 +17,7 @@ if (fs.existsSync(".env.local") && typeof process.loadEnvFile === "function") {
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const APPS_SCRIPT_URL = process.env.GOOGLE_APPS_SCRIPT_URL;
+const WEBHOOK_SECRET = process.env.APPS_SCRIPT_WEBHOOK_SECRET;
 
 if (!DATABASE_URL || !APPS_SCRIPT_URL) {
   console.error("Missing DATABASE_URL or GOOGLE_APPS_SCRIPT_URL in .env.local");
@@ -38,12 +39,19 @@ function extractDriveFileId(rawId, rawUrl) {
   return null;
 }
 
-async function uploadToDrive({ fileName, mimeType, base64, folder }) {
+async function uploadToDrive({ fileName, mimeType, base64, folder, isPrivate }) {
   for (let attempt = 1; attempt <= 3; attempt++) {
     const res = await fetch(APPS_SCRIPT_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ fileName, mimeType, base64, folder }),
+      body: JSON.stringify({
+        ...(WEBHOOK_SECRET ? { webhookSecret: WEBHOOK_SECRET } : {}),
+        fileName,
+        mimeType,
+        base64,
+        folder,
+        isPrivate: Boolean(isPrivate),
+      }),
       redirect: "follow",
     });
 
@@ -114,6 +122,7 @@ async function main() {
       mimeType: row.mime_type || "application/octet-stream",
       base64: row.data_base64,
       folder: driveFolder,
+      isPrivate: row.folder === "prints",
     });
 
     const proxyUrl = `/api/drive/${uploaded.fileId}`;
@@ -122,7 +131,7 @@ async function main() {
     await sql`UPDATE expenses SET receipt_url = ${proxyUrl} WHERE receipt_url = ${oldUrl}`;
     await sql`UPDATE deposits SET attachment_url = ${proxyUrl} WHERE attachment_url = ${oldUrl}`;
     await sql`UPDATE users SET avatar_url = ${proxyUrl} WHERE avatar_url = ${oldUrl}`;
-    await sql`UPDATE print_requests SET file_path = ${uploaded.webViewLink} WHERE file_path = ${oldUrl}`;
+    await sql`UPDATE print_requests SET file_path = ${proxyUrl} WHERE file_path = ${oldUrl}`;
 
     // Remove binary from Neon Postgres now that Google Drive has it safely
     await sql`DELETE FROM stored_files WHERE id = ${row.id}`;

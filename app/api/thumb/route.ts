@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import sharp from "sharp";
 import { validatePublicExternalUrl } from "@/lib/urlSafety";
+import { checkRateLimit, rateLimitExceededResponse } from "@/lib/rateLimit";
 import { logSecurityEvent } from "@/lib/securityLogger";
+import { snapThumbnailWidth } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
 
@@ -17,13 +19,20 @@ const MAX_REMOTE_IMAGE_BYTES = 10 * 1024 * 1024;
 
 export async function GET(request: Request) {
   try {
+    const limit = await checkRateLimit({
+      request,
+      bucket: "thumb_proxy",
+      max: 60,
+      windowMs: 60 * 1000,
+    });
+    if (!limit.allowed) {
+      return rateLimitExceededResponse(limit.retryAfterSeconds);
+    }
+
     const { searchParams } = new URL(request.url);
     const targetUrl = (searchParams.get("url") || "").trim();
     const widthParam = searchParams.get("w") || searchParams.get("width");
-    const targetWidth = Math.min(
-      Math.max(parseInt(widthParam || "400", 10) || 400, 50),
-      1200
-    );
+    const targetWidth = snapThumbnailWidth(widthParam, [200, 400, 800, 1200]) || 400;
 
     if (!targetUrl) {
       return NextResponse.json(

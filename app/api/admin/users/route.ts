@@ -10,6 +10,7 @@ import {
   validatePasswordStrength,
 } from "@/lib/validation";
 import { sanitizeSafeUrl } from "@/lib/urlSafety";
+import { getTrustedSiteOrigin } from "@/lib/env";
 import { extractClientIp, logSecurityEvent } from "@/lib/securityLogger";
 import { createPasswordResetToken, RESET_TOKEN_TTL_MINUTES } from "@/lib/passwordReset";
 
@@ -31,6 +32,7 @@ export async function GET(request: Request) {
       SELECT id, name, email, role, contact_number, avatar_url, created_at, auth_provider,
              COALESCE(must_change_password, FALSE) AS must_change_password
       FROM users
+      WHERE LOWER(TRIM(COALESCE(role, ''))) NOT IN ('student', 'guest', '')
       ORDER BY id ASC
     `;
     return NextResponse.json({ success: true, users });
@@ -81,7 +83,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "An account with this email already exists" }, { status: 400 });
     }
 
-    const hash = bcrypt.hashSync(password, 12);
+    const hash = await bcrypt.hash(password, 12);
     const inserted = await sql`
       INSERT INTO users (name, email, password_hash, role, contact_number, avatar_url, token_version, must_change_password)
       VALUES (
@@ -168,7 +170,7 @@ export async function PUT(request: Request) {
       if (pwdErr) {
         return NextResponse.json({ error: pwdErr }, { status: 400 });
       }
-      const hash = bcrypt.hashSync(password, 12);
+      const hash = await bcrypt.hash(password, 12);
       await sql`
         UPDATE users
         SET name = ${cleanName},
@@ -240,9 +242,7 @@ export async function PATCH(request: Request) {
       RESET_TOKEN_TTL_MINUTES
     );
 
-    const origin =
-      process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
-      new URL(request.url).origin;
+    const origin = getTrustedSiteOrigin(request);
     const resetUrl = `${origin}/reset-password?token=${encodeURIComponent(rawToken)}`;
 
     await logSecurityEvent({

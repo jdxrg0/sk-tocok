@@ -17,6 +17,7 @@ export async function GET(request: Request) {
       bucket: "reset_password_check",
       max: 20,
       windowMs: 15 * 60 * 1000,
+      persistToDb: true,
     });
     if (!limit.allowed) {
       return rateLimitExceededResponse(limit.retryAfterSeconds);

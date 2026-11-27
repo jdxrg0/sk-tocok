@@ -6,13 +6,14 @@ import {
   attachDeviceCookie,
 } from "@/lib/deviceIdentity";
 import { checkRateLimit, rateLimitExceededResponse } from "@/lib/rateLimit";
-import { sanitizeText } from "@/lib/validation";
+import { getCurrentUser, isOfficialUser } from "@/lib/auth";
+import { parsePositiveIntId, sanitizeText } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
 
 /**
  * GET /api/messages/[id]/replies
- * Get all anonymous replies for a message/post
+ * Get all anonymous replies for a public message/post (or any post for SK Officials)
  */
 export async function GET(
   request: Request,
@@ -22,12 +23,32 @@ export async function GET(
     await ensureMessagesTable();
 
     const { id } = await params;
-    const messageId = parseInt(id, 10);
-    if (isNaN(messageId) || messageId <= 0) {
+    const messageId = parsePositiveIntId(id);
+    if (!messageId) {
       return NextResponse.json(
         { success: false, error: "Invalid post ID" },
         { status: 400 }
       );
+    }
+
+    const user = await getCurrentUser(request);
+    const isAdmin = isOfficialUser(user);
+
+    if (!isAdmin) {
+      const parentCheck = await sql`
+        SELECT id
+        FROM anonymous_messages
+        WHERE id = ${messageId}
+          AND is_public = TRUE
+          AND status NOT IN ('rejected', 'archived')
+        LIMIT 1
+      `;
+      if (parentCheck.length === 0) {
+        return NextResponse.json(
+          { success: false, error: "Post not found or not public." },
+          { status: 404 }
+        );
+      }
     }
 
     const rows = await sql`
@@ -80,8 +101,8 @@ export async function POST(
     await ensureMessagesTable();
 
     const { id } = await params;
-    const messageId = parseInt(id, 10);
-    if (isNaN(messageId) || messageId <= 0) {
+    const messageId = parsePositiveIntId(id);
+    if (!messageId) {
       return NextResponse.json(
         { success: false, error: "Invalid post ID" },
         { status: 400 }
@@ -152,7 +173,6 @@ export async function POST(
     const res = NextResponse.json({
       success: true,
       reply: rows[0],
-      device_id: deviceIdentity.deviceId,
     });
 
     return await attachDeviceCookie(res, deviceIdentity.deviceId, request);

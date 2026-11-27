@@ -6463,7 +6463,9 @@ export default function AdminDashboardClient() {
                         router.replace("/");
                         router.refresh();
                       } else if (pendingHref) {
-                        window.location.href = pendingHref;
+                        if (pendingHref.startsWith("/") && !pendingHref.startsWith("//")) {
+                          window.location.href = pendingHref;
+                        }
                         setPendingHref(null);
                       }
                     }
@@ -6493,7 +6495,9 @@ export default function AdminDashboardClient() {
                       router.replace("/");
                       router.refresh();
                     } else if (pendingHref) {
-                      window.location.href = pendingHref;
+                      if (pendingHref.startsWith("/") && !pendingHref.startsWith("//")) {
+                        window.location.href = pendingHref;
+                      }
                       setPendingHref(null);
                     }
                   }}

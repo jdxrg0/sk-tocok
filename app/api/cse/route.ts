@@ -208,7 +208,8 @@ export async function GET(request: Request) {
           created_at,
           updated_at
         FROM cse_applications 
-        WHERE user_id = ${user.id} OR (email IS NOT NULL AND LOWER(email) = LOWER(${user.email}))
+        WHERE user_id = ${user.id}
+           OR (user_id IS NULL AND user_email IS NOT NULL AND LOWER(user_email) = LOWER(${user.email}))
         ORDER BY created_at DESC
       `) as Record<string, unknown>[];
     }
@@ -448,7 +449,7 @@ export async function POST(request: Request) {
       WHERE reimbursement_status != 'Disapproved'
         AND (
           user_id = ${currentUser.id}
-          OR (email IS NOT NULL AND LOWER(email) = LOWER(${currentUser.email}))
+          OR (user_email IS NOT NULL AND LOWER(user_email) = LOWER(${currentUser.email}))
           OR (LOWER(TRIM(full_name)) = LOWER(TRIM(${fullName})) AND birthdate = ${birthdate})
         )
       ORDER BY created_at DESC

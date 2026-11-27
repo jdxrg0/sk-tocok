@@ -47,8 +47,8 @@ export const UPLOAD_POLICIES: Record<UploadPolicyCategory, UploadPolicy> = {
     allowedMimes: ["image/png", "image/jpeg", "image/webp", "application/pdf"],
   },
   print_doc: {
-    maxBytes: 100 * 1024 * 1024,
-    maxLabel: "100 MB",
+    maxBytes: 25 * 1024 * 1024,
+    maxLabel: "25 MB",
     allowedExtensions: [
       ".pdf",
       ".doc",

@@ -104,24 +104,16 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!user.password_hash && user.auth_provider === "google") {
-      return NextResponse.json(
-        {
-          error:
-            "This account was created with Google. Please use 'Continue with Google'.",
-        },
-        { status: 400 }
-      );
-    }
-
-    if (!user.password_hash || !bcrypt.compareSync(password, user.password_hash)) {
+    if (!user.password_hash || !(await bcrypt.compare(password, user.password_hash))) {
       await logSecurityEvent({
         eventType: "LOGIN_FAILED",
         severity: "warning",
         request,
         userId: user.id,
         email: user.email,
-        details: { reason: "invalid_password" },
+        details: {
+          reason: !user.password_hash && user.auth_provider === "google" ? "google_oauth_account" : "invalid_password",
+        },
       });
       return NextResponse.json(
         { error: "Invalid email or password" },

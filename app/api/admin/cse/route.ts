@@ -241,7 +241,14 @@ export async function PATCH(request: Request) {
           payout_station_or_method = ${payoutMethod},
           admin_notes = COALESCE(${adminNotes}, admin_notes),
           updated_at = NOW()
-        WHERE id = ${numericId} AND reimbursement_status != 'Reimbursed' AND attendance_status = 'Verified Attended'
+        WHERE id = ${numericId}
+          AND reimbursement_status != 'Reimbursed'
+          AND attendance_status = 'Verified Attended'
+          AND (
+            SELECT COUNT(*)::INTEGER
+            FROM cse_applications
+            WHERE reimbursement_status = 'Reimbursed' AND id != ${numericId}
+          ) < ${quota}
         RETURNING id, tracking_code
       `;
       if (updated.length === 0) {

@@ -3,6 +3,7 @@ import {
   getOrAssignDeviceIdentity,
   attachDeviceCookie,
 } from "@/lib/deviceIdentity";
+import { checkRateLimit, rateLimitExceededResponse } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
 
@@ -12,12 +13,22 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(request: Request) {
   try {
+    const limit = await checkRateLimit({
+      request,
+      bucket: "messages_alias",
+      max: 30,
+      windowMs: 15 * 60 * 1000,
+      persistToDb: true,
+    });
+    if (!limit.allowed) {
+      return rateLimitExceededResponse(limit.retryAfterSeconds);
+    }
+
     const identity = await getOrAssignDeviceIdentity(request);
 
     const res = NextResponse.json({
       success: true,
       alias: identity.alias,
-      device_id: identity.deviceId,
       is_new: identity.isNew,
     });
 

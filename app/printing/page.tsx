@@ -1513,8 +1513,8 @@ function UnifiedPrintingContent() {
   }, [formStep, validateStep1, validateStep2, scrollFormIntoView]);
 
   const validateAndAttachFile = (file: File) => {
-    if (file.size > 100 * 1024 * 1024) {
-      setSubmitError("File size exceeds 100MB limit.");
+    if (file.size > 25 * 1024 * 1024) {
+      setSubmitError("File size exceeds 25 MB limit.");
       return;
     }
     setSelectedFile(file);
@@ -3046,7 +3046,7 @@ function UnifiedPrintingContent() {
                                   <span className="hidden sm:inline">Click to browse or drop document here</span>
                                 </p>
                                 <p className="text-[10.5px] text-slate-500 dark:text-slate-400 mt-0.5">
-                                  PDF (recommended), DOCX, PPTX, JPG/PNG • Max 100 MB
+                                  PDF (recommended), DOCX, PPTX, JPG/PNG • Max 25 MB
                                 </p>
                               </div>
                             </div>
@@ -3642,7 +3642,7 @@ function UnifiedPrintingContent() {
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-brand-600 mt-1.5 shrink-0"></span>
-                  <span><strong className="text-slate-800 dark:text-slate-200">Supported formats:</strong> PDF (recommended for margins), DOCX, PPTX, JPG, and PNG up to 100 MB.</span>
+                  <span><strong className="text-slate-800 dark:text-slate-200">Supported formats:</strong> PDF (recommended for margins), DOCX, PPTX, JPG, and PNG up to 25 MB.</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-brand-600 mt-1.5 shrink-0"></span>

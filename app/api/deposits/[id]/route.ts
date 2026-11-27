@@ -7,7 +7,7 @@ import { uploadToCloudStorage } from "@/lib/googleDrive";
 import { invalidateAllTransparencyCache } from "@/lib/transparencyCache";
 import { validateUploadedFile } from "@/lib/fileValidation";
 import { logSecurityEvent } from "@/lib/securityLogger";
-import { isValidDateYMD, parseMoney, sanitizeText } from "@/lib/validation";
+import { isValidDateYMD, parseMoney, parsePositiveIntId, sanitizeText } from "@/lib/validation";
 
 export async function DELETE(
   request: Request,
@@ -19,8 +19,8 @@ export async function DELETE(
     if (!isOfficialUser(user)) return NextResponse.json({ error: "Forbidden: SK Officials only" }, { status: 403 });
 
     const { id } = await params;
-    const depositId = parseInt(id, 10);
-    if (!Number.isInteger(depositId) || depositId <= 0) {
+    const depositId = parsePositiveIntId(id);
+    if (!depositId) {
       return NextResponse.json({ error: "Invalid deposit ID" }, { status: 400 });
     }
 
@@ -59,8 +59,8 @@ export async function PUT(
     if (!isOfficialUser(user)) return NextResponse.json({ error: "Forbidden: SK Officials only" }, { status: 403 });
 
     const { id } = await params;
-    const depositId = parseInt(id, 10);
-    if (!Number.isInteger(depositId) || depositId <= 0) {
+    const depositId = parsePositiveIntId(id);
+    if (!depositId) {
       return NextResponse.json({ error: "Invalid deposit ID" }, { status: 400 });
     }
 

@@ -50,6 +50,128 @@ export function getAllowedOrigins(): string[] {
   return origins;
 }
 
+const SAFE_HOST_TOKEN_RE = /^[a-zA-Z0-9.-]+(?::\d{1,5})?$/;
+
+export function isLocalHostName(host: string): boolean {
+  const lower = host.trim().toLowerCase();
+  return (
+    lower === "localhost" ||
+    lower.startsWith("localhost:") ||
+    lower === "127.0.0.1" ||
+    lower.startsWith("127.0.0.1:") ||
+    lower === "[::1]" ||
+    lower.startsWith("[::1]:")
+  );
+}
+
+/**
+ * Returns the set of hostnames (host[:port], lowercase) explicitly trusted by deployment configuration.
+ */
+export function getConfiguredTrustedHosts(): Set<string> {
+  const hosts = new Set<string>();
+  for (const rawOrigin of getAllowedOrigins()) {
+    try {
+      hosts.add(new URL(rawOrigin).host.toLowerCase());
+    } catch {
+      // ignore
+    }
+  }
+  for (const envUrl of [process.env.NEXT_PUBLIC_SITE_URL]) {
+    const trimmed = envUrl?.trim();
+    if (!trimmed) continue;
+    try {
+      hosts.add(new URL(trimmed).host.toLowerCase());
+    } catch {
+      // ignore
+    }
+  }
+  for (const envHost of [process.env.VERCEL_URL, process.env.VERCEL_PROJECT_PRODUCTION_URL]) {
+    const trimmed = envHost?.trim().toLowerCase();
+    if (trimmed && SAFE_HOST_TOKEN_RE.test(trimmed)) {
+      hosts.add(trimmed);
+    }
+  }
+  return hosts;
+}
+
+/**
+ * Resolves a trusted canonical origin for security-sensitive links (password resets, OAuth redirects).
+ * Never blindly trusts spoofable Host or X-Forwarded-Host headers in production.
+ */
+export function getTrustedSiteOrigin(request?: Request): string {
+  const explicitSiteUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim();
+  if (explicitSiteUrl) {
+    try {
+      const parsed = new URL(explicitSiteUrl);
+      if (parsed.protocol === "https:" || parsed.protocol === "http:") {
+        return parsed.origin;
+      }
+    } catch {
+      // fall through
+    }
+  }
+
+  const vercelProdHost = process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
+  if (vercelProdHost && SAFE_HOST_TOKEN_RE.test(vercelProdHost)) {
+    return `https://${vercelProdHost}`;
+  }
+
+  const vercelHost = process.env.VERCEL_URL?.trim();
+  if (vercelHost && SAFE_HOST_TOKEN_RE.test(vercelHost)) {
+    return `https://${vercelHost}`;
+  }
+
+  const allowedOrigins = getAllowedOrigins();
+  if (request) {
+    const rawForwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim() || "";
+    const rawHost = request.headers.get("host")?.trim() || "";
+    const trustedHosts = getConfiguredTrustedHosts();
+
+    let candidateHost = "";
+    if (
+      rawForwardedHost &&
+      SAFE_HOST_TOKEN_RE.test(rawForwardedHost) &&
+      (process.env.VERCEL === "1" || trustedHosts.has(rawForwardedHost.toLowerCase()))
+    ) {
+      candidateHost = rawForwardedHost;
+    } else if (
+      rawHost &&
+      SAFE_HOST_TOKEN_RE.test(rawHost) &&
+      (trustedHosts.has(rawHost.toLowerCase()) ||
+        isLocalHostName(rawHost) ||
+        process.env.NODE_ENV !== "production")
+    ) {
+      candidateHost = rawHost;
+    }
+
+    if (candidateHost) {
+      const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
+      const proto =
+        isLocalHostName(candidateHost) && forwardedProto !== "https"
+          ? "http"
+          : forwardedProto === "http" || forwardedProto === "https"
+          ? forwardedProto
+          : "https";
+      return `${proto}://${candidateHost}`;
+    }
+
+    try {
+      const reqUrl = new URL(request.url);
+      if (isLocalHostName(reqUrl.host) || process.env.NODE_ENV !== "production") {
+        return reqUrl.origin;
+      }
+    } catch {
+      // fall through
+    }
+  }
+
+  if (allowedOrigins.length > 0) {
+    return allowedOrigins[0];
+  }
+
+  return "http://localhost:3000";
+}
+
 export function auditEnvironmentConfig(): {
   healthy: boolean;
   items: EnvAuditItem[];

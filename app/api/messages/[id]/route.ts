@@ -5,6 +5,7 @@ import { ensureMessagesTable } from "@/lib/messages";
 import { getVerifiedDeviceId } from "@/lib/deviceIdentity";
 import { constantTimeEqual } from "@/lib/edgeCrypto";
 import { logSecurityEvent } from "@/lib/securityLogger";
+import { parsePositiveIntId } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
 
@@ -22,8 +23,8 @@ export async function DELETE(
     await ensureMessagesTable();
 
     const { id } = await params;
-    const messageId = parseInt(id, 10);
-    if (isNaN(messageId) || messageId <= 0) {
+    const messageId = parsePositiveIntId(id);
+    if (!messageId) {
       return NextResponse.json(
         { success: false, error: "Invalid post ID" },
         { status: 400 }

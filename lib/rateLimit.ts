@@ -20,8 +20,14 @@ function checkMemoryRateLimit(key: string, max: number, windowMs: number): {
     for (const [k, v] of memoryStore.entries()) {
       if (v.resetAt <= now) memoryStore.delete(k);
     }
+    // Evict oldest entries in batches rather than clearing all active rate-limit bans
     if (memoryStore.size > MAX_MEMORY_ENTRIES) {
-      memoryStore.clear();
+      let toDelete = Math.ceil(MAX_MEMORY_ENTRIES * 0.25);
+      for (const k of memoryStore.keys()) {
+        memoryStore.delete(k);
+        toDelete -= 1;
+        if (toDelete <= 0) break;
+      }
     }
   }
 

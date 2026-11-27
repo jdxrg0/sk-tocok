@@ -10,35 +10,30 @@ import { PAPER_SIZES, PRINT_TYPES, sanitizeText } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
 
+const TRACKING_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+
 async function generateTrackingCode(): Promise<string> {
-  let existingCodes = new Set<string>();
-  try {
-    const rows = await sql`SELECT tracking_code FROM print_requests`;
-    if (Array.isArray(rows)) {
-      existingCodes = new Set(
-        rows.map((r: { tracking_code?: string }) => String(r.tracking_code || "").toUpperCase().trim())
-      );
+  for (let attempt = 0; attempt < 10; attempt++) {
+    let rand = "";
+    for (let i = 0; i < 6; i++) {
+      rand += TRACKING_ALPHABET.charAt(crypto.randomInt(0, TRACKING_ALPHABET.length));
     }
-  } catch (err) {
-    console.warn("Failed to load existing tracking codes, using fallback:", err);
-  }
-
-  for (let i = 0; i < 1000; i++) {
-    const num = crypto.randomInt(100, 1000);
-    const candidate = `SK${num}`;
-    if (!existingCodes.has(candidate)) {
-      return candidate;
+    const candidate = `SK-${rand}`;
+    try {
+      const existing = await sql`
+        SELECT id FROM print_requests WHERE UPPER(tracking_code) = ${candidate} LIMIT 1
+      `;
+      if (existing.length === 0) return candidate;
+    } catch (err) {
+      console.warn("Failed to check tracking code uniqueness, retrying:", err);
     }
   }
 
-  for (let i = 0; i < 100; i++) {
-    const candidate = `SK${String(i).padStart(3, "0")}`;
-    if (!existingCodes.has(candidate)) {
-      return candidate;
-    }
+  let fallback = "";
+  for (let i = 0; i < 8; i++) {
+    fallback += TRACKING_ALPHABET.charAt(crypto.randomInt(0, TRACKING_ALPHABET.length));
   }
-
-  return `SK${crypto.randomInt(1000, 10000)}`;
+  return `SK-${fallback}`;
 }
 
 export async function POST(request: Request) {

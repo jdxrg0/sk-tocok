@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { ensureMessagesTable } from "@/lib/messages";
 import { checkRateLimit, rateLimitExceededResponse } from "@/lib/rateLimit";
+import { parsePositiveIntId } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
 
@@ -13,8 +14,8 @@ export async function POST(
     await ensureMessagesTable();
 
     const { id } = await params;
-    const messageId = parseInt(id, 10);
-    if (isNaN(messageId) || messageId <= 0) {
+    const messageId = parsePositiveIntId(id);
+    if (!messageId) {
       return NextResponse.json(
         { success: false, error: "Invalid message ID" },
         { status: 400 }
@@ -27,6 +28,7 @@ export async function POST(
       identifier: String(messageId),
       max: 10,
       windowMs: 15 * 60 * 1000,
+      persistToDb: true,
     });
     if (!limit.allowed) {
       return rateLimitExceededResponse(limit.retryAfterSeconds);

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
+import { getTrustedSiteOrigin } from "@/lib/env";
 import {
   signToken,
   COOKIE_NAME,
@@ -23,6 +24,7 @@ export interface AuthenticatedStudentUser {
   avatar_url?: string | null;
   theme_preference?: string | null;
   accent_preference?: string | null;
+  token_version?: number;
 }
 
 export const GOOGLE_OAUTH_STATE_COOKIE = "sk_tocok_google_oauth_state";
@@ -66,24 +68,7 @@ export function getGoogleOAuthConfig() {
 }
 
 export function getRequestOrigin(request: Request): string {
-  const forwardedHost = request.headers
-    .get("x-forwarded-host")
-    ?.split(",")[0]
-    ?.trim();
-  const forwardedProto = request.headers
-    .get("x-forwarded-proto")
-    ?.split(",")[0]
-    ?.trim();
-
-  if (forwardedHost) {
-    const isLocal =
-      forwardedHost.startsWith("localhost") ||
-      forwardedHost.startsWith("127.0.0.1");
-    const proto = forwardedProto || (isLocal ? "http" : "https");
-    return `${proto}://${forwardedHost}`;
-  }
-
-  return new URL(request.url).origin;
+  return getTrustedSiteOrigin(request);
 }
 
 export function getGoogleRedirectUri(request: Request): string {
@@ -120,6 +105,14 @@ export async function verifyGoogleIdToken(
     throw new Error("Invalid Google authentication audience.");
   }
 
+  if (
+    payload.iss &&
+    payload.iss !== "https://accounts.google.com" &&
+    payload.iss !== "accounts.google.com"
+  ) {
+    throw new Error("Invalid Google authentication issuer.");
+  }
+
   const emailVerified =
     payload.email_verified === true || payload.email_verified === "true";
   if (!emailVerified || !payload.email) {
@@ -154,7 +147,7 @@ export async function verifyGoogleAccessToken(
 
   const tokenInfo = await tokenInfoRes.json();
   const tokenAud = tokenInfo.aud || tokenInfo.azp;
-  if (expectedClientId && tokenAud && tokenAud !== expectedClientId) {
+  if (expectedClientId && tokenAud !== expectedClientId) {
     throw new Error("Invalid Google authentication audience.");
   }
 
@@ -193,7 +186,8 @@ export async function upsertGoogleStudentUser(
   await ensureGoogleUserColumns();
 
   const existing = await sql`
-    SELECT id, name, email, role, avatar_url, auth_provider, password_hash, theme_preference, accent_preference
+    SELECT id, name, email, role, avatar_url, auth_provider, password_hash,
+           theme_preference, accent_preference, COALESCE(token_version, 1) AS token_version
     FROM users WHERE LOWER(email) = LOWER(${profile.email})
   `;
 
@@ -220,14 +214,16 @@ export async function upsertGoogleStudentUser(
           google_id     = COALESCE(${profile.googleId || null}, google_id),
           auth_provider = COALESCE(auth_provider, 'google')
       WHERE id = ${found.id}
-      RETURNING id, name, email, role, avatar_url, theme_preference, accent_preference
+      RETURNING id, name, email, role, avatar_url, theme_preference, accent_preference,
+                COALESCE(token_version, 1) AS token_version
     `;
     user = (updated[0] as AuthenticatedStudentUser) || found;
   } else {
     const inserted = await sql`
       INSERT INTO users (name, email, password_hash, role, auth_provider, avatar_url, google_id)
       VALUES (${profile.name}, ${profile.email}, '', 'Student', 'google', ${profile.avatarUrl || null}, ${profile.googleId || null})
-      RETURNING id, name, email, role, avatar_url, theme_preference, accent_preference
+      RETURNING id, name, email, role, avatar_url, theme_preference, accent_preference,
+                COALESCE(token_version, 1) AS token_version
     `;
     user = inserted[0] as AuthenticatedStudentUser;
   }
@@ -238,6 +234,7 @@ export async function upsertGoogleStudentUser(
     email: user.email,
     role: user.role,
     avatar_url: user.avatar_url ?? undefined,
+    token_version: Number(user.token_version ?? 1),
   });
 
   return { user, token };

@@ -26,7 +26,19 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const category = (searchParams.get("category") || "all").trim();
     const sort = (searchParams.get("sort") || "latest").trim().toLowerCase();
-    const q = (searchParams.get("q") || "").trim();
+    const q = (searchParams.get("q") || "").trim().slice(0, 100);
+
+    if (q) {
+      const searchLimit = await checkRateLimit({
+        request,
+        bucket: "messages_search",
+        max: 60,
+        windowMs: 60 * 1000,
+      });
+      if (!searchLimit.allowed) {
+        return rateLimitExceededResponse(searchLimit.retryAfterSeconds);
+      }
+    }
 
     const isPopular = sort === "popular" || sort === "top";
     const isDiscussed = sort === "discussed";
@@ -294,7 +306,6 @@ export async function POST(request: Request) {
       id: rows[0].id,
       tracking_code: rows[0].tracking_code,
       alias: cleanAlias,
-      device_id: deviceIdentity.deviceId,
       message:
         "Your anonymous post is live! You can use your tracking code to follow up anytime.",
     });

@@ -9,7 +9,7 @@ import { ensureExpenseLineItemsColumn } from "@/lib/expenseSchema";
 import { invalidateAllTransparencyCache } from "@/lib/transparencyCache";
 import { validateUploadedFile } from "@/lib/fileValidation";
 import { logSecurityEvent } from "@/lib/securityLogger";
-import { isValidDateYMD, parseMoney, sanitizeText } from "@/lib/validation";
+import { isValidDateYMD, parseMoney, parsePositiveIntId, sanitizeText } from "@/lib/validation";
 
 export async function PUT(
   request: Request,
@@ -27,8 +27,8 @@ export async function PUT(
     await ensureExpenseLineItemsColumn();
 
     const { id } = await params;
-    const expenseId = parseInt(id, 10);
-    if (!Number.isInteger(expenseId) || expenseId <= 0) {
+    const expenseId = parsePositiveIntId(id);
+    if (!expenseId) {
       return NextResponse.json({ error: "Invalid expense ID" }, { status: 400 });
     }
 
@@ -134,8 +134,8 @@ export async function DELETE(
     }
 
     const { id } = await params;
-    const expenseId = parseInt(id, 10);
-    if (!Number.isInteger(expenseId) || expenseId <= 0) {
+    const expenseId = parsePositiveIntId(id);
+    if (!expenseId) {
       return NextResponse.json({ error: "Invalid expense ID" }, { status: 400 });
     }
 

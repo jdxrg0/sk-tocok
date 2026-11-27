@@ -11,6 +11,7 @@ import {
   invalidateAllTransparencyCache,
 } from "@/lib/transparencyCache";
 import { validateUploadedFile } from "@/lib/fileValidation";
+import { checkRateLimit, rateLimitExceededResponse } from "@/lib/rateLimit";
 import { logSecurityEvent } from "@/lib/securityLogger";
 import { isValidDateYMD, parseMoney, sanitizeText } from "@/lib/validation";
 
@@ -21,7 +22,20 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url);
     const category = searchParams.get("category");
-    const q = searchParams.get("q");
+    const rawQ = searchParams.get("q");
+    const q = rawQ ? rawQ.trim().slice(0, 100) : null;
+
+    if (q) {
+      const searchLimit = await checkRateLimit({
+        request,
+        bucket: "expenses_search",
+        max: 60,
+        windowMs: 60 * 1000,
+      });
+      if (!searchLimit.allowed) {
+        return rateLimitExceededResponse(searchLimit.retryAfterSeconds);
+      }
+    }
 
     const isUnfiltered = (!category || category === "all") && !q;
 

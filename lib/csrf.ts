@@ -1,8 +1,10 @@
 import { generateRandomHex, signHmacToken, verifyHmacToken } from "@/lib/edgeCrypto";
-import { getAllowedOrigins } from "@/lib/env";
+import { getAllowedOrigins, getConfiguredTrustedHosts, isLocalHostName } from "@/lib/env";
 
 export const CSRF_COOKIE_NAME = "sk_csrf_token";
 export const CSRF_HEADER_NAME = "x-csrf-token";
+
+const SAFE_HOST_RE = /^[a-zA-Z0-9.-]+(?::\d{1,5})?$/;
 
 export async function createCsrfToken(secret: string): Promise<string> {
   const nonce = generateRandomHex(24);
@@ -22,6 +24,21 @@ export async function verifyCsrfTokenPair(
 
 export function getExpectedRequestOrigins(request: Request): Set<string> {
   const allowed = new Set<string>(getAllowedOrigins());
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim();
+  if (siteUrl) {
+    try {
+      allowed.add(new URL(siteUrl).origin);
+    } catch {
+      // ignore
+    }
+  }
+  for (const envHost of [process.env.VERCEL_URL, process.env.VERCEL_PROJECT_PRODUCTION_URL]) {
+    const h = envHost?.trim();
+    if (h && SAFE_HOST_RE.test(h)) {
+      allowed.add(`https://${h}`);
+    }
+  }
+
   try {
     const reqUrl = new URL(request.url);
     allowed.add(reqUrl.origin);
@@ -29,15 +46,34 @@ export function getExpectedRequestOrigins(request: Request): Set<string> {
     // ignore
   }
 
-  const host = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim() || request.headers.get("host")?.trim();
-  const proto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
+  const trustedHosts = getConfiguredTrustedHosts();
+  const rawHost = request.headers.get("host")?.trim() || "";
+  const rawForwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim() || "";
+  const proto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
 
-  if (host) {
+  // Only honor x-forwarded-host on Vercel or when it matches explicitly configured trusted hosts
+  const candidateHosts: string[] = [];
+  if (rawHost && SAFE_HOST_RE.test(rawHost)) {
+    candidateHosts.push(rawHost);
+  }
+  if (
+    rawForwardedHost &&
+    SAFE_HOST_RE.test(rawForwardedHost) &&
+    (process.env.VERCEL === "1" ||
+      trustedHosts.has(rawForwardedHost.toLowerCase()) ||
+      (rawHost && rawForwardedHost.toLowerCase() === rawHost.toLowerCase()))
+  ) {
+    candidateHosts.push(rawForwardedHost);
+  }
+
+  for (const host of candidateHosts) {
     if (proto === "http" || proto === "https") {
       allowed.add(`${proto}://${host}`);
-    } else {
+    } else if (isLocalHostName(host) || process.env.NODE_ENV !== "production") {
       allowed.add(`https://${host}`);
       allowed.add(`http://${host}`);
+    } else {
+      allowed.add(`https://${host}`);
     }
   }
   return allowed;

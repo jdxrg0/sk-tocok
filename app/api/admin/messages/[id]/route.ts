@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { getCurrentUser, isOfficialUser } from "@/lib/auth";
 import { ensureMessagesTable } from "@/lib/messages";
-import { MESSAGE_STATUSES, sanitizeText } from "@/lib/validation";
+import { MESSAGE_STATUSES, parsePositiveIntId, sanitizeText } from "@/lib/validation";
 import { logSecurityEvent } from "@/lib/securityLogger";
 
 export const dynamic = "force-dynamic";
@@ -26,8 +26,8 @@ export async function PATCH(
     await ensureMessagesTable();
 
     const { id } = await params;
-    const messageId = parseInt(id, 10);
-    if (isNaN(messageId)) {
+    const messageId = parsePositiveIntId(id);
+    if (!messageId) {
       return NextResponse.json({ error: "Invalid message ID" }, { status: 400 });
     }
 
@@ -104,8 +104,8 @@ export async function DELETE(
     await ensureMessagesTable();
 
     const { id } = await params;
-    const messageId = parseInt(id, 10);
-    if (isNaN(messageId)) {
+    const messageId = parsePositiveIntId(id);
+    if (!messageId) {
       return NextResponse.json({ error: "Invalid message ID" }, { status: 400 });
     }
 

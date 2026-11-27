@@ -15,6 +15,7 @@ export async function GET(
       bucket: "print_lookup",
       max: 40,
       windowMs: 15 * 60 * 1000,
+      persistToDb: true,
     });
     if (!limit.allowed) {
       return rateLimitExceededResponse(limit.retryAfterSeconds);
@@ -29,45 +30,25 @@ export async function GET(
     const cleanNumber = rawCode.replace(/^[#\s]+/, "").replace(/^(ticket|no\.?)\s*/i, "").trim();
     const withoutHyphen = cleanNumber.replace(/[\s-]+/g, "");
     const skPrefixed = `SK${cleanNumber}`;
-    const num = parseInt(cleanNumber, 10);
-    const isNum = !isNaN(num) && String(num) === cleanNumber;
+    const skHyphenPrefixed = `SK-${cleanNumber}`;
 
-    let jobs: Record<string, unknown>[];
-    if (isNum) {
-      jobs = await query<Record<string, unknown>>(
-        `SELECT
-          id, tracking_code, student_name, school, grade_level, purok,
-          file_name, print_type, paper_size, copies, page_range, notes,
-          pickup_station, is_urgent,
-          status, admin_notes, picked_up_at, created_at, updated_at,
-          user_id, user_email
-        FROM print_requests
-        WHERE LOWER(tracking_code) = LOWER($1)
-           OR LOWER(tracking_code) = LOWER($2)
-           OR id = $3
-           OR tracking_code = $4
-           OR LOWER(tracking_code) = LOWER($5)
-        ORDER BY id ASC
-        LIMIT 1`,
-        [rawCode, cleanNumber, num, String(num), skPrefixed]
-      );
-    } else {
-      jobs = await query<Record<string, unknown>>(
-        `SELECT
-          id, tracking_code, student_name, school, grade_level, purok,
-          file_name, print_type, paper_size, copies, page_range, notes,
-          pickup_station, is_urgent,
-          status, admin_notes, picked_up_at, created_at, updated_at,
-          user_id, user_email
-        FROM print_requests
-        WHERE LOWER(tracking_code) = LOWER($1)
-           OR LOWER(tracking_code) = LOWER($2)
-           OR LOWER(tracking_code) = LOWER($3)
-        ORDER BY id ASC
-        LIMIT 1`,
-        [rawCode, cleanNumber, withoutHyphen]
-      );
-    }
+    const jobs = await query<Record<string, unknown>>(
+      `SELECT
+        id, tracking_code, student_name, school, grade_level, purok,
+        file_name, print_type, paper_size, copies, page_range, notes,
+        pickup_station, is_urgent,
+        status, admin_notes, picked_up_at, created_at, updated_at,
+        user_id, user_email
+      FROM print_requests
+      WHERE LOWER(tracking_code) = LOWER($1)
+         OR LOWER(tracking_code) = LOWER($2)
+         OR LOWER(tracking_code) = LOWER($3)
+         OR LOWER(tracking_code) = LOWER($4)
+         OR LOWER(tracking_code) = LOWER($5)
+      ORDER BY id ASC
+      LIMIT 1`,
+      [rawCode, cleanNumber, withoutHyphen, skPrefixed, skHyphenPrefixed]
+    );
 
     if (jobs.length === 0) {
       return NextResponse.json({ error: "No print request found with this ticket number." }, { status: 404 });

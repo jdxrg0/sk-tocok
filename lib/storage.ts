@@ -116,6 +116,7 @@ export async function deleteStoredFileByUrl(url: string | null | undefined): Pro
         (SELECT COUNT(*) FROM cse_applications WHERE valid_id_url = ${url}
            OR csc_receipt_url = ${url}
            OR exam_schedule_proof_url = ${url}
+           OR prior_sitting_proof_url = ${url}
            OR exam_attendance_proof_url = ${url}
            OR result_proof_url = ${url}
            OR passer_avatar_url = ${url})

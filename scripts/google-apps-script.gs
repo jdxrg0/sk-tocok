@@ -28,7 +28,7 @@ function doPost(e) {
   try {
     const payload = JSON.parse(e.postData.contents);
     const expectedSecret = PropertiesService.getScriptProperties().getProperty("APPS_SCRIPT_WEBHOOK_SECRET");
-    if (expectedSecret && payload.webhookSecret !== expectedSecret) {
+    if (!expectedSecret || payload.webhookSecret !== expectedSecret) {
       return ContentService.createTextOutput(
         JSON.stringify({ success: false, error: "Unauthorized webhook caller" })
       ).setMimeType(ContentService.MimeType.JSON);
@@ -61,8 +61,18 @@ function doPost(e) {
     const blob = Utilities.newBlob(bytes, mimeType, fileName);
     const file = targetFolder.createFile(blob);
 
-    // Allow anyone with link to view (required for /api/drive/<id> & Print Queue links)
-    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    const isPrivate =
+      payload.isPrivate === true ||
+      String(payload.folder || "").trim().toLowerCase() === "prints";
+
+    // Keep private student print uploads restricted; share public transparency assets by link
+    if (isPrivate) {
+      try {
+        file.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE);
+      } catch (_) {}
+    } else {
+      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    }
 
     return ContentService.createTextOutput(
       JSON.stringify({

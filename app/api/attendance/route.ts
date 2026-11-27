@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { sql, query } from "@/lib/db";
 import { getCurrentUser, isOfficialUser } from "@/lib/auth";
 import { sanitizeSafeUrl } from "@/lib/urlSafety";
+import { checkRateLimit, rateLimitExceededResponse } from "@/lib/rateLimit";
 import { isValidDateYMD, sanitizeText } from "@/lib/validation";
 import {
   ensureAttendanceTables,
@@ -44,7 +45,19 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const typeFilter = (searchParams.get("type") || "all").trim();
     const yearFilter = (searchParams.get("year") || "all").trim();
-    const searchQuery = (searchParams.get("q") || "").trim();
+    const searchQuery = (searchParams.get("q") || "").trim().slice(0, 100);
+
+    if (searchQuery) {
+      const searchLimit = await checkRateLimit({
+        request,
+        bucket: "attendance_search",
+        max: 60,
+        windowMs: 60 * 1000,
+      });
+      if (!searchLimit.allowed) {
+        return rateLimitExceededResponse(searchLimit.retryAfterSeconds);
+      }
+    }
 
     // Fetch SK officials (exclude non-official Student accounts), available years & activity types in parallel
     const [officialsRows, yearsRows, typesRows] = await Promise.all([

@@ -4,6 +4,7 @@ import { createPasswordResetToken, RESET_TOKEN_TTL_MINUTES } from "@/lib/passwor
 import { checkRateLimit, rateLimitExceededResponse } from "@/lib/rateLimit";
 import { extractClientIp, logSecurityEvent } from "@/lib/securityLogger";
 import { isValidEmail, sanitizeText } from "@/lib/validation";
+import { getTrustedSiteOrigin } from "@/lib/env";
 
 const GENERIC_RESPONSE_MESSAGE =
   "If an account with that email exists, a password reset link (valid for 15 minutes) has been processed. Contact your SK Chairperson or Administrator if no email delivery provider is configured.";
@@ -106,13 +107,7 @@ export async function POST(request: Request) {
         RESET_TOKEN_TTL_MINUTES
       );
 
-      let origin = "http://localhost:3000";
-      try {
-        const siteUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim();
-        origin = siteUrl ? new URL(siteUrl).origin : new URL(request.url).origin;
-      } catch {
-        // Fallback to localhost
-      }
+      const origin = getTrustedSiteOrigin(request);
       const resetUrl = `${origin}/reset-password?token=${encodeURIComponent(rawToken)}`;
 
       const emailed = await sendResetEmailIfConfigured({

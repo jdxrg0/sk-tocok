@@ -70,7 +70,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const passwordHash = bcrypt.hashSync(password, 12);
+    const passwordHash = await bcrypt.hash(password, 12);
 
     const result = await sql`
       INSERT INTO users (name, email, password_hash, role, auth_provider)

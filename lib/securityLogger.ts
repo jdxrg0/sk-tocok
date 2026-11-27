@@ -41,21 +41,46 @@ export function ensureSecurityTables(): Promise<void> {
   return securityTablesPromise;
 }
 
+const IPV4_OR_V6_RE = /^[0-9a-fA-F:.]{3,45}$/;
+
+function sanitizeIpToken(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const cleaned = raw.trim().replace(/^\[|\]$/g, "");
+  if (!cleaned || !IPV4_OR_V6_RE.test(cleaned)) return null;
+  return cleaned.slice(0, 64);
+}
+
 export function extractClientIp(request?: Request): string {
   if (!request) return "unknown";
-  const vercelIp = request.headers.get("x-vercel-forwarded-for");
-  if (vercelIp) {
-    const first = vercelIp.split(",")[0]?.trim();
-    if (first) return first.slice(0, 64);
-  }
-  const realIp = request.headers.get("x-real-ip");
-  if (realIp && realIp.trim()) return realIp.trim().slice(0, 64);
 
-  const forwarded = request.headers.get("x-forwarded-for");
-  if (forwarded) {
-    const first = forwarded.split(",")[0]?.trim();
-    if (first) return first.slice(0, 64);
+  // Only trust Vercel edge headers when actually running on Vercel
+  if (process.env.VERCEL === "1") {
+    const vercelIp = sanitizeIpToken(
+      request.headers.get("x-vercel-forwarded-for")?.split(",")[0]
+    );
+    if (vercelIp) return vercelIp;
   }
+
+  // Only trust Cloudflare IP header when explicitly deployed behind Cloudflare
+  if (process.env.TRUST_CLOUDFLARE === "true") {
+    const cfIp = sanitizeIpToken(request.headers.get("cf-connecting-ip"));
+    if (cfIp) return cfIp;
+  }
+
+  // Only trust forwarded IP headers when behind a trusted reverse proxy (Vercel or explicit TRUST_PROXY=true)
+  if (process.env.VERCEL === "1" || process.env.TRUST_PROXY === "true") {
+    const realIp = sanitizeIpToken(request.headers.get("x-real-ip"));
+    if (realIp) return realIp;
+
+    const forwarded = request.headers.get("x-forwarded-for");
+    if (forwarded) {
+      const parts = forwarded.split(",").map((p) => sanitizeIpToken(p)).filter(Boolean);
+      if (parts.length > 0) {
+        return parts[0]!;
+      }
+    }
+  }
+
   return "127.0.0.1";
 }
 

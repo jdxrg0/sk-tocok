@@ -3,6 +3,7 @@ import { sql } from "@/lib/db";
 import { ensureStoredFilesTable } from "@/lib/storage";
 import { getCurrentUser, isOfficialUser } from "@/lib/auth";
 import { logSecurityEvent } from "@/lib/securityLogger";
+import { snapThumbnailWidth } from "@/lib/validation";
 import sharp from "sharp";
 
 export const dynamic = "force-dynamic";
@@ -30,8 +31,10 @@ export async function GET(
     }
 
     const { searchParams } = new URL(request.url);
-    const targetWidthRaw = searchParams.get("w") || searchParams.get("width");
-    const targetWidth = targetWidthRaw ? parseInt(targetWidthRaw, 10) : 0;
+    const targetWidth = snapThumbnailWidth(
+      searchParams.get("w") || searchParams.get("width"),
+      [200, 400, 800, 1200]
+    );
 
     await ensureStoredFilesTable();
 
@@ -98,6 +101,7 @@ export async function GET(
                 valid_id_url = ${exactFilePath} OR valid_id_url LIKE ${queryPrefix}
                 OR csc_receipt_url = ${exactFilePath} OR csc_receipt_url LIKE ${queryPrefix}
                 OR exam_schedule_proof_url = ${exactFilePath} OR exam_schedule_proof_url LIKE ${queryPrefix}
+                OR prior_sitting_proof_url = ${exactFilePath} OR prior_sitting_proof_url LIKE ${queryPrefix}
                 OR exam_attendance_proof_url = ${exactFilePath} OR exam_attendance_proof_url LIKE ${queryPrefix}
                 OR result_proof_url = ${exactFilePath} OR result_proof_url LIKE ${queryPrefix}
                 OR passer_avatar_url = ${exactFilePath} OR passer_avatar_url LIKE ${queryPrefix}
@@ -149,7 +153,7 @@ export async function GET(
         finalBuffer = await sharp(rawBuffer)
           .rotate()
           .resize({
-            width: Math.min(Math.max(targetWidth, 50), 1600),
+            width: targetWidth,
             withoutEnlargement: true,
           })
           .webp({ quality: 75 })

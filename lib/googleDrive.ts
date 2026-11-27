@@ -85,7 +85,7 @@ const CATEGORY_CONFIG: Record<
     defaultSubfolderId: "1GSRv3exdbMpJv39o5NZAUkRCQ-5qUgPw",
     blobFolder: "prints",
     dbFolder: "prints",
-    useInlineProxy: false, // Opens directly in Google Drive viewer
+    useInlineProxy: true, // Always served via authenticated /api/drive/<id> proxy
   },
   vouchers: {
     prefix: "[SK-Tocok Voucher]",
@@ -328,6 +328,7 @@ export async function uploadToCloudStorage(
             base64,
             folder: cfg.driveFolderName,
             folderId: targetFolderId,
+            isPrivate: category === "prints",
           }),
           redirect: "follow",
         },
@@ -397,16 +398,18 @@ export async function uploadToCloudStorage(
 
       const fileId = uploadResponse.data.id;
       if (fileId) {
-        try {
-          await drive.permissions.create({
-            fileId,
-            requestBody: {
-              role: "reader",
-              type: "anyone",
-            },
-          });
-        } catch {
-          // Ignore permission errors if folder already grants public read
+        if (category !== "prints") {
+          try {
+            await drive.permissions.create({
+              fileId,
+              requestBody: {
+                role: "reader",
+                type: "anyone",
+              },
+            });
+          } catch {
+            // Ignore permission errors if folder already grants public read
+          }
         }
 
         const webViewLink =
@@ -429,8 +432,9 @@ export async function uploadToCloudStorage(
     }
   }
 
-  // 3. Third priority: Vercel Blob (Automated Cloud Failover)
-  if (process.env.BLOB_READ_WRITE_TOKEN) {
+  // 3. Third priority: Vercel Blob (Automated Cloud Failover for public-safe assets only)
+  // Private student print files bypass public Vercel Blob and use authenticated Neon DB storage below.
+  if (process.env.BLOB_READ_WRITE_TOKEN && category !== "prints") {
     try {
       const { put } = await import("@vercel/blob");
       const blob = await put(`${cfg.blobFolder}/${driveFileName}`, buffer, {

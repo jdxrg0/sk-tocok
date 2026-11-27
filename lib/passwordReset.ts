@@ -146,7 +146,7 @@ export async function consumePasswordResetToken(
   }
 
   const userId = Number((consumed[0] as { user_id: number }).user_id);
-  const newHash = bcrypt.hashSync(newPassword, 12);
+  const newHash = await bcrypt.hash(newPassword, 12);
 
   const updated = await sql`
     UPDATE users

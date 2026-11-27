@@ -4,7 +4,7 @@ import { getCurrentUser, isOfficialUser } from "@/lib/auth";
 import { ensureAttendanceTables, type AttendanceStatus } from "@/lib/attendance";
 import { deleteStoredFileByUrl } from "@/lib/storage";
 import { sanitizeSafeUrl } from "@/lib/urlSafety";
-import { isValidDateYMD, sanitizeText } from "@/lib/validation";
+import { isValidDateYMD, parsePositiveIntId, sanitizeText } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
 
@@ -27,8 +27,8 @@ export async function PUT(
     await ensureAttendanceTables();
 
     const { id } = await params;
-    const sessionId = parseInt(id, 10);
-    if (!sessionId || Number.isNaN(sessionId)) {
+    const sessionId = parsePositiveIntId(id);
+    if (!sessionId) {
       return NextResponse.json({ error: "Invalid session ID." }, { status: 400 });
     }
 
@@ -161,8 +161,8 @@ export async function DELETE(
     await ensureAttendanceTables();
 
     const { id } = await params;
-    const sessionId = parseInt(id, 10);
-    if (!sessionId || Number.isNaN(sessionId)) {
+    const sessionId = parsePositiveIntId(id);
+    if (!sessionId) {
       return NextResponse.json({ error: "Invalid session ID." }, { status: 400 });
     }
 
